@@ -12,6 +12,15 @@ import org.json.JSONObject
 object TideConfigReader {
     private const val TAG = "TideConfigReader"
 
+    private fun resolveModelKey(context: Context, value: String): String {
+        val prefix = "__tide_model_secret__:"
+        if (!value.startsWith(prefix + "model_key_")) return value
+        val storage = com.it_nomads.fluttersecurestorage.FlutterSecureStorage(
+            context, hashMapOf<String, Any>())
+        return storage.read(storage.addPrefixToKey(value.removePrefix(prefix)))
+            ?: error("Model credential is missing")
+    }
+
     data class BotConfig(
         val botId: String,
         val name: String,
@@ -95,7 +104,7 @@ object TideConfigReader {
                             type = "chat",
                             name = item.optString("name", ""),
                             baseUrl = item.optString("url", ""),
-                            apiKey = item.optString("key", ""),
+                            apiKey = resolveModelKey(context, item.optString("key", "")),
                             model = rawModel.ifBlank { name }.substringBefore(",").trim()
                         )
                     }

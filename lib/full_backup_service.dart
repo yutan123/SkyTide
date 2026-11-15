@@ -1,3 +1,6 @@
+import 'backup_credential_cipher.dart';
+import 'model_credential_codec.dart';
+import 'model_credentials.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -66,10 +69,12 @@ class FullBackupService {
             ) +
             2 * (dbSize + walSize),
       );
+      var snapshotSecrets = <String, String>{};
       // Freeze writers while copying DB and WAL; works with older SQLite too.
       await db.transaction((txn) async {
         await File(dbPath).copy(snapshot.path);
         if (await wal.exists()) await wal.copy('${snapshot.path}-wal');
+        snapshotSecrets = await ModelCredentials.storage.readAll();
       }, exclusive: true);
       final copy = await openDatabase(snapshot.path, singleInstance: false);
       final referenced = <String>{};
@@ -170,6 +175,69 @@ class FullBackupService {
         }
       } finally {
         await copy.close();
+      }
+      final credentialDb = await openDatabase(
+        snapshot.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      try {
+        final credentials = <String, String>{};
+        if (selection == null || selection.contains('plugins')) {
+          final retained = <String>{
+            for (final row in await credentialDb.query('mcp_servers'))
+              'mcp_headers_${row['id']}',
+            for (final row in await credentialDb.query('skills'))
+              'skill_headers_${row['id']}',
+          };
+          final stored = snapshotSecrets;
+          for (final entry in stored.entries) {
+            if (retained.contains(entry.key))
+              credentials[entry.key] = entry.value;
+          }
+        }
+        if (selection == null || selection.contains('settings')) {
+          for (final row in await credentialDb.query('kv_store')) {
+            if (!ModelCredentials.handles(row['key'] as String)) continue;
+            void collect(dynamic node) {
+              if (node is String &&
+                  node.startsWith(
+                    '${ModelCredentials.reference}${ModelCredentials.prefix}',
+                  )) {
+                credentials.putIfAbsent(
+                  node.substring(ModelCredentials.reference.length),
+                  () => '',
+                );
+              } else if (node is List) {
+                node.forEach(collect);
+              } else if (node is Map) {
+                node.values.forEach(collect);
+              }
+            }
+
+            collect(
+              jsonDecode(
+                ModelCredentialCodec.configuration(
+                  row['key'] as String,
+                  row['value'] as String,
+                ),
+              ),
+            );
+          }
+          for (final key in credentials.keys.toList()) {
+            if (!key.startsWith(ModelCredentials.prefix)) continue;
+            final secret = snapshotSecrets[key];
+            if (secret == null) throw StateError('模型密钥缺失，无法创建完整备份');
+            credentials[key] = secret;
+          }
+        }
+        final credentialFile = File('${work.path}/tool_credentials.json');
+        await credentialFile.writeAsString(
+          await BackupCredentialCipher.encrypt(credentials),
+        );
+        files['tool_credentials.json'] = credentialFile.path;
+      } finally {
+        await credentialDb.close();
       }
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
@@ -355,7 +423,65 @@ class FullBackupService {
               docs,
               await DataTransfer.directoryBytes(work),
             );
-            await _requireReauthorization(source);
+            final credentialFile = File('${work.path}/tool_credentials.json');
+            final hasCredentials = await credentialFile.exists();
+            final restoredCredentials = <String, String>{};
+            if (hasCredentials) {
+              final decoded = await BackupCredentialCipher.decrypt(
+                await credentialFile.readAsString(),
+              );
+              if (decoded.entries.any(
+                (entry) =>
+                    !(entry.key.toString().startsWith('mcp_headers_') ||
+                        entry.key.toString().startsWith('skill_headers_') ||
+                        entry.key.toString().startsWith(
+                          ModelCredentials.prefix,
+                        )),
+              )) {
+                throw const FormatException('工具鉴权备份格式无效');
+              }
+              restoredCredentials.addAll(Map<String, String>.from(decoded));
+              for (final entry in decoded.entries) {
+                if (entry.key.toString().startsWith(ModelCredentials.prefix))
+                  continue;
+                final headers = jsonDecode(entry.value);
+                if (headers is! Map ||
+                    headers.entries.any(
+                      (entry) => entry.key is! String || entry.value is! String,
+                    )) {
+                  throw const FormatException('工具鉴权请求头格式无效');
+                }
+              }
+            }
+            final credentialCheck = await openDatabase(
+              source.path,
+              readOnly: true,
+              singleInstance: false,
+            );
+            try {
+              for (final row in await credentialCheck.query('kv_store')) {
+                if (!ModelCredentials.handles(row['key'] as String)) continue;
+                await ModelCredentialCodec.resolveKey(
+                  row['key'] as String,
+                  row['value'] as String,
+                  (key) async => restoredCredentials[key],
+                );
+              }
+            } finally {
+              await credentialCheck.close();
+            }
+            await _requireReauthorization(
+              source,
+              hasCredentials: hasCredentials,
+            );
+            // Only the private restore workspace contains decoded credentials.
+            // The published ZIP always contains the encrypted envelope.
+            if (hasCredentials) {
+              await credentialFile.writeAsString(
+                jsonEncode(restoredCredentials),
+                flush: true,
+              );
+            }
             await _native.invokeMethod<bool>('stageFullRestore', {
               'path': work.path,
             });
@@ -424,7 +550,10 @@ class FullBackupService {
     }
   }
 
-  static Future<void> _requireReauthorization(File source) async {
+  static Future<void> _requireReauthorization(
+    File source, {
+    required bool hasCredentials,
+  }) async {
     final db = await openDatabase(source.path, singleInstance: false);
     try {
       final tables = (await db.rawQuery(
@@ -443,12 +572,12 @@ class FullBackupService {
         }
         if (tables.contains('mcp_servers')) {
           await txn.update('mcp_servers', {
-            'enabled': 0,
+            if (!hasCredentials) 'enabled': 0,
             'status': 'disconnected',
-            'error': '备份不包含安全存储凭据，请重新填写鉴权信息后启用',
+            'error': hasCredentials ? null : '旧备份不包含鉴权凭据，请重新填写后启用',
           });
         }
-        if (tables.contains('skill_tools')) {
+        if (!hasCredentials && tables.contains('skill_tools')) {
           await txn.update('skill_tools', {
             'enabled': 0,
             'authorized': 0,

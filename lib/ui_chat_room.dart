@@ -3527,45 +3527,85 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final theme = TideTheme.of(context);
     if (theme.isWechat) {
       final foreground = isUser ? const Color(0xFF111111) : theme.textStrong;
-      return GestureDetector(
-        onTap: () => _toggleAudio(path),
-        child: WechatBubble(
-          isUser: isUser,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    active && _audioPlaying
-                        ? Icons.pause
-                        : Icons.volume_up_outlined,
-                    color: foreground,
-                    size: 25,
-                  ),
-                  const SizedBox(width: 28),
-                  Text(
-                    knownDuration ? '${duration.inSeconds}″' : '语音',
-                    style: TextStyle(color: foreground, fontSize: 16),
-                  ),
-                ],
+      final seconds = knownDuration
+          ? (duration.inMilliseconds / 1000).ceil()
+          : 0;
+      final playing = active && _audioPlaying;
+      final voiceIcon = WechatVoiceIcon(
+        isUser: isUser,
+        color: foreground,
+        playing: playing,
+      );
+      final durationLabel = Text(
+        knownDuration ? '$seconds″' : '语音',
+        style: TextStyle(color: foreground, fontSize: 16, height: 1.35),
+      );
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: isUser
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            button: true,
+            label:
+                '${playing ? '暂停' : '播放'}语音${knownDuration ? '，$seconds 秒' : ''}',
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _toggleAudio(path),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final preferredWidth = (78.0 + seconds.clamp(0, 60) * 4)
+                      .clamp(86.0, 240.0);
+                  return SizedBox(
+                    width: constraints.constrainWidth(preferredWidth),
+                    child: WechatBubble(
+                      isUser: isUser,
+                      child: Row(
+                        mainAxisAlignment: isUser
+                            ? MainAxisAlignment.end
+                            : MainAxisAlignment.start,
+                        children: isUser
+                            ? [
+                                Flexible(child: durationLabel),
+                                const SizedBox(width: 8),
+                                voiceIcon,
+                              ]
+                            : [
+                                voiceIcon,
+                                const SizedBox(width: 8),
+                                Flexible(child: durationLabel),
+                              ],
+                      ),
+                    ),
+                  );
+                },
               ),
-              if (transcript.trim().isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
+            ),
+          ),
+          if (transcript.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
                   transcript.trim(),
                   style: TextStyle(
-                    color: foreground,
+                    color: theme.textStrong,
                     fontSize: 15,
                     height: 1.4,
                   ),
                 ),
-              ],
-            ],
-          ),
-        ),
+              ),
+            ),
+        ],
       );
     }
     final foreground = isUser ? Colors.white : TideTheme.of(context).textStrong;
@@ -5121,9 +5161,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 ? theme.textStrong
                 : const Color(0xFF111111))
           : (isUser ? Colors.white : theme.textStrong),
-      fontSize: theme.isWechat ? 15 : 14,
+      fontSize: theme.isWechat ? 17 : 14,
       fontFamily: 'TideFont',
-      height: 1.5,
+      height: theme.isWechat ? 1.45 : 1.5,
     );
     final spans = <TextSpan>[];
     final reg = RegExp(r'\(.*?\)');
@@ -5160,6 +5200,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       return WechatBubble(
         isUser: isUser,
         child: RichText(
+          textScaler: MediaQuery.textScalerOf(context),
           textHeightBehavior: const TextHeightBehavior(
             applyHeightToFirstAscent: false,
             applyHeightToLastDescent: false,

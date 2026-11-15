@@ -1,10 +1,10 @@
+import 'public_image_http.dart';
 import 'package:path/path.dart' as p;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import 'ai.dart';
@@ -637,28 +637,57 @@ class ExternalApiService {
     if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
       return null;
     }
-    final client = http.Client();
+    final client = publicImageHttpClient();
     const limit = 8 * 1024 * 1024;
     final deadline = DateTime.now().add(const Duration(seconds: 15));
-    final abort = Timer(const Duration(seconds: 15), client.close);
+    final abort = Timer(
+      const Duration(seconds: 15),
+      () => client.close(force: true),
+    );
     try {
-      final response = await client
-          .send(http.Request('GET', uri))
-          .timeout(const Duration(seconds: 10));
-      if (response.statusCode < 200 ||
-          response.statusCode >= 300 ||
-          (response.contentLength ?? 0) > limit) return null;
-      final bytes = BytesBuilder(copy: false);
-      await for (final chunk
-          in response.stream.timeout(const Duration(seconds: 5))) {
-        if (DateTime.now().isAfter(deadline) ||
-            bytes.length + chunk.length > limit) return null;
-        bytes.add(chunk);
+      var target = uri;
+      for (var redirects = 0; redirects <= 3; redirects++) {
+        if (target.userInfo.isNotEmpty ||
+            target.fragment.isNotEmpty ||
+            (target.scheme != 'http' && target.scheme != 'https'))
+          return null;
+        final request = await client
+            .getUrl(target)
+            .timeout(const Duration(seconds: 10));
+        request.followRedirects = false;
+        final response = await request.close().timeout(
+          const Duration(seconds: 10),
+        );
+        if ([301, 302, 303, 307, 308].contains(response.statusCode)) {
+          final location = response.headers.value(HttpHeaders.locationHeader);
+          if (location == null || redirects == 3) return null;
+          final next = target.resolve(location);
+          if (target.scheme == 'https' && next.scheme != 'https') return null;
+          // Do not drain an untrusted redirect body. Close its connection; each
+          // following hop goes through the pinned, validated connector again.
+          await response.listen(null).cancel();
+          target = next;
+          continue;
+        }
+        if (response.statusCode < 200 ||
+            response.statusCode >= 300 ||
+            response.contentLength > limit)
+          return null;
+        final bytes = BytesBuilder(copy: false);
+        await for (final chunk in response.timeout(
+          const Duration(seconds: 5),
+        )) {
+          if (DateTime.now().isAfter(deadline) ||
+              bytes.length + chunk.length > limit)
+            return null;
+          bytes.add(chunk);
+        }
+        return bytes.takeBytes();
       }
-      return bytes.takeBytes();
+      return null;
     } finally {
       abort.cancel();
-      client.close();
+      client.close(force: true);
     }
   }
 

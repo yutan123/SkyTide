@@ -52,6 +52,8 @@ object TideColdRestore {
                     val support = File(source, "support")
                     if (support.exists()) check(support.copyRecursively(File(next, "support")))
                     preferences(File(source, "restored_preferences.json"), File(next, "preferences"))
+                    val credentials = File(source, "tool_credentials.json")
+                    if (credentials.exists()) check(credentials.copyTo(File(next, "credential_marker")).exists())
                     next.walkTopDown().filter { it.isFile }.forEach { file ->
                         RandomAccessFile(file, "rw").use { it.fd.sync() }
                     }
@@ -123,7 +125,7 @@ object TideColdRestore {
                 remove(discarded)
                 val applied = File(root, "applied")
                 if (applied.exists()) {
-                    write(File(root, "result"), "完整备份已恢复。MCP 和 HTTP Skill 的鉴权信息需重新填写并启用。")
+                    write(File(root, "result"), "完整备份已恢复。新备份中的 MCP 和 HTTP Skill 鉴权信息将自动导入；旧备份缺失的信息需重新填写。")
                     remove(applied)
                 }
                 val ready = File(root, "ready")
@@ -170,7 +172,8 @@ object TideColdRestore {
                         val replacement = File(ready, names[index])
                         if (replacement.exists()) move(replacement, target)
                     }
-                    write(File(context.filesDir, "restore_credentials_pending"), "pending")
+                    val credentialMarker = File(context.filesDir, "restore_credentials_pending")
+                    if (!credentialMarker.exists()) write(credentialMarker, "pending")
                     // Rename commits the swap. Cleanup may be interrupted safely.
                     move(ready, applied)
                 } catch (error: Throwable) {
@@ -181,7 +184,7 @@ object TideColdRestore {
                     write(File(root, "result"), "恢复失败，已保留原始数据：${error.message}")
                     return
                 }
-                write(File(root, "result"), "完整备份已恢复。MCP 和 HTTP Skill 的鉴权信息需重新填写并启用。")
+                write(File(root, "result"), "完整备份已恢复。新备份中的 MCP 和 HTTP Skill 鉴权信息将自动导入；旧备份缺失的信息需重新填写。")
                 remove(applied)
             }
         }

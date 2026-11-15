@@ -3748,6 +3748,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
         ? p['reasoning_effort'].toString()
         : 'medium';
     final hasVoice = p.containsKey('voice');
+    final requiresModel = !((isStt || hasVoice) && p['protocol'] == 'deepseek');
     final nativeInstructions =
         p['protocol'] == 'mimo' || p['protocol'] == 'minimax';
     var supportsInstructions =
@@ -3785,8 +3786,10 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
             ],
             const SizedBox(height: 8),
             _f('API Key', kCtrl, obscure: true, keyUrl: _providerKeyUrl(p)),
-            const SizedBox(height: 8),
-            _modelField(ctx, mCtrl, uCtrl, kCtrl),
+            if (requiresModel) ...[
+              const SizedBox(height: 8),
+              _modelField(ctx, mCtrl, uCtrl, kCtrl),
+            ],
             if (!isStt && !hasVoice)
               StatefulBuilder(
                 builder: (settingContext, updateSetting) => Column(
@@ -3875,7 +3878,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
                       p['name'] = nCtrl.text.trim();
                       p['url'] = uCtrl.text.trim();
                       p['key'] = kCtrl.text.trim();
-                      p['model'] = mCtrl.text.trim();
+                      p['model'] = requiresModel ? mCtrl.text.trim() : '';
                       if (!isStt && !hasVoice) {
                         p['thinking_mode'] = thinkingMode;
                         p['reasoning_effort'] = reasoningEffort;

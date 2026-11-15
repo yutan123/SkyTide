@@ -2,22 +2,8 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
-/// An opaque surface that keeps the wallpaper hue with a quieter saturation
-/// and a distinct brightness, rather than showing the image through the bar.
-Color chatHeaderSurface(Color sample, {required bool dark}) {
-  final hsl = HSLColor.fromColor(sample);
-  // Keep the wallpaper hue while giving the toolbar its own opaque tonal
-  // plane. The small lightness shift makes it read as a bar over the image,
-  // rather than as a transparent continuation of the wallpaper.
-  final lightness = dark
-      ? (hsl.lightness * .78).clamp(.10, .30)
-      : (hsl.lightness * .86).clamp(.62, .90);
-  return hsl
-      .withSaturation((hsl.saturation * .72).clamp(.08, .52))
-      .withLightness(lightness)
-      .toColor()
-      .withValues(alpha: 1);
-}
+/// Keep the toolbar brightness aligned with the selected wallpaper.
+Color chatHeaderSurface(Color sample, {required bool dark}) => sample;
 
 Future<Color?> sampleChatHeaderColor(String path) async {
   ui.Codec? codec;
@@ -33,10 +19,9 @@ Future<Color?> sampleChatHeaderColor(String path) async {
     final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     if (data == null) return null;
     double red = 0, green = 0, blue = 0, weight = 0;
-    // Use the upper third, where the wallpaper meets the toolbar. Alpha is
-    // weighted so transparent pixels do not turn the sampled color black.
-    final rows = (image.height / 3).ceil();
-    for (var y = 0; y < rows; y++) {
+    // Use the whole thumbnail. Sampling only the top third can select a
+    // darker local patch from a gradient wallpaper.
+    for (var y = 0; y < image.height; y++) {
       for (var x = 0; x < image.width; x++) {
         final offset = (y * image.width + x) * 4;
         final alpha = data.getUint8(offset + 3) / 255;

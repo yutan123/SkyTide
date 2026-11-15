@@ -120,8 +120,12 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun openApkInstaller(apk: File) {
+        val directory = File(cacheDir, "shared_files/apk/${java.util.UUID.randomUUID()}")
+        check(directory.mkdirs()) { "无法准备安装包" }
+        val shared = File(directory, "TideBot.apk")
+        apk.copyTo(shared)
         val uri = androidx.core.content.FileProvider.getUriForFile(
-            this, "$packageName.fileprovider", apk)
+            this, "$packageName.fileprovider", shared)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -154,7 +158,7 @@ class MainActivity: FlutterActivity() {
                         val source = File(path)
                         require(source.isFile && source.canRead()) { "文件不存在或无法读取" }
                         // Share a cached copy: external apps cannot read sandbox file:// URLs.
-                        val directory = File(cacheDir, "open_files/${java.util.UUID.randomUUID()}")
+                        val directory = File(cacheDir, "shared_files/open_files/${java.util.UUID.randomUUID()}")
                         check(directory.mkdirs()) { "无法准备文件" }
                         val shared = File(directory, source.name)
                         source.copyTo(shared)

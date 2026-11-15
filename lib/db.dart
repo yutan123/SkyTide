@@ -1,3 +1,4 @@
+import 'model_credentials.dart';
 import 'user_profile_changes.dart';
 import 'proactive_request_gate.dart';
 import 'tool_bot_scope.dart';
@@ -477,12 +478,25 @@ class DBManager {
     final support = await getApplicationSupportDirectory();
     final marker = File(p.join(support.path, 'restore_credentials_pending'));
     if (await marker.exists()) {
+      final payload = await marker.readAsString();
+      final restored = payload == 'pending'
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(jsonDecode(payload) as Map);
       const secure = FlutterSecureStorage();
       final entries = await secure.readAll();
       for (final key in entries.keys) {
         if (key.startsWith('mcp_headers_') ||
-            key.startsWith('skill_headers_')) {
+            key.startsWith('skill_headers_') ||
+            key.startsWith(ModelCredentials.prefix)) {
           await secure.delete(key: key);
+        }
+      }
+      for (final entry in restored.entries) {
+        if ((entry.key.startsWith('mcp_headers_') ||
+                entry.key.startsWith('skill_headers_') ||
+                entry.key.startsWith(ModelCredentials.prefix)) &&
+            entry.value is String) {
+          await secure.write(key: entry.key, value: entry.value as String);
         }
       }
       if (await marker.exists()) await marker.delete();
@@ -493,6 +507,7 @@ class DBManager {
       version: 36,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
+        await db.execute('PRAGMA secure_delete = ON');
       },
       onOpen: (db) async {
         await _createSkillTables(db);
@@ -1097,6 +1112,51 @@ class DBManager {
         },
       ),
     );
+    var migratedSecrets = await database
+        .query(
+          'kv_store',
+          where: 'key = ? AND value = ?',
+          whereArgs: ['credential_cleanup_v1', 'done'],
+        )
+        .then((rows) => rows.isEmpty);
+    await database.transaction((txn) async {
+      for (final row in await txn.query('kv_store')) {
+        final key = row['key'] as String;
+        if (!ModelCredentials.handles(key)) continue;
+        final value = row['value'] as String;
+        final protected = await ModelCredentials.protectKey(key, value);
+        if (protected != value) {
+          migratedSecrets = true;
+          await txn.insert('kv_store', {
+            'key': 'credential_cleanup_v1',
+            'value': 'pending',
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+          await txn.update(
+            'kv_store',
+            {'value': protected},
+            where: 'key = ?',
+            whereArgs: [key],
+          );
+        }
+      }
+    }, exclusive: true);
+    await database.transaction(
+      (txn) => ModelCredentials.removeUnused(txn),
+      exclusive: true,
+    );
+    if (migratedSecrets) {
+      // Rebuild free pages and truncate WAL containing pre-migration values.
+      await database.execute('VACUUM');
+      final checkpoint = await database.rawQuery(
+        'PRAGMA wal_checkpoint(TRUNCATE)',
+      );
+      if (checkpoint.isEmpty || checkpoint.first.values.first == 0) {
+        await database.insert('kv_store', {
+          'key': 'credential_cleanup_v1',
+          'value': 'done',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    }
     return database;
   }
 
@@ -2058,10 +2118,39 @@ class DBManager {
   // ================= KV 与 API 配置 =================
   Future<void> setKV(String key, String value) async {
     final db = await database;
-    await db.insert('kv_store', {
-      'key': key,
-      'value': value,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.transaction((txn) async {
+      var stored = value;
+      if (ModelCredentials.handles(key)) {
+        final rows = await txn.query(
+          'kv_store',
+          where: 'key = ?',
+          whereArgs: [key],
+        );
+        if (rows.isNotEmpty) {
+          try {
+            if (await ModelCredentials.resolveKey(
+                  key,
+                  rows.first['value'] as String,
+                ) ==
+                value)
+              return;
+          } on StateError {
+            // Allow the user to replace a missing credential.
+          }
+        }
+        stored = await ModelCredentials.protectKey(key, value);
+      }
+      await txn.insert('kv_store', {
+        'key': key,
+        'value': stored,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }, exclusive: true);
+    if (ModelCredentials.handles(key)) {
+      await db.transaction(
+        (txn) => ModelCredentials.removeUnused(txn),
+        exclusive: true,
+      );
+    }
     if (key == 'user_name' || key == 'user_avatar') UserProfileChanges.notify();
     if (key == 'proactive_min_minutes' || key == 'proactive_max_minutes') {
       await db.rawUpdate(
@@ -2079,9 +2168,18 @@ class DBManager {
 
   Future<String?> getKV(String key) async {
     final db = await database;
-    final res = await db.query('kv_store', where: 'key = ?', whereArgs: [key]);
-    if (res.isNotEmpty) return res.first['value'] as String;
-    return null;
+    return db.transaction((txn) async {
+      final res = await txn.query(
+        'kv_store',
+        where: 'key = ?',
+        whereArgs: [key],
+      );
+      if (res.isEmpty) return null;
+      final value = res.first['value'] as String;
+      return ModelCredentials.handles(key)
+          ? await ModelCredentials.resolveKey(key, value)
+          : value;
+    });
   }
 
   Future<List<Map<String, dynamic>>> exportableBots() async => queryBots();

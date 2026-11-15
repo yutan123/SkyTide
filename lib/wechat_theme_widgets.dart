@@ -212,32 +212,160 @@ class WechatBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
     final color = isUser ? theme.wechatOutgoing : theme.surface;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Positioned(
-          top: 14,
-          left: isUser ? null : -5,
-          right: isUser ? -5 : null,
-          child: Transform.rotate(
-            angle: .785398,
-            child: ColoredBox(
-              color: color,
-              child: const SizedBox(width: 10, height: 10),
-            ),
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(5),
-          ),
-          child: child,
-        ),
-      ],
+    return CustomPaint(
+      painter: _WechatBubblePainter(color: color, isUser: isUser),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 42),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: child,
+      ),
     );
   }
+}
+
+/// A small, softly rounded tail joins the body at the first line, so multiline
+/// messages keep the same avatar alignment as single-line messages.
+class _WechatBubblePainter extends CustomPainter {
+  const _WechatBubblePainter({required this.color, required this.isUser});
+  final Color color;
+  final bool isUser;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final body = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(4)),
+      );
+    final tail = Path()
+      ..moveTo(1, 14)
+      ..lineTo(-5, 19)
+      ..quadraticBezierTo(-6, 20, -5, 21)
+      ..lineTo(1, 26)
+      ..close();
+    canvas.save();
+    if (isUser) {
+      canvas.translate(size.width, 0);
+      canvas.scale(-1, 1);
+    }
+    canvas.drawPath(
+      Path.combine(PathOperation.union, body, tail),
+      Paint()..color = color,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _WechatBubblePainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.isUser != isUser;
+}
+
+/// WeChat voice marks keep their shape during playback; only the outer waves
+/// cycle, rather than replacing the mark with a media-player pause button.
+class WechatVoiceIcon extends StatefulWidget {
+  const WechatVoiceIcon({
+    super.key,
+    required this.isUser,
+    required this.color,
+    required this.playing,
+  });
+  final bool isUser;
+  final Color color;
+  final bool playing;
+
+  @override
+  State<WechatVoiceIcon> createState() => _WechatVoiceIconState();
+}
+
+class _WechatVoiceIconState extends State<WechatVoiceIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.playing) _controller.repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant WechatVoiceIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.playing == oldWidget.playing) return;
+    if (widget.playing) {
+      _controller.repeat();
+    } else {
+      _controller.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 22,
+    height: 24,
+    child: AnimatedBuilder(
+      animation: _controller,
+      builder: (_, __) => CustomPaint(
+        painter: _WechatVoicePainter(
+          color: widget.color,
+          isUser: widget.isUser,
+          waves: widget.playing
+              ? 1 + (_controller.value * 3).floor().clamp(0, 2)
+              : 3,
+        ),
+      ),
+    ),
+  );
+}
+
+class _WechatVoicePainter extends CustomPainter {
+  const _WechatVoicePainter({
+    required this.color,
+    required this.isUser,
+    required this.waves,
+  });
+  final Color color;
+  final bool isUser;
+  final int waves;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 22, size.height / 24);
+    if (isUser) {
+      canvas.translate(22, 0);
+      canvas.scale(-1, 1);
+    }
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.butt
+      ..style = PaintingStyle.stroke;
+    for (var i = 0; i < waves; i++) {
+      final x = 4.0 + i * 5;
+      final halfHeight = 3.0 + i * 3.5;
+      canvas.drawPath(
+        Path()
+          ..moveTo(x, 12 - halfHeight)
+          ..quadraticBezierTo(x + halfHeight, 12, x, 12 + halfHeight),
+        paint,
+      );
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _WechatVoicePainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.isUser != isUser ||
+      oldDelegate.waves != waves;
 }
 
 /// 聊天信息页保留宿主提供的四项能力，页面仅负责布局。

@@ -156,7 +156,7 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
           builder: (dialogContext) => TideDialogSurface(
             title: const Text('恢复完整备份'),
             content: const Text(
-              '恢复会覆盖当前的设置、聊天记录、机器人、记忆和媒体文件，并需要重启应用。MCP 和 HTTP Skill 的鉴权信息需重新填写。',
+              '恢复会覆盖当前的设置、聊天记录、机器人、记忆和媒体文件，并需要重启应用。新备份包含 MCP 和 HTTP Skill 鉴权信息；旧备份缺失的鉴权信息需重新填写。',
             ),
             actions: [
               TextButton(

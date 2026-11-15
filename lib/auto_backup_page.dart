@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'auto_backup_service.dart';
 import 'db.dart';
 import 'theme.dart';
@@ -21,6 +22,66 @@ class _AutoBackupPageState extends State<AutoBackupPage> {
   bool _busy = false;
   String? _error;
   String? _lastError;
+  final _daysController = TextEditingController();
+  final _keepController = TextEditingController();
+  @override
+  void dispose() {
+    _daysController.dispose();
+    _keepController.dispose();
+    super.dispose();
+  }
+
+  void _syncNumberControllers(Map<String, dynamic> config) {
+    final days = '${config['days'] ?? 2}';
+    final keep = '${config['keep'] ?? 3}';
+    if (_daysController.text != days) _daysController.text = days;
+    if (_keepController.text != keep) _keepController.text = keep;
+  }
+
+  Future<void> _saveNumber(String key, TextEditingController controller) async {
+    final value = int.tryParse(controller.text.trim());
+    final max = key == 'days' ? 3650 : 1000;
+    if (value == null || value < 1 || value > max) {
+      if (mounted) {
+        setState(
+          () => _error = key == 'days'
+              ? '备份间隔请输入 1 到 3650 之间的天数'
+              : '最多保留请输入 1 到 1000 之间的文件数',
+        );
+        _syncNumberControllers(_config!);
+      }
+      return;
+    }
+    await _change(key, value);
+  }
+
+  Widget _numberField({
+    required String key,
+    required TextEditingController controller,
+    required String suffix,
+  }) {
+    return SizedBox(
+      width: 132,
+      child: TextField(
+        controller: controller,
+        enabled: !_busy,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        textAlign: TextAlign.right,
+        decoration: InputDecoration(
+          suffixText: suffix,
+          isDense: true,
+          border: const UnderlineInputBorder(),
+        ),
+        onSubmitted: (_) => _saveNumber(key, controller),
+        onTapOutside: (_) {
+          FocusScope.of(context).unfocus();
+          _saveNumber(key, controller);
+        },
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -35,6 +96,7 @@ class _AutoBackupPageState extends State<AutoBackupPage> {
       if (mounted)
         setState(() {
           _config = config;
+          _syncNumberControllers(config);
           _files = files;
           _lastError = error;
           _error = null;
@@ -129,40 +191,18 @@ class _AutoBackupPageState extends State<AutoBackupPage> {
                           ),
                           ListTile(
                             title: const Text('备份间隔'),
-                            trailing: DropdownButton<int>(
-                              value: config['days'] as int,
-                              items: [1, 2, 3, 7, 14, 30]
-                                  .map(
-                                    (v) => DropdownMenuItem(
-                                      value: v,
-                                      child: Text('每 $v 天'),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: _busy
-                                  ? null
-                                  : (v) {
-                                      if (v != null) _change('days', v);
-                                    },
+                            trailing: _numberField(
+                              key: 'days',
+                              controller: _daysController,
+                              suffix: '天',
                             ),
                           ),
                           ListTile(
                             title: const Text('最多保留'),
-                            trailing: DropdownButton<int>(
-                              value: config['keep'] as int,
-                              items: [1, 3, 5, 7, 10, 20, 30, 50, 100]
-                                  .map(
-                                    (v) => DropdownMenuItem(
-                                      value: v,
-                                      child: Text('$v 个文件'),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: _busy
-                                  ? null
-                                  : (v) {
-                                      if (v != null) _change('keep', v);
-                                    },
+                            trailing: _numberField(
+                              key: 'keep',
+                              controller: _keepController,
+                              suffix: '个文件',
                             ),
                           ),
                           const Padding(
