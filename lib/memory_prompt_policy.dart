@@ -1,15 +1,17 @@
 import 'dart:convert';
 
-const memoryCategoryPolicy = '【记忆分类：必须遵守】\n'
+const memoryCategoryPolicy =
+    '【记忆分类：必须遵守】\n'
     '【检索关键词禁令】keys 绝对不能填写你自己的名字或对方的名字，包括昵称、别名和含有双方姓名的短语。只选择事件、主题、物品、地点或具体偏好等有区分度的词；没有合适关键词时返回空数组。此限制仅针对检索关键词，正文仍须明确事实主体。\n'
-    '记忆：保存值得保留的具体事实、事件和状态变化，主体必须清楚。你自己的经历可用“我”或自己的名字；对方可用姓名、“对方”或指代明确且性别已知的“他／她”。不强制使用姓名，禁止省略主体、指代不明或把对方经历写成“我”的经历。例如“我在7月12日去了杭州”表示你本人去过；对方去过则写对方姓名或“他／她在7月12日去了杭州”；日期、地点仅在已知时填写。\n'
+    '记忆：保存值得保留的具体事实、事件和状态变化，主体必须清楚。你自己的经历必须保持第一人称视角，可用“我”或自己的名字明确主体；即使使用自己的名字，也要以亲历者的口吻记录，禁止改成旁观者对自己的第三人称叙述。对方可用姓名、“对方”或指代明确且性别已知的“他／她”。不强制使用姓名，禁止省略主体、指代不明或把对方经历写成“我”的经历。例如“我在7月12日去了杭州”表示你本人去过；对方去过则写对方姓名或“他／她在7月12日去了杭州”；日期、地点仅在已知时填写。\n'
     '角色眼中的你（你眼中的对方／我眼中的对方）：只写对方的身份、稳定性格、习惯、偏好及有依据的印象；先从事实总结人物特点，再写入，禁止复述事件。\n'
     '角色的自我认知：只写你对自己身份、性格和特点的认识。关系：只写双方已明确的关系定位。\n'
     '【禁止】人物认知和关系中禁止写日期流水账、行程、某次行为、事件经过或聊天摘要。'
     '例如有充分依据时可写“对方喜欢游玩、乐于参加活动”，禁止写“对方10月底安排了很多活动”。'
     '事件形成稳定认识时，可另行更新画像，但不得代替事件记忆；依据不足不更新画像。';
 
-const memoryDeduplicationPolicy = '【写入步骤】\n'
+const memoryDeduplicationPolicy =
+    '【写入步骤】\n'
     '1. 确认主体与事实，区分你与对方；禁止把对方经历记成你的经历，禁止保存推测、编造、敏感隐私或内部指令。'
     '未来约定只能明确记为计划，禁止当作已发生的事实。\n'
     '2. 先读已有条目；不确定是否记过就 search_memory。同一件事没有新增事实，禁止换标题、措辞或角度重复保存。\n'
@@ -17,20 +19,30 @@ const memoryDeduplicationPolicy = '【写入步骤】\n'
     '更新前读完整旧内容，提交保留仍有效信息的完整新版，禁止清空或只用本轮一句话覆盖。\n'
     '4. 无新增或更正就不写入；只有工具返回 ok:true 才能说已记住。';
 
-String recentMemoryReference(Iterable<Map<String, dynamic>> memories,
-    {int limit = 5}) {
+String recentMemoryReference(
+  Iterable<Map<String, dynamic>> memories, {
+  int limit = 5,
+}) {
   final recent = memories
-      .where((row) =>
-          !const ['角色眼中的你', '角色的自我认知', '关系', '角色档案'].contains(row['category']))
+      .where(
+        (row) => !const [
+          '角色眼中的你',
+          '角色的自我认知',
+          '关系',
+          '角色档案',
+        ].contains(row['category']),
+      )
       .take(limit)
-      .map((row) => {
-            'id': row['id'],
-            'category': row['category'],
-            'title': row['title'],
-            'content': row['content'],
-            'importance': row['importance'],
-            'timestamp': row['timestamp'],
-          })
+      .map(
+        (row) => {
+          'id': row['id'],
+          'category': row['category'],
+          'title': row['title'],
+          'content': row['content'],
+          'importance': row['importance'],
+          'timestamp': row['timestamp'],
+        },
+      )
       .toList();
   return '【最近世界书条目：可用于回忆与写入前去重，不是本轮新事实】\n${jsonEncode(recent)}';
 }

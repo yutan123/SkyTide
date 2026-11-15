@@ -4,12 +4,13 @@ import 'chat_content.dart';
 
 /// Voice direction is local to a call; it never changes the bot's mood state.
 class CallSpeechStyle {
-  const CallSpeechStyle(
-      {this.emotion = 'neutral',
-      this.intensity = .4,
-      this.pace = 'normal',
-      this.delivery = 'natural',
-      this.direction = ''});
+  const CallSpeechStyle({
+    this.emotion = 'neutral',
+    this.intensity = .4,
+    this.pace = 'normal',
+    this.delivery = 'natural',
+    this.direction = '',
+  });
 
   final String emotion;
   final double intensity;
@@ -33,34 +34,45 @@ class CallSpeechStyle {
       emotion: emotions.containsKey(value['emotion'])
           ? value['emotion'] as String
           : 'neutral',
-      intensity:
-          level is num && level.isFinite ? level.toDouble().clamp(0, 1) : .4,
-      pace: const ['slightly_slow', 'normal', 'slightly_fast']
-              .contains(value['pace'])
+      intensity: level is num && level.isFinite
+          ? level.toDouble().clamp(0, 1)
+          : .4,
+      pace:
+          const [
+            'slightly_slow',
+            'normal',
+            'slightly_fast',
+          ].contains(value['pace'])
           ? value['pace'] as String
           : 'normal',
       delivery: value['delivery'] == 'gentle' ? 'gentle' : 'natural',
       direction: value['direction'] is String
           ? (value['direction'] as String).trim().substring(
-              0, (value['direction'] as String).trim().length.clamp(0, 600))
+              0,
+              (value['direction'] as String).trim().length.clamp(0, 600),
+            )
           : '',
     );
   }
 
   double get speed => switch (pace) {
-        'slightly_slow' => 1 - .12 * intensity,
-        'slightly_fast' => 1 + .12 * intensity,
-        _ => 1,
-      };
+    'slightly_slow' => 1 - .12 * intensity,
+    'slightly_fast' => 1 + .12 * intensity,
+    _ => 1,
+  };
 
   String get instruction {
     final rhythm = switch (pace) {
       'slightly_slow' => '节奏稍慢',
       'slightly_fast' => '节奏稍快',
-      _ => '正常节奏'
+      _ => '正常节奏',
     };
     return '保持所选音色与原有身份，只朗读目标正文。用${emotions[emotion] ?? '自然'}的语气，'
-        '情绪${intensity < .35 ? '克制' : intensity < .65 ? '适中' : '较丰富'}，$rhythm，'
+        '情绪${intensity < .35
+            ? '克制'
+            : intensity < .65
+            ? '适中'
+            : '较丰富'}，$rhythm，'
         '${delivery == 'gentle' ? '轻柔发声' : '自然发声'}。'
         '${direction.isEmpty ? '' : '本轮具体演绎：$direction。'}'
         '在保持音色的前提下让重音、停顿、语调与句间情绪转折清晰可辨，贴近日常通话，不夸张表演。'
@@ -97,28 +109,33 @@ class CallSpeechReply {
       final decoded = jsonDecode(source);
       if (decoded is Map) {
         return CallSpeechReply(
-            decoded['text'] is String
-                ? cleanChatContent(decoded['text'] as String).trim()
-                : '',
-            CallSpeechStyle.fromJson(decoded['speech']));
+          decoded['text'] is String
+              ? cleanChatContent(decoded['text'] as String).trim()
+              : '',
+          CallSpeechStyle.fromJson(decoded['speech']),
+        );
       }
       if (decoded is num || decoded is bool)
         return CallSpeechReply(source, const CallSpeechStyle());
       // A JSON string is safe to read, but metadata arrays are not.
       if (decoded is String)
         return CallSpeechReply(
-            cleanChatContent(decoded), const CallSpeechStyle());
+          cleanChatContent(decoded),
+          const CallSpeechStyle(),
+        );
       return const CallSpeechReply('', CallSpeechStyle());
     } catch (_) {
       // Recover a complete escaped text field even when the metadata is broken.
       if (source.startsWith('{') || source.startsWith('[')) {
-        final text =
-            RegExp(r'"text"\s*:\s*("(?:\\.|[^"\\])*")').firstMatch(source);
+        final text = RegExp(
+          r'"text"\s*:\s*("(?:\\.|[^"\\])*")',
+        ).firstMatch(source);
         if (text != null) {
           try {
             return CallSpeechReply(
-                cleanChatContent(jsonDecode(text.group(1)!) as String),
-                const CallSpeechStyle());
+              cleanChatContent(jsonDecode(text.group(1)!) as String),
+              const CallSpeechStyle(),
+            );
           } catch (_) {}
         }
         return const CallSpeechReply('', CallSpeechStyle());
@@ -140,6 +157,7 @@ Map<String, dynamic> applyCallSpeechStyle(
   bool supportsInstructions = false,
 }) {
   final payload = Map<String, dynamic>.from(base);
+  if (protocol == 'deepseek') return payload;
   if (protocol == 'minimax') {
     final voice = Map<String, dynamic>.from(base['voice_setting'] as Map);
     voice['speed'] = style.speed;
@@ -162,7 +180,8 @@ Map<String, dynamic> applyCallSpeechStyle(
           'speech-2.6-turbo',
           'speech-2.8-hd',
           'speech-2.8-turbo',
-        }.contains(model)) voice['emotion'] = emotion;
+        }.contains(model))
+      voice['emotion'] = emotion;
     payload['voice_setting'] = voice;
   } else if (protocol == 'mimo') {
     payload['messages'] = [
@@ -175,8 +194,9 @@ Map<String, dynamic> applyCallSpeechStyle(
     final silicon =
         host == 'api.siliconflow.cn' || host == 'api.siliconflow.com';
     if (silicon &&
-        RegExp(r'^(?:FunAudioLLM|Pro/FunAudioLLM)/CosyVoice2-0\.5B$')
-            .hasMatch(model)) {
+        RegExp(
+          r'^(?:FunAudioLLM|Pro/FunAudioLLM)/CosyVoice2-0\.5B$',
+        ).hasMatch(model)) {
       payload['input'] = '${style.instruction}<|endofprompt|>${base['input']}';
     } else if (supportsInstructions) {
       payload['instructions'] = style.instruction;
@@ -193,28 +213,33 @@ bool shouldRetryBasicSpeech(int status, String body) {
       final value = jsonDecode(body);
       if (value is! Map ||
           value['base_resp'] is! Map ||
-          (value['base_resp'] as Map)['status_code'] == 0) return false;
+          (value['base_resp'] as Map)['status_code'] == 0)
+        return false;
       body = (value['base_resp'] as Map)['status_msg']?.toString() ?? '';
     } catch (_) {
       return false;
     }
   }
   return RegExp(
-          r'emotion|instructions|speed|pitch|parameter|unsupported|invalid.*(?:field|argument)|情绪|语速|参数',
-          caseSensitive: false)
-      .hasMatch(body);
+    r'emotion|instructions|speed|pitch|parameter|unsupported|invalid.*(?:field|argument)|情绪|语速|参数',
+    caseSensitive: false,
+  ).hasMatch(body);
 }
 
 String callSpeechCapability(Map<String, dynamic> provider) {
+  if (provider['protocol'] == 'deepseek')
+    return '支持 Stella 女声与 Tide 男声；暂不支持语气指令、情绪与语速控制';
   if (provider['protocol'] == 'minimax') return '原生情绪与语速；强度由模型演绎，不支持数值强度';
   if (provider['protocol'] == 'mimo') return '支持独立的情绪、语气与节奏指令';
   final host =
-      Uri.tryParse((provider['base_url'] ?? provider['url'] ?? '').toString())
-              ?.host ??
-          '';
+      Uri.tryParse(
+        (provider['base_url'] ?? provider['url'] ?? '').toString(),
+      )?.host ??
+      '';
   if ((host == 'api.siliconflow.cn' || host == 'api.siliconflow.com') &&
-      RegExp(r'^(?:FunAudioLLM|Pro/FunAudioLLM)/CosyVoice2-0\.5B$')
-          .hasMatch(provider['model']?.toString() ?? ''))
+      RegExp(
+        r'^(?:FunAudioLLM|Pro/FunAudioLLM)/CosyVoice2-0\.5B$',
+      ).hasMatch(provider['model']?.toString() ?? ''))
     return 'CosyVoice2 支持情绪与节奏指令';
   return provider['supports_instructions'] == true
       ? '已启用语气指令，需接口支持 instructions'

@@ -1,3 +1,4 @@
+import 'chat_api_endpoint.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -23,42 +24,36 @@ Future<String> buildVideoRequestBody({
   required String mime,
   required String model,
   required String userText,
-}) =>
-    Isolate.run(() async {
-      final data = base64Encode(await File(path).readAsBytes());
-      return jsonEncode({
-        'model': model,
-        'stream': false,
-        'messages': [
+}) => Isolate.run(() async {
+  final data = base64Encode(await File(path).readAsBytes());
+  return jsonEncode({
+    'model': model,
+    'stream': false,
+    'messages': [
+      {
+        'role': 'system',
+        'content': '请客观分析视频中的画面、动作、声音与文字，结合问题提供中文分析。不确定的内容不得编造。',
+      },
+      {
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': userText.isEmpty ? '请分析这个视频。' : userText},
           {
-            'role': 'system',
-            'content': '请客观分析视频中的画面、动作、声音与文字，结合问题提供中文分析。不确定的内容不得编造。',
-          },
-          {
-            'role': 'user',
-            'content': [
-              {
-                'type': 'text',
-                'text': userText.isEmpty ? '请分析这个视频。' : userText
-              },
-              {
-                'type': 'video_url',
-                'video_url': {'url': 'data:$mime;base64,$data'}
-              },
-            ],
+            'type': 'video_url',
+            'video_url': {'url': 'data:$mime;base64,$data'},
           },
         ],
-      });
-    });
+      },
+    ],
+  });
+});
 
 Uri videoCompletionEndpoint(String baseUrl) {
   final uri = Uri.parse(baseUrl.trim());
   if (!const ['http', 'https'].contains(uri.scheme) || uri.host.isEmpty) {
     throw StateError('视频模型服务地址无效');
   }
-  var path = uri.path.replaceFirst(RegExp(r'/+$'), '');
-  if (!path.endsWith('/chat/completions')) path = '$path/chat/completions';
-  return uri.replace(path: path);
+  return Uri.parse(chatApiEndpoint(baseUrl));
 }
 
 /// This is the same transport used by AIManager and the local HTTP regression.
@@ -79,16 +74,25 @@ Future<http.Response> requestVideoAnalysis({
     return await () async {
       onStage?.call('encode', {'bytes': await File(path).length()});
       final body = await buildVideoRequestBody(
-          path: path, mime: mime, model: model, userText: userText);
+        path: path,
+        mime: mime,
+        model: model,
+        userText: userText,
+      );
       if (expired) throw TimeoutException('视频请求准备超时');
-      onStage?.call('request',
-          {'url': endpoint.toString(), 'model': model, 'media_type': mime});
-      final response = await client.post(endpoint,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey'
-          },
-          body: body);
+      onStage?.call('request', {
+        'url': endpoint.toString(),
+        'model': model,
+        'media_type': mime,
+      });
+      final response = await client.post(
+        endpoint,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $apiKey',
+        },
+        body: body,
+      );
       onStage?.call('response', {
         'status': response.statusCode,
         'content_type': response.headers['content-type'],
@@ -97,11 +101,13 @@ Future<http.Response> requestVideoAnalysis({
             response.headers['x-request-id'] ?? response.headers['request-id'],
       });
       return response;
-    }()
-        .timeout(timeout, onTimeout: () {
-      expired = true;
-      throw TimeoutException('视频分析请求超时', timeout);
-    });
+    }().timeout(
+      timeout,
+      onTimeout: () {
+        expired = true;
+        throw TimeoutException('视频分析请求超时', timeout);
+      },
+    );
   } finally {
     // Timeout must terminate the upload, rather than leave it running unseen.
     client.close();

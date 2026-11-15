@@ -1,3 +1,5 @@
+import 'auto_backup_service.dart';
+import 'auto_backup_page.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -16,6 +18,7 @@ class StorageManagementPage extends StatefulWidget {
 
 class _StorageManagementPageState extends State<StorageManagementPage> {
   bool _loading = true;
+  int _backupBytes = 0;
   int _documents = 0,
       _temporary = 0,
       _database = 0,
@@ -51,6 +54,15 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
     final docs = await getApplicationDocumentsDirectory();
     final temp = await getTemporaryDirectory();
     final native = await OpsManager().storageInfo();
+    try {
+      final files = await AutoBackupService.files();
+      _backupBytes = files.fold<int>(
+        0,
+        (n, file) => n + (file['size'] as num).toInt(),
+      );
+    } catch (_) {
+      _backupBytes = 0;
+    }
     final values = await Future.wait<dynamic>([
       _size(docs),
       _size(temp),
@@ -69,7 +81,8 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
         ..addAll(values[4] as Map<String, int>);
       _total = (native['total'] as num?)?.toInt() ?? 0;
       _apk = (native['apk'] as num?)?.toInt() ?? 0;
-      _appData = (native['data'] as num?)?.toInt() ??
+      _appData =
+          (native['data'] as num?)?.toInt() ??
           (_documents + _temporary + _database);
       _loading = false;
     });
@@ -115,99 +128,103 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
   }
 
   Future<void> _backupAll() => TransferProgress.guard(() async {
-        try {
-          final saved = await TransferProgress.run(
-            context,
-            '正在准备完整备份并选择保存位置…',
-            FullBackupService.export,
-          );
-          if (!saved) return;
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('完整备份已导出')));
-          }
-        } catch (error) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('备份失败：$error')));
-          }
-        }
-      });
+    try {
+      final saved = await TransferProgress.run(
+        context,
+        '正在准备完整备份并选择保存位置…',
+        FullBackupService.export,
+      );
+      if (!saved) return;
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('完整备份已导出')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('备份失败：$error')));
+      }
+    }
+  });
 
   Future<void> _restoreAll() => TransferProgress.guard(() async {
-        final confirmed = await TideDialogs.show<bool>(
-              context: context,
-              builder: (dialogContext) => TideDialogSurface(
-                title: const Text('恢复完整备份'),
-                content: const Text(
-                    '恢复会覆盖当前的设置、聊天记录、机器人、记忆和媒体文件，并需要重启应用。MCP 和 HTTP Skill 的鉴权信息需重新填写。'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(dialogContext, false),
-                    child: const Text('取消'),
-                  ),
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      foregroundColor: TideTheme.of(context).primary,
-                    ),
-                    onPressed: () => Navigator.pop(dialogContext, true),
-                    child: const Text('选择备份文件'),
-                  ),
-                ],
+    final confirmed =
+        await TideDialogs.show<bool>(
+          context: context,
+          builder: (dialogContext) => TideDialogSurface(
+            title: const Text('恢复完整备份'),
+            content: const Text(
+              '恢复会覆盖当前的设置、聊天记录、机器人、记忆和媒体文件，并需要重启应用。MCP 和 HTTP Skill 的鉴权信息需重新填写。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('取消'),
               ),
-            ) ??
-            false;
-        if (!confirmed || !mounted) return;
-        try {
-          final restored = await TransferProgress.run(
-            context,
-            '正在读取并恢复完整备份…',
-            FullBackupService.restore,
-          );
-          if (!restored) return;
-          if (mounted) {
-            await TideDialogs.show<void>(
-              context: context,
-              barrierDismissible: false,
-              builder: (ctx) => PopScope(
-                  canPop: false,
-                  child: TideDialogSurface(
-                    title: const Text('备份已准备完成'),
-                    content: const Text('重启后应用备份。若未自动打开，请手动重新打开 TideBot。'),
-                    actions: [
-                      TextButton(
-                          onPressed: () async {
-                            try {
-                              await FullBackupService.restartToApply();
-                            } catch (error) {
-                              if (mounted)
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                        content:
-                                            Text('重启失败，请关闭并重新打开应用：$error')));
-                            }
-                          },
-                          child: const Text('重启并恢复'))
-                    ],
-                  )),
-            );
-          }
-        } catch (error) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('恢复失败：$error')));
-          }
-        }
-      });
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: TideTheme.of(context).primary,
+                ),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('选择备份文件'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+    try {
+      final restored = await TransferProgress.run(
+        context,
+        '正在读取并恢复完整备份…',
+        FullBackupService.restore,
+      );
+      if (!restored) return;
+      if (mounted) {
+        await TideDialogs.show<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => PopScope(
+            canPop: false,
+            child: TideDialogSurface(
+              title: const Text('备份已准备完成'),
+              content: const Text('重启后应用备份。若未自动打开，请手动重新打开 TideBot。'),
+              actions: [
+                TextButton(
+                  onPressed: () async {
+                    try {
+                      await FullBackupService.restartToApply();
+                    } catch (error) {
+                      if (mounted)
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('重启失败，请关闭并重新打开应用：$error')),
+                        );
+                    }
+                  },
+                  child: const Text('重启并恢复'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('恢复失败：$error')));
+      }
+    }
+  });
   @override
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
     final used = _apk + _appData;
-    final pct =
-        _total == 0 ? '—' : '${(used / _total * 100).toStringAsFixed(3)}%';
+    final pct = _total == 0
+        ? '—'
+        : '${(used / _total * 100).toStringAsFixed(3)}%';
     return TideBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -263,6 +280,21 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
                           Icons.storage_rounded,
                           '数据库及日志（已含于应用数据）',
                           _format(_database),
+                        ),
+                        _row(
+                          Icons.backup_outlined,
+                          '备份数据',
+                          _format(_backupBytes),
+                          action: '管理',
+                          onTap: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const AutoBackupPage(),
+                              ),
+                            );
+                            if (mounted) await _loadAsync();
+                          },
                         ),
                         _row(
                           Icons.cached_rounded,
@@ -376,17 +408,15 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
     String value, {
     String? action,
     VoidCallback? onTap,
-  }) =>
-      ListTile(
-        leading: Icon(icon),
-        title: Text(title, style: const TextStyle(fontFamily: 'TideFont')),
-        subtitle: Text(value, style: const TextStyle(fontFamily: 'TideFont')),
-        trailing: action == null
-            ? null
-            : TextButton(
-                onPressed: onTap,
-                child: Text(action,
-                    style: const TextStyle(fontFamily: 'TideFont')),
-              ),
-      );
+  }) => ListTile(
+    leading: Icon(icon),
+    title: Text(title, style: const TextStyle(fontFamily: 'TideFont')),
+    subtitle: Text(value, style: const TextStyle(fontFamily: 'TideFont')),
+    trailing: action == null
+        ? null
+        : TextButton(
+            onPressed: onTap,
+            child: Text(action, style: const TextStyle(fontFamily: 'TideFont')),
+          ),
+  );
 }

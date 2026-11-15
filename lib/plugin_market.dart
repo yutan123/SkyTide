@@ -56,6 +56,42 @@ class PluginMarket extends ChangeNotifier {
   static final indexUrl = Uri.parse(
     'https://raw.githubusercontent.com/yutan123/TideBot-plugins/main/market/index.json',
   );
+
+  // Ordered from the direct source to public GitHub mirrors. A route is only
+  // considered successful when it returns the expected HTTP status.
+  static List<Uri> _routes(Uri uri) {
+    final encoded = Uri.encodeFull(uri.toString());
+    return [
+      uri,
+      Uri.parse('https://ghproxy.net/$encoded'),
+      Uri.parse('https://gh-proxy.com/$encoded'),
+      Uri.parse('https://ghfast.top/$encoded'),
+    ];
+  }
+
+  static Future<HttpClientResponse> _getWithFallback(
+    HttpClient client,
+    Uri uri, {
+    required Set<int> acceptedStatusCodes,
+    Duration timeout = const Duration(seconds: 20),
+    void Function(HttpClientRequest)? configure,
+  }) async {
+    Object? lastError;
+    for (final route in _routes(uri)) {
+      try {
+        final request = await client.getUrl(route).timeout(timeout);
+        configure?.call(request);
+        final response = await request.close().timeout(timeout);
+        if (acceptedStatusCodes.contains(response.statusCode)) return response;
+        response.drain<void>();
+        lastError = HttpException('HTTP ${response.statusCode}');
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw lastError ?? const HttpException('没有可用的下载线路');
+  }
+
   List<MarketPlugin> plugins = [];
   bool loading = false;
   String? error;
@@ -93,19 +129,18 @@ class PluginMarket extends ChangeNotifier {
           notifyListeners();
         } catch (_) {}
       }
-      final request = await client
-          .getUrl(indexUrl)
-          .timeout(const Duration(seconds: 20));
       final etag = await db.getKV('plugin_market_etag');
-      if (cache != null && etag != null)
-        request.headers.set('If-None-Match', etag);
-      final response = await request.close().timeout(
-        const Duration(seconds: 20),
+      final response = await _getWithFallback(
+        client,
+        indexUrl,
+        acceptedStatusCodes: {200, 304},
+        configure: (request) {
+          if (cache != null && etag != null) {
+            request.headers.set('If-None-Match', etag);
+          }
+        },
       );
       if (response.statusCode == 304 && cache != null) return;
-      if (response.statusCode == 404) throw const HttpException('插件市场索引尚未发布');
-      if (response.statusCode != 200)
-        throw HttpException('市场请求失败：${response.statusCode}');
       final bytes = <int>[];
       await for (final chunk in response.timeout(const Duration(seconds: 20))) {
         bytes.addAll(chunk);
@@ -165,14 +200,12 @@ class PluginMarket extends ChangeNotifier {
       ..connectionTimeout = const Duration(seconds: 20);
     final unlisten = operation.listen(() => client.close(force: true));
     try {
-      final request = await client
-          .getUrl(plugin.archiveUrl)
-          .timeout(const Duration(seconds: 30));
-      final response = await request.close().timeout(
-        const Duration(seconds: 30),
+      final response = await _getWithFallback(
+        client,
+        plugin.archiveUrl,
+        acceptedStatusCodes: {200},
+        timeout: const Duration(seconds: 30),
       );
-      if (response.statusCode != 200)
-        throw HttpException('下载失败：${response.statusCode}');
       if (response.contentLength > PluginArchive.maxCompressed)
         throw const FormatException('插件包超过大小限制');
       final bytes = <int>[];

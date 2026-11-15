@@ -16,7 +16,9 @@ class FullBackupService {
   static Future<void> restartToApply() =>
       _native.invokeMethod<void>('restartForRestore');
 
-  static Future<({String name, File file})> create() async {
+  static Future<({String name, File file})> create({
+    Set<String>? selection,
+  }) async {
     final work = await DataTransfer.workspace();
     try {
       final db = await DBManager().database;
@@ -31,10 +33,27 @@ class FullBackupService {
         )) {
           if (item is! File) continue;
           final relative = p.relative(item.path, from: docs.path);
-          if (relative == 'tidebot_dev_logs.json' ||
+          if (relative.startsWith('memory_embedding/') ||
+              relative.startsWith('models/') ||
+              relative == 'tidebot_dev_logs.json' ||
               relative.startsWith('TideBot/exports/'))
             continue;
           files['documents/$relative'] = item.path;
+        }
+      }
+      if (selection == null || selection.contains('plugins')) {
+        final support = await getApplicationSupportDirectory();
+        for (final name in ['plugins', 'skills']) {
+          final directory = Directory(p.join(support.path, name));
+          if (!await directory.exists()) continue;
+          await for (final item in directory.list(
+            recursive: true,
+            followLinks: false,
+          )) {
+            if (item is File)
+              files['support/$name/${p.relative(item.path, from: directory.path)}'] =
+                  item.path;
+          }
         }
       }
       final dbSize = await File(dbPath).length();
@@ -53,21 +72,155 @@ class FullBackupService {
         if (await wal.exists()) await wal.copy('${snapshot.path}-wal');
       }, exclusive: true);
       final copy = await openDatabase(snapshot.path, singleInstance: false);
+      final referenced = <String>{};
       try {
         final result = await copy.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
         if (result.isNotEmpty && (result.first.values.first as num) != 0) {
           throw StateError('数据库快照忙，请稍后重试');
         }
+        if (selection != null) {
+          await copy.execute('PRAGMA foreign_keys = OFF');
+          const groups = {
+            'chat': [
+              'call_messages',
+              'call_sessions',
+              'voice_call_records',
+              'chat_history',
+            ],
+            'memory': [
+              'memory_vectors',
+              'world_book_entries',
+              'world_books',
+              'memories',
+            ],
+            'posts': ['feed_events', 'post_comments', 'posts'],
+            'diaries': ['bot_diaries', 'bot_life_schedules', 'schedule_tasks'],
+            'stickers': ['stickers'],
+            'plugins': [
+              'skill_tools',
+              'skills',
+              'mcp_tools',
+              'mcp_servers',
+              'plugins',
+            ],
+          };
+          final tables = (await copy.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table'",
+          )).map((row) => row['name'] as String).toSet();
+          for (final group in groups.entries) {
+            if (selection.contains(group.key)) continue;
+            for (final table in group.value) {
+              if (tables.contains(table)) await copy.delete(table);
+            }
+          }
+          // Runtime queues, diagnostics and derived vectors are never user backups.
+          for (final table in [
+            'background_tasks',
+            'background_task_executions',
+            'background_messages',
+            'foreground_message_events',
+            'tool_audit',
+            'memory_vectors',
+            'media_storage_garbage',
+            'plugin_tasks',
+            'media_storage_jobs',
+            'media_storage_uses',
+            'media_storage_worker',
+          ]) {
+            if (tables.contains(table)) await copy.delete(table);
+          }
+          if (!selection.contains('settings')) await copy.delete('kv_store');
+          if (!selection.contains('plugins') && tables.contains('kv_store')) {
+            await copy.delete(
+              'kv_store',
+              where: 'key LIKE ? OR key LIKE ?',
+              whereArgs: ['plugin_%', 'skill_%'],
+            );
+          }
+          if (tables.contains('kv_store')) {
+            await copy.delete(
+              'kv_store',
+              where: "substr(key, 1, 12) = ?",
+              whereArgs: ['auto_backup_'],
+            );
+          }
+          // Read only retained records to decide which document files to include.
+          if (selection.contains('media')) {
+            for (final table in tables.where((t) => !t.startsWith('sqlite_'))) {
+              var offset = 0;
+              while (true) {
+                final rows = await copy.query(
+                  table,
+                  limit: 200,
+                  offset: offset,
+                );
+                if (rows.isEmpty) break;
+                for (final row in rows) {
+                  await mapTransferValue(row, (path) async {
+                    if (p.isAbsolute(path) && p.isWithin(docs.path, path))
+                      referenced.add(p.normalize(path));
+                    return path;
+                  });
+                }
+                offset += rows.length;
+              }
+            }
+          }
+          await copy.execute('VACUUM');
+        }
       } finally {
         await copy.close();
       }
       final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      if (selection != null &&
+          selection.contains('settings') &&
+          selection.contains('media')) {
+        for (final key in prefs.getKeys()) {
+          await mapTransferValue(prefs.get(key), (path) async {
+            if (p.isAbsolute(path) &&
+                p.isWithin(docs.path, path) &&
+                await File(path).exists()) {
+              referenced.add(p.normalize(path));
+            }
+            return path;
+          });
+        }
+      }
+      if (selection != null) {
+        files.removeWhere((key, path) {
+          if (!key.startsWith('documents/')) return false;
+          final relative = p.relative(path, from: docs.path);
+          final pluginFile =
+              relative.startsWith('plugins/') || relative.startsWith('skills/');
+          return pluginFile
+              ? !selection.contains('plugins')
+              : !selection.contains('media') ||
+                    !referenced.contains(p.normalize(path));
+        });
+        final manifest = File('${work.path}/backup_manifest.json');
+        await manifest.writeAsString(
+          jsonEncode({
+            'format': 1,
+            'kind': 'automatic',
+            'created': DateTime.now().toIso8601String(),
+            'selection': selection.toList(),
+            'alwaysIncluded': ['bots'],
+            'restoreMode': 'replace',
+          }),
+        );
+        files['backup_manifest.json'] = manifest.path;
+      }
       final preferences = File('${work.path}/preferences.json');
       final sink = preferences.openWrite();
       try {
         sink.write('{');
         var first = true;
         for (final key in prefs.getKeys()) {
+          if (selection != null &&
+              (!selection.contains('settings') ||
+                  key.startsWith('auto_backup_')))
+            continue;
           if (!first) sink.write(',');
           first = false;
           sink.write('${jsonEncode(key)}:${jsonEncode(prefs.get(key))}');
@@ -149,7 +302,29 @@ class FullBackupService {
               Directory('${work.path}/documents'),
               docs,
             );
-            await _relocateDatabase(source, restoredPaths.mapPath);
+            final support = await getApplicationSupportDirectory();
+            final restoredSupport = Directory('${work.path}/support');
+            Future<String> mapRestoredPath(String original) async {
+              final mapped = await restoredPaths.mapPath(original);
+              if (mapped != original) return mapped;
+              for (final name in ['plugins', 'skills']) {
+                final staged = Directory(p.join(restoredSupport.path, name));
+                final target = await ImportedMedia(
+                  staged,
+                  prefix: name,
+                ).mapPath(original);
+                if (target != original && p.isWithin(staged.path, target)) {
+                  return p.join(
+                    support.path,
+                    name,
+                    p.relative(target, from: staged.path),
+                  );
+                }
+              }
+              return original;
+            }
+
+            await _relocateDatabase(source, mapRestoredPath);
             final mappedPreferences = File(
               '${work.path}/restored_preferences.json',
             );
@@ -165,7 +340,7 @@ class FullBackupService {
                 first = false;
                 final value = await mapTransferValue(
                   record.value,
-                  restoredPaths.mapPath,
+                  mapRestoredPath,
                 );
                 mappedSink.write(
                   '${jsonEncode(record.key)}:${jsonEncode(value)}',

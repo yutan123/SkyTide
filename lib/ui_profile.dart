@@ -1,3 +1,4 @@
+import 'chat_api_endpoint.dart';
 import 'reasoning_control.dart';
 import 'bot_avatar_crop_page.dart';
 import 'support_us_page.dart';
@@ -2432,6 +2433,13 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
   ];
   final _sttPresets = [
     {
+      'name': 'DeepSeek STT',
+      'key_url': 'https://platform.deepseek.com/api_keys',
+      'url': 'https://api.deepseek.com/v1',
+      'models': '',
+      'protocol': 'deepseek',
+    },
+    {
       'name': 'SiliconFlow STT',
       'key_url': 'https://cloud.siliconflow.cn/account/ak',
       'url': 'https://api.siliconflow.cn/v1',
@@ -2457,6 +2465,14 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     },
   ];
   final _ttsPresets = [
+    {
+      'name': 'DeepSeek TTS',
+      'key_url': 'https://platform.deepseek.com/api_keys',
+      'url': 'https://api.deepseek.com/v1',
+      'models': '',
+      'protocol': 'deepseek',
+      'voice': 'stella',
+    },
     {
       'name': 'SiliconFlow TTS',
       'key_url': 'https://cloud.siliconflow.cn/account/ak',
@@ -2943,7 +2959,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
             const SizedBox(height: 8),
             _f('API Key', kCtrl, obscure: true, keyUrl: preset?['key_url']),
             const SizedBox(height: 8),
-            _modelField(ctx, mCtrl, uCtrl, kCtrl),
+            if (protocol != 'deepseek') _modelField(ctx, mCtrl, uCtrl, kCtrl),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -2962,7 +2978,8 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
                     onTap: () {
                       if (uCtrl.text.trim().isEmpty ||
                           kCtrl.text.trim().isEmpty ||
-                          mCtrl.text.trim().isEmpty) {
+                          (protocol != 'deepseek' &&
+                              mCtrl.text.trim().isEmpty)) {
                         GlobalNotice.show('请填写 API 地址、Key 和 STT 模型');
                         return;
                       }
@@ -3078,7 +3095,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
             const SizedBox(height: 8),
             _f('API Key', kCtrl, obscure: true, keyUrl: preset?['key_url']),
             const SizedBox(height: 8),
-            _modelField(ctx, mCtrl, uCtrl, kCtrl),
+            if (protocol != 'deepseek') _modelField(ctx, mCtrl, uCtrl, kCtrl),
             const SizedBox(height: 8),
             if (protocol == 'mimo')
               _mimoVoiceField(
@@ -3099,7 +3116,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
                 activeThumbColor: TideTheme.of(context).primary,
                 title: const Text('支持语气指令'),
                 value: supportsInstructions,
-                onChanged: nativeInstructions
+                onChanged: nativeInstructions || protocol == 'deepseek'
                     ? null
                     : (v) => update(() => supportsInstructions = v),
               ),
@@ -3168,9 +3185,9 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     required String apiKey,
   }) async {
     final root = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
-    final normalizedRoot = root
-        .replaceFirst(RegExp(r'/chat/completions/?$'), '')
-        .replaceFirst(RegExp(r'/audio/speech/?$'), '');
+    final normalizedRoot = chatApiBase(
+      root.replaceFirst(RegExp(r'/audio/speech/?$'), ''),
+    );
     if (normalizedRoot.isEmpty) throw Exception('请先填写 API Base URL');
     if (apiKey.trim().isEmpty) throw Exception('请先填写 API Key');
     final cacheKey = '$normalizedRoot|${apiKey.trim()}';
@@ -3817,7 +3834,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
                   activeThumbColor: TideTheme.of(context).primary,
                   title: const Text('支持语气指令'),
                   value: supportsInstructions,
-                  onChanged: nativeInstructions
+                  onChanged: nativeInstructions || p['protocol'] == 'deepseek'
                       ? null
                       : (value) => update(() => supportsInstructions = value),
                 ),

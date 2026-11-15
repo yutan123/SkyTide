@@ -90,6 +90,8 @@ class MainActivity: FlutterActivity() {
         // The service owns bounded request leases. Activity teardown alone is
         // not proof that the Flutter engine's network request has finished.
         backgroundCoordinator.shutdown()
+        autoBackup?.dispose()
+        autoBackup = null
         super.onDestroy()
     }
 
@@ -128,10 +130,13 @@ class MainActivity: FlutterActivity() {
         startActivity(intent)
     }
 
+    private var autoBackup: TideAutoBackup? = null
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         TideMemoryEmbedding.register(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         dataTransfer?.dispose()
+        autoBackup?.dispose()
+        autoBackup = TideAutoBackup(this, flutterEngine.dartExecutor.binaryMessenger)
         dataTransfer = DataTransfer(this, flutterEngine.dartExecutor.binaryMessenger)
         selectionMenu?.dispose()
         selectionMenu = NativeSelectionMenu(this, flutterEngine.dartExecutor.binaryMessenger)

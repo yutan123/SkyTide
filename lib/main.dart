@@ -1,3 +1,4 @@
+import 'auto_backup_service.dart';
 import 'plugin_market.dart';
 import 'plugin_process_entry.dart' as plugin_process;
 import 'plugin_service.dart';
@@ -58,6 +59,8 @@ import 'bot_state.dart';
 @pragma('vm:entry-point')
 void proactiveReplyMain() => startProactiveReplyEngine();
 
+@pragma('vm:entry-point')
+void autoBackupMain() => startAutoBackupEngine();
 final TideTheme tideTheme = TideTheme();
 // 悬浮窗功能已移除。
 void main() async {
@@ -111,8 +114,19 @@ Future<void> _startBackgroundServices({bool loadTheme = true}) async {
   }
   MediaStorageService.instance.startForeground();
   NativeBackgroundCoordinator.start();
+  unawaited(
+    AutoBackupService.config()
+        .then((config) async {
+          await AutoBackupService.save(config);
+          await AutoBackupService.runDue();
+        })
+        .catchError((Object e) {
+          debugPrint('Auto backup startup: $e');
+        }),
+  );
   unawaited(CognitionReviewService.instance.runDue());
   Timer.periodic(const Duration(minutes: 1), (_) {
+    unawaited(AutoBackupService.runDue());
     unawaited(PluginService.instance.runDueTasks());
     unawaited(CognitionReviewService.instance.runDue());
   });

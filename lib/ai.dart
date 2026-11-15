@@ -1,3 +1,4 @@
+import 'chat_api_endpoint.dart';
 import 'plugin_service.dart';
 import 'proactive_request_gate.dart';
 import 'native_background_coordinator.dart';
@@ -726,13 +727,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       }
       AppLogService.instance.addJson('JARVIS', 'AI军师完整请求payload', logPayload);
       final client = http.Client();
-      final request =
-          http.Request('POST', Uri.parse('$baseUrl/chat/completions'))
-            ..headers.addAll({
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ${provider['api_key']}',
-            })
-            ..body = jsonEncode(payload);
+      final request = http.Request('POST', Uri.parse(chatApiEndpoint(baseUrl)))
+        ..headers.addAll({
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${provider['api_key']}',
+        })
+        ..body = jsonEncode(payload);
       void cancelRequest() => client.close();
       cancellationToken?.addOnCancel(cancelRequest);
       late http.StreamedResponse streamed;
@@ -1633,13 +1633,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final token = cancellationToken;
       final client = http.Client();
       responseClient = client;
-      final request =
-          http.Request('POST', Uri.parse('$baseUrl/chat/completions'))
-            ..headers.addAll({
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ${provider['api_key']}',
-            })
-            ..body = jsonEncode(payload);
+      final request = http.Request('POST', Uri.parse(chatApiEndpoint(baseUrl)))
+        ..headers.addAll({
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${provider['api_key']}',
+        })
+        ..body = jsonEncode(payload);
       void cancelRequest() => client.close();
       cancelResponse = cancelRequest;
       token?.addOnCancel(cancelRequest);
@@ -2617,7 +2616,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         }
         final response = await http
             .post(
-              Uri.parse('$baseUrl/chat/completions'),
+              Uri.parse(chatApiEndpoint(baseUrl)),
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ${provider['api_key']}',
@@ -2893,7 +2892,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           final protocol = (provider['protocol']?.toString() ?? 'openai')
               .trim()
               .toLowerCase();
-          if (baseUrl.isEmpty || model.isEmpty || apiKey.isEmpty) {
+          if (baseUrl.isEmpty ||
+              (protocol != 'deepseek' && model.isEmpty) ||
+              apiKey.isEmpty) {
             AppLogService.instance.add('STT', '语音转文字失败：缺少地址、Key 或模型');
             return null;
           }
@@ -2907,15 +2908,24 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               cancellationToken: cancellationToken,
             );
           }
-          if (protocol != 'openai') {
+          if (protocol != 'openai' && protocol != 'deepseek') {
             AppLogService.instance.add('STT', '不支持的 STT 协议：$protocol');
             return null;
           }
-          final endpoint = _sttTranscriptionEndpoint(baseUrl);
+          final endpoint = protocol == 'deepseek'
+              ? _deepSeekToolEndpoint(baseUrl, 'asr')
+              : _sttTranscriptionEndpoint(baseUrl);
+          if (protocol == 'deepseek' &&
+              await audio.length() > 8 * 1024 * 1024) {
+            throw StateError('DeepSeek STT 音频不能超过 8 MiB，时长不能超过 120 秒');
+          }
           final request = http.MultipartRequest('POST', Uri.parse(endpoint))
             ..headers['Authorization'] = 'Bearer $apiKey'
-            ..fields['model'] = model
-            ..fields['response_format'] = 'json'
+            ..fields.addAll(
+              protocol == 'deepseek'
+                  ? <String, String>{}
+                  : {'model': model, 'response_format': 'json'},
+            )
             ..files.add(await http.MultipartFile.fromPath('file', audioPath));
           final response = await _withCancellableClient(cancellationToken, (
             client,
@@ -2944,7 +2954,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           AppLogService.instance.add('STT', '语音转文字异常：$e');
           return null;
         }
-      });
+      }, forceWav: provider['protocol'] == 'deepseek');
     } on AICancelledException {
       rethrow;
     } catch (error) {
@@ -3051,6 +3061,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     return transcript;
   }
 
+  String _deepSeekToolEndpoint(String configuredUrl, String tool) {
+    final root = configuredUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+    if (root.endsWith('/tools/$tool')) return root;
+    return root.endsWith('/v1') ? '$root/tools/$tool' : '$root/v1/tools/$tool';
+  }
+
   String _sttTranscriptionEndpoint(String configuredUrl) {
     final root = configuredUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     if (root.endsWith('/audio/transcriptions')) return root;
@@ -3058,12 +3074,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     return '$root/v1/audio/transcriptions';
   }
 
-  String _chatCompletionsEndpoint(String configuredUrl) {
-    final root = configuredUrl.trim().replaceFirst(RegExp(r'/+$'), '');
-    if (root.endsWith('/chat/completions')) return root;
-    if (root.endsWith('/v1')) return '$root/chat/completions';
-    return '$root/v1/chat/completions';
-  }
+  String _chatCompletionsEndpoint(String configuredUrl) =>
+      chatApiEndpoint(configuredUrl);
 
   // TTS supports both legacy base_url/api_key and settings-page url/key fields.
   Future<String?> _generateTTS(
@@ -3093,6 +3105,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     final configuredVoice = (provider['voice']?.toString() ?? '').trim();
     final voice = configuredVoice.isEmpty || configuredVoice == 'default'
         ? switch (protocol) {
+            'deepseek' => 'stella',
             'mimo' => 'mimo_default',
             'minimax' => 'male-qn-qingse',
             _ => 'alloy',
@@ -3135,6 +3148,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         }
       }
       final endpoint = switch (protocol) {
+        'deepseek' => _deepSeekToolEndpoint(baseUrl, 'tts'),
         'minimax' => miniMaxTtsEndpoint(baseUrl),
         'mimo' => _chatCompletionsEndpoint(baseUrl),
         _ => '$baseUrl/audio/speech',
@@ -3148,6 +3162,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           ? '$model:alex'
           : voice;
       final basePayload = switch (protocol) {
+        'deepseek' => {
+          'text': text,
+          'voice_id': voice,
+          'format': 'wav',
+          'filter_markdown': true,
+        },
         'minimax' => {
           'model': model,
           'text': text,
@@ -3482,7 +3502,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     try {
       final res = await http
           .post(
-            Uri.parse("$baseUrl/chat/completions"),
+            Uri.parse(chatApiEndpoint(baseUrl)),
             headers: {
               "Content-Type": "application/json",
               "Authorization": "Bearer $apiKey",
@@ -4081,7 +4101,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         cancellationToken,
         (client) => client
             .post(
-              Uri.parse('$baseUrl/chat/completions'),
+              Uri.parse(chatApiEndpoint(baseUrl)),
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer $apiKey',
@@ -5973,7 +5993,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       try {
         final response = await http
             .post(
-              Uri.parse('$root$path'),
+              Uri.parse(
+                path == '/chat/completions'
+                    ? chatApiEndpoint(root)
+                    : '${chatApiBase(root)}$path',
+              ),
               headers: headers,
               body: jsonEncode(body),
             )

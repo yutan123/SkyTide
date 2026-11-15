@@ -49,6 +49,8 @@ object TideColdRestore {
                     val docs = File(source, "documents")
                     if (docs.exists()) check(docs.copyRecursively(File(next, "documents")))
                     else File(next, "documents").mkdirs()
+                    val support = File(source, "support")
+                    if (support.exists()) check(support.copyRecursively(File(next, "support")))
                     preferences(File(source, "restored_preferences.json"), File(next, "preferences"))
                     next.walkTopDown().filter { it.isFile }.forEach { file ->
                         RandomAccessFile(file, "rw").use { it.fd.sync() }
@@ -134,9 +136,11 @@ object TideColdRestore {
                     context.getDatabasePath("tidebot.db-wal"),
                     context.getDatabasePath("tidebot.db-shm"),
                     File(prefs.path + ".bak"),
-                    File(context.filesDir, "restore_credentials_pending")
+                    File(context.filesDir, "restore_credentials_pending"),
+                    File(context.filesDir, "plugins"),
+                    File(context.filesDir, "skills")
                 )
-                val names = listOf("database", "documents", "preferences", "wal", "shm", "prefs_bak", "credential_marker")
+                val names = listOf("database", "documents", "preferences", "wal", "shm", "prefs_bak", "credential_marker", "support/plugins", "support/skills")
                 val rollback = File(ready, "rollback")
                 val state = File(ready, "originals.json")
                 fun rollback(originals: JSONArray) {
@@ -166,7 +170,7 @@ object TideColdRestore {
                         val replacement = File(ready, names[index])
                         if (replacement.exists()) move(replacement, target)
                     }
-                    write(targets.last(), "pending")
+                    write(File(context.filesDir, "restore_credentials_pending"), "pending")
                     // Rename commits the swap. Cleanup may be interrupted safely.
                     move(ready, applied)
                 } catch (error: Throwable) {
