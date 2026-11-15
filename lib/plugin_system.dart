@@ -29,7 +29,10 @@ class PluginSystem {
   PluginSystem._();
   static final instance = PluginSystem._();
   static const _secureStorage = FlutterSecureStorage();
-  static final _validId = RegExp(r'^[a-z][a-z0-9_.-]{2,63}$');
+  static final _validId = RegExp(
+    r'^[a-z][a-z0-9_.-]{2,63}$',
+    caseSensitive: false,
+  );
   void _checkId(String id) {
     if (!_validId.hasMatch(id)) throw const FormatException('插件 ID 无效');
   }

@@ -689,8 +689,20 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   void _scrollDown({bool animated = true}) {
+    // With a reversed list, zero is the newest message. Keep history readers
+    // at their current offset during refreshes, streaming and route returns.
+    bool canFollowLatest() =>
+        !_scrollC.hasClients ||
+        (!_scrollC.position.isScrollingNotifier.value &&
+            _scrollC.position.pixels - _scrollC.position.minScrollExtent <= 80);
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+    if (!canFollowLatest()) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollC.hasClients) return;
+      if (!mounted ||
+          ModalRoute.of(context)?.isCurrent != true ||
+          !_scrollC.hasClients ||
+          !canFollowLatest())
+        return;
       final target = _scrollC.position.minScrollExtent;
       if (animated) {
         _scrollC.animateTo(
@@ -4016,7 +4028,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   String? _headerColorPath;
-
   Color? _headerSample;
   int _headerColorRevision = 0;
 
@@ -4043,9 +4054,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         ? theme.globalBackground
         : null;
     _syncHeaderColor(path);
-    final background = _headerSample == null
-        ? theme.pageBackground
-        : chatHeaderSurface(_headerSample!, dark: theme.isDark);
+    final background = _headerSample ?? theme.surfaceVariant;
     final lightSurface = background.computeLuminance() > .45;
     final foreground = lightSurface
         ? const Color(0xFF24212A)
@@ -4410,6 +4419,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     );
   }
 
+  Widget _tideMessageAvatar(bool isUser) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: TideBotAvatar(
+      name: isUser ? '我' : (_bot['name']?.toString() ?? 'TideBot'),
+      path: isUser ? _userAvatar : _bot['avatar']?.toString(),
+      size: 28,
+    ),
+  );
+
   Widget _chatBody() {
     if (_msgsLoading) {
       return Center(
@@ -4437,6 +4455,11 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         final isUser = m['role'] == 'user';
         final type = m['type']?.toString() ?? 'text';
         final theme = TideTheme.of(context);
+        final messageIndex = _msgs.length - 1 - i;
+        final startsSenderGroup =
+            messageIndex == 0 || _msgs[messageIndex - 1]['role'] != m['role'];
+        final showTideAvatar =
+            !theme.isWechat && _showChatAvatar && startsSenderGroup;
 
         // 内心独白单独处理
         if (type == 'inner_thought') {
@@ -4445,7 +4468,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [_buildInnerThoughtBubble(theme, m)],
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (showTideAvatar) _tideMessageAvatar(isUser),
+                    _buildInnerThoughtBubble(theme, m),
+                  ],
+                ),
+              ],
             ),
           );
         }
@@ -4661,31 +4692,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                     ? CrossAxisAlignment.end
                                     : CrossAxisAlignment.start,
                                 children: [
-                                  if (_showChatAvatar && !theme.isWechat)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: isUser
-                                          ? CircleAvatar(
-                                              radius: 14,
-                                              backgroundColor: TideTheme.of(
-                                                context,
-                                              ).primary.withValues(alpha: 0.15),
-                                              child: Icon(
-                                                Icons.person_rounded,
-                                                size: 16,
-                                                color: TideTheme.of(
-                                                  context,
-                                                ).primary,
-                                              ),
-                                            )
-                                          : TideBotAvatar(
-                                              name:
-                                                  _bot['name']?.toString() ??
-                                                  'TideBot',
-                                              path: _bot['avatar']?.toString(),
-                                              size: 28,
-                                            ),
-                                    ),
+                                  if (showTideAvatar)
+                                    _tideMessageAvatar(isUser),
                                   if (hasVideo) ChatVideoCard(path: videoPath!),
                                   if (hasDocument) ...[
                                     if (hasPreviousDocument)
@@ -5152,6 +5160,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       return WechatBubble(
         isUser: isUser,
         child: RichText(
+          textHeightBehavior: const TextHeightBehavior(
+            applyHeightToFirstAscent: false,
+            applyHeightToLastDescent: false,
+          ),
           text: TextSpan(style: baseStyle, children: spans),
         ),
       );

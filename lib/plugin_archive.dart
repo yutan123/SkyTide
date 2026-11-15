@@ -15,7 +15,7 @@ class PluginArchive {
   final Map<String, List<int>> files;
   PluginArchive._(this.manifest, this.files);
 
-  static PluginArchive decode(List<int> bytes) {
+  static PluginArchive decode(List<int> bytes, {bool githubWrapper = false}) {
     if (bytes.length > maxCompressed) {
       throw const FormatException('插件包超过 256 MiB 限制');
     }
@@ -84,6 +84,23 @@ class PluginArchive {
         }
         files[entry.key] = content;
       }
+      if (githubWrapper &&
+          !files.containsKey('manifest.json') &&
+          files.isNotEmpty) {
+        final root = files.keys.first.split('/').first;
+        final prefix = '$root/';
+        if (!files.keys.every((name) => name.startsWith(prefix)) ||
+            !files.containsKey('${prefix}manifest.json')) {
+          throw const FormatException('仓库根目录缺少插件清单');
+        }
+        final stripped = {
+          for (final entry in files.entries)
+            entry.key.substring(prefix.length): entry.value,
+        };
+        files
+          ..clear()
+          ..addAll(stripped);
+      }
       final manifestBytes = files['manifest.json'];
       if (manifestBytes == null || manifestBytes.length > 1024 * 1024) {
         throw const FormatException('缺少根目录 manifest.json 或清单超过 1 MB');
@@ -119,7 +136,10 @@ class PluginArchive {
     final version = m['version'];
     final name = m['name'];
     final entry = m['entry'];
-    final idPattern = RegExp(r'^[a-z][a-z0-9_.-]{2,63}$');
+    final idPattern = RegExp(
+      r'^tidebot[a-z0-9_.-]{0,57}$',
+      caseSensitive: false,
+    );
     if (id is! String ||
         !idPattern.hasMatch(id) ||
         name is! String ||

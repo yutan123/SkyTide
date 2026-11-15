@@ -1,3 +1,4 @@
+import 'plugin_market.dart';
 import 'plugin_process_entry.dart' as plugin_process;
 import 'plugin_service.dart';
 import 'internet_reachability_monitor.dart';
@@ -90,6 +91,7 @@ Future<void> _startBackgroundServices({bool loadTheme = true}) async {
   );
   unawaited(_runStartupTask('haptics', TideHaptics.load));
   unawaited(_runStartupTask('plugins', PluginService.instance.runDueTasks));
+  unawaited(_runStartupTask('plugin market', PluginMarket.instance.refresh));
   unawaited(
     _runStartupTask('app log', AppLogService.instance.restoreForLaunch),
   );

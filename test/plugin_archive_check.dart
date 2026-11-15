@@ -75,7 +75,7 @@ List<int> zip(List<Entry> entries) {
 Future<void> main() async {
   var checks = 0;
   final manifest = <String, dynamic>{
-    'id': 'test.contract',
+    'id': 'tidebot.test.contract',
     'name': 'Package contract fixture',
     'version': '1.0.0',
     'entry': 'main.js',
@@ -84,6 +84,35 @@ Future<void> main() async {
     Entry('manifest.json', utf8.encode(jsonEncode({...manifest, ...?changes}))),
     Entry('main.js', utf8.encode('// infrastructure test fixture')),
   ];
+  final wrapped = base()
+      .map((entry) => Entry('repo-commit/${entry.name}', entry.bytes))
+      .toList();
+  final github = PluginArchive.decode(zip(wrapped), githubWrapper: true);
+  if (github.manifest['id'] != manifest['id'] ||
+      !github.files.containsKey('main.js')) {
+    throw StateError('GitHub wrapper was not normalized');
+  }
+  checks++;
+  for (final invalid in [
+    [
+      ...wrapped,
+      Entry('outside.txt', [1]),
+    ],
+    [Entry('repo/sub/manifest.json', utf8.encode(jsonEncode(manifest)))],
+    [
+      ...wrapped,
+      Entry('repo-commit/../escape.txt', [1]),
+    ],
+  ]) {
+    var rejected = false;
+    try {
+      PluginArchive.decode(zip(invalid), githubWrapper: true);
+    } on FormatException {
+      rejected = true;
+    }
+    if (!rejected) throw StateError('Invalid GitHub package accepted');
+    checks++;
+  }
   void accepts(List<Entry> entries) {
     final result = PluginArchive.decode(zip(entries));
     if (result.manifest['id'] != manifest['id'])
@@ -101,6 +130,36 @@ Future<void> main() async {
     throw StateError('Accepted invalid ZIP: ${entries.map((e) => e.name)}');
   }
 
+  for (final id in [
+    'tidebot_meme_search',
+    'tidebot.meme.serch',
+    'tidebot.meme_serch',
+    'TideBot_Meme_Search',
+  ]) {
+    final result = PluginArchive.decode(zip(base({'id': id})));
+    if (result.manifest['id'] != id) throw StateError('ID spelling changed');
+    final wrappedId = base({
+      'id': id,
+    }).map((e) => Entry('repo/${e.name}', e.bytes)).toList();
+    if (PluginArchive.decode(
+          zip(wrappedId),
+          githubWrapper: true,
+        ).manifest['id'] !=
+        id) {
+      throw StateError('Market ID spelling changed');
+    }
+    checks += 2;
+  }
+  for (final id in [
+    'test.contract',
+    'xtidebot.example',
+    'tidebo',
+    'tidebot/escape',
+    'tidebot 空格',
+    'tidebot${'a' * 58}',
+  ]) {
+    rejects(base({'id': id}));
+  }
   accepts(base());
   accepts([
     for (final entry in base()) Entry(entry.name, entry.bytes, method: 8),

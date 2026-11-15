@@ -15,7 +15,10 @@ class PluginInstallJournal {
   final Future<void> Function(String) deleteData;
   final Future<void> Function(String) invalidate;
   void _checkId(String id) {
-    if (!RegExp(r'^[a-z][a-z0-9_.-]{2,63}$').hasMatch(id)) {
+    if (!RegExp(
+      r'^[a-z][a-z0-9_.-]{2,63}$',
+      caseSensitive: false,
+    ).hasMatch(id)) {
       throw const FormatException('插件恢复 ID 无效');
     }
   }

@@ -1,3 +1,5 @@
+import 'plugin_market.dart';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -30,6 +32,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
 
   @override
   void dispose() {
+    PluginMarket.instance.removeListener(_marketChanged);
     _operation?.cancel();
     _cleanTemp();
     super.dispose();
@@ -43,6 +46,82 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   void initState() {
     super.initState();
     _reload();
+    PluginMarket.instance.addListener(_marketChanged);
+    unawaited(PluginMarket.instance.refresh());
+  }
+
+  final _marketSources = <String, Map<String, dynamic>>{};
+  String _query = '';
+  String? _downloadingId;
+  int _downloaded = 0, _downloadTotal = 0;
+
+  void _marketChanged() {
+    if (mounted) setState(() {});
+  }
+
+  MarketPlugin? _marketUpdate(Map<String, dynamic> row) {
+    final source = _marketSources[row['id']];
+    if (source == null || source['version'] != row['version']) return null;
+    for (final plugin in PluginMarket.instance.plugins) {
+      if (plugin.id == row['id'] &&
+          plugin.repository == source['repository'] &&
+          plugin.newerThan(row['version'].toString()))
+        return plugin;
+    }
+    return null;
+  }
+
+  Future<void> _refreshAll() async {
+    await PluginMarket.instance.refresh();
+    await _reload();
+  }
+
+  Future<void> _installMarket(MarketPlugin plugin) async {
+    final row = _plugins.where((r) => r['id'] == plugin.id).firstOrNull;
+    if (row != null && _marketUpdate(row) == null) return;
+    final temporary = await Directory.systemTemp.createTemp('tide-market-');
+    _tempDirs.add(temporary);
+    if (mounted)
+      setState(() {
+        _downloadingId = plugin.id;
+        _downloaded = 0;
+        _downloadTotal = 0;
+      });
+    try {
+      final file = await PluginMarket.instance.download(
+        plugin,
+        temporary,
+        _operation!,
+        (received, total) {
+          if (mounted)
+            setState(() {
+              _downloaded = received;
+              _downloadTotal = total;
+            });
+        },
+      );
+      final reviewed = await _reviewPackage(
+        file.path,
+        updatingId: row == null ? null : plugin.id,
+        market: plugin,
+      );
+      if (reviewed == null) return;
+      _operation!.check();
+      if (row == null) {
+        await PluginSystem.instance.installZip(reviewed, operation: _operation);
+      } else {
+        await PluginService.instance.updateZip(
+          plugin.id,
+          reviewed,
+          operation: _operation,
+        );
+      }
+      await PluginMarket.instance.saveSource(plugin);
+      if (mounted) _notice(row == null ? '插件已安装，配置后可启用' : '插件已更新');
+    } finally {
+      if (mounted) setState(() => _downloadingId = null);
+      await _cleanTemp();
+    }
   }
 
   Future<void> _reload() async {
@@ -59,8 +138,16 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
           /* Damaged packages can still be removed. */
         }
       }
+      final sources = <String, Map<String, dynamic>>{};
+      for (final row in rows) {
+        final source = await PluginMarket.instance.source(row['id'] as String);
+        if (source != null) sources[row['id'] as String] = source;
+      }
       if (!mounted) return;
       setState(() {
+        _marketSources
+          ..clear()
+          ..addAll(sources);
         _plugins = rows;
         _packages
           ..clear()
@@ -92,10 +179,16 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     _operation = operation;
     operation?.startDeadline();
     try {
-      await TransferProgress.run(context, label, () async {
-        operation?.check();
-        await action();
-      }, operation: operation);
+      await TransferProgress.run(
+        context,
+        label,
+        () async {
+          operation?.check();
+          await action();
+        },
+        operation: operation,
+        compact: true,
+      );
     } catch (error) {
       if (mounted) {
         if (operation?.cancelled == true) {
@@ -146,7 +239,11 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     }
   }
 
-  Future<String?> _reviewPackage(String path, {String? updatingId}) async {
+  Future<String?> _reviewPackage(
+    String path, {
+    String? updatingId,
+    MarketPlugin? market,
+  }) async {
     final file = File(path);
     if (await file.length() > PluginArchive.maxCompressed) {
       throw const FormatException('插件包超过 256 MiB 限制');
@@ -178,7 +275,13 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                 children: [
                   Text('${manifest['name']}  ${manifest['version']}'),
                   Text('作者：${manifest['author'] ?? '未填写'}'),
-                  const Text('来源：本地导入文件'),
+                  Text(
+                    market == null
+                        ? '来源：本地导入文件'
+                        : '来源：插件市场 · ${market.repository}',
+                  ),
+                  if (market != null && market.changelog.isNotEmpty)
+                    Text('更新说明：${market.changelog}'),
                   if (permissions.isNotEmpty)
                     Text('权限：${permissions.join('、')}'),
                   if (origins.isNotEmpty) Text('网络域名：${origins.join('、')}'),
@@ -245,6 +348,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         reviewedPath,
         operation: _operation,
       );
+      await PluginMarket.instance.clearSource(row['id'] as String);
       if (mounted) _notice('插件已更新');
     } finally {
       await _cleanTemp();
@@ -329,8 +433,12 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         ),
       ),
     );
-    if (confirmed == true && mounted)
-      await _operate(() => PluginService.instance.delete(row['id'] as String));
+    if (confirmed == true && mounted) {
+      await _operate(() async {
+        await PluginService.instance.delete(row['id'] as String);
+        await PluginMarket.instance.clearSource(row['id'] as String);
+      });
+    }
   }
 
   Future<void> _settings(TidePluginPackage pack) async {
@@ -592,6 +700,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     final theme = TideTheme.of(context);
     final id = row['id'] as String;
     final pack = _packages[id];
+    final update = _marketUpdate(row);
     final enabled = row['enabled'] == 1;
     final error = PluginService.instance.errors[id];
     return Container(
@@ -655,14 +764,26 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          Text(
-                            '${_author(row)} · ${row['version']}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: theme.textWeak,
-                            ),
+                          Wrap(
+                            spacing: 5,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                '${_author(row)} · ${row['version']}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.textWeak,
+                                ),
+                              ),
+                              if (update != null) ...[
+                                Text(
+                                  '→',
+                                  style: TextStyle(color: theme.textWeak),
+                                ),
+                                _versionBadge(update.version),
+                              ],
+                            ],
                           ),
                         ],
                       ),
@@ -732,6 +853,11 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                     ),
                   ],
                 ),
+                if (update != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: _marketUpdateButton(update),
+                  ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
@@ -791,7 +917,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                       ),
                     _action(
                       Icons.upgrade_rounded,
-                      '更新插件',
+                      '从本地 ZIP 更新',
                       _busy
                           ? null
                           : () => _operate(
@@ -813,6 +939,261 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _versionBadge(String version) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFD76A),
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Text(
+      version,
+      style: const TextStyle(
+        fontSize: 11,
+        color: Color(0xFF624400),
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+
+  Widget _marketUpdateButton(MarketPlugin plugin) => FilledButton.icon(
+    style: FilledButton.styleFrom(
+      backgroundColor: const Color(0xFFFFD76A),
+      foregroundColor: const Color(0xFF624400),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    onPressed: _busy
+        ? null
+        : () => _operate(
+            () => _installMarket(plugin),
+            cancellable: true,
+            label: '正在下载并更新插件…',
+          ),
+    icon: const Icon(Icons.error_outline_rounded, size: 17),
+    label: const Text('更新'),
+  );
+
+  Widget _marketBody() {
+    final market = PluginMarket.instance;
+    final theme = TideTheme.of(context);
+    final entries = market.plugins
+        .where(
+          (p) => '${p.name} ${p.author} ${p.description}'
+              .toLowerCase()
+              .contains(_query.toLowerCase()),
+        )
+        .toList();
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: TextField(
+            onChanged: (v) => setState(() => _query = v),
+            decoration: InputDecoration(
+              hintText: '搜索插件、作者',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: IconButton(
+                onPressed: market.loading ? null : _refreshAll,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+              filled: true,
+              fillColor: theme.surface,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        if (market.loading) LinearProgressIndicator(color: theme.primary),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _refreshAll,
+            child: ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+              itemCount: entries.isEmpty
+                  ? 1
+                  : entries.length + (market.error == null ? 0 : 1),
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (_, index) {
+                if (entries.isEmpty)
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 80),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.storefront_outlined,
+                            size: 44,
+                            color: theme.textFaint,
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            market.loading
+                                ? '正在加载插件市场…'
+                                : market.error != null
+                                ? '暂时无法获取插件市场'
+                                : _query.isNotEmpty
+                                ? '没有找到匹配的插件'
+                                : '暂无上架插件',
+                            style: TextStyle(color: theme.textWeak),
+                          ),
+                          if (market.error != null)
+                            TextButton(
+                              onPressed: _refreshAll,
+                              child: const Text('重新加载'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                if (index == entries.length)
+                  return Text(
+                    '刷新失败，当前显示缓存内容',
+                    style: TextStyle(color: theme.textWeak),
+                  );
+                final plugin = entries[index];
+                final installed = _plugins
+                    .where((r) => r['id'] == plugin.id)
+                    .firstOrNull;
+                final update = installed == null
+                    ? null
+                    : _marketUpdate(installed);
+                final downloading = _downloadingId == plugin.id;
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: theme.surface,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: theme.primary.withValues(alpha: .25),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: theme.primary.withValues(alpha: .10),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(
+                              Icons.extension_rounded,
+                              color: theme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  plugin.name,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: theme.textStrong,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  plugin.author,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.textWeak,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        plugin.description,
+                        style: TextStyle(color: theme.textWeak, height: 1.5),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            installed == null
+                                ? plugin.version
+                                : installed['version'].toString(),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.textWeak,
+                            ),
+                          ),
+                          if (update != null) ...[
+                            Text('→', style: TextStyle(color: theme.textWeak)),
+                            _versionBadge(plugin.version),
+                          ],
+                        ],
+                      ),
+                      if (update != null && plugin.changelog.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            plugin.changelog,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.textWeak,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      if (downloading) ...[
+                        LinearProgressIndicator(
+                          value: _downloadTotal > 0
+                              ? (_downloaded / _downloadTotal)
+                                    .clamp(0, 1)
+                                    .toDouble()
+                              : null,
+                          color: theme.primary,
+                        ),
+                        Text(
+                          '${(_downloaded / 1024).round()} KB${_downloadTotal > 0 ? ' / ${(_downloadTotal / 1024).round()} KB' : ''}',
+                        ),
+                      ],
+                      if (update != null)
+                        _marketUpdateButton(plugin)
+                      else
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: FilledButton.icon(
+                            onPressed: _busy || installed != null
+                                ? null
+                                : () => _operate(
+                                    () => _installMarket(plugin),
+                                    cancellable: true,
+                                    label: '正在下载插件…',
+                                  ),
+                            icon: Icon(
+                              installed == null
+                                  ? Icons.download_rounded
+                                  : Icons.check_rounded,
+                              size: 18,
+                            ),
+                            label: Text(installed == null ? '下载' : '已安装'),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -887,6 +1268,29 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(index == 0 ? '插件列表' : '插件市场'),
+                                if (_plugins.any(
+                                  (row) => _marketUpdate(row) != null,
+                                )) ...[
+                                  const SizedBox(width: 5),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFD76A),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      '${_plugins.where((row) => _marketUpdate(row) != null).length}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Color(0xFF624400),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -920,7 +1324,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         ),
       ),
       body: _tab == 1
-          ? const Center(child: Text('插件市场暂未开放'))
+          ? _marketBody()
           : _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -936,7 +1340,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                   child: _plugins.isEmpty
                       ? const Center(child: Text('暂无已安装插件'))
                       : RefreshIndicator(
-                          onRefresh: _reload,
+                          onRefresh: _refreshAll,
                           child: ListView.separated(
                             physics: const AlwaysScrollableScrollPhysics(),
                             padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),

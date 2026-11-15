@@ -25,6 +25,7 @@ class TransferProgress {
     String label,
     Future<T> Function() action, {
     PluginOperation? operation,
+    bool compact = false,
   }) async {
     final navigator = Navigator.of(context, rootNavigator: true);
     Route<dynamic>? route;
@@ -43,33 +44,33 @@ class TransferProgress {
               canPop: false,
               child: TideDialogSurface(
                 alignment: Alignment.bottomCenter,
-                margin: const EdgeInsets.symmetric(
+                margin: EdgeInsets.symmetric(
                   horizontal: 22,
-                  vertical: 12,
+                  vertical: compact ? 12 : 24,
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: compact ? 16 : 20,
+                  vertical: compact ? 12 : 20,
                 ),
                 content: Row(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisSize: MainAxisSize.max,
                   children: [
                     SizedBox(
-                      width: 22,
-                      height: 22,
+                      width: compact ? 22 : 26,
+                      height: compact ? 22 : 26,
                       child: CircularProgressIndicator(
-                        strokeWidth: 2.2,
+                        strokeWidth: compact ? 2.2 : 2.5,
                         color: theme.primary,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Flexible(
+                    SizedBox(width: compact ? 12 : 18),
+                    Expanded(
                       child: Text(
                         operation?.cancelled == true ? '正在取消…' : label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        maxLines: compact ? 1 : null,
+                        overflow: compact ? TextOverflow.ellipsis : null,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: compact ? 14 : null,
                           color: theme.textStrong,
                           fontFamily: 'TideFont',
                         ),
