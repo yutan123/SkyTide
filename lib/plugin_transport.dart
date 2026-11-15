@@ -1,3 +1,4 @@
+import 'plugin_error.dart';
 import 'plugin_operation.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -107,7 +108,7 @@ class PluginTransport {
       if (!_closed) _worker?.send({'resolve': data['id'], 'value': result});
     } catch (error) {
       if (!_closed)
-        _worker?.send({'resolve': data['id'], 'error': error.toString()});
+        _worker?.send({'resolve': data['id'], 'error': pluginHostError(error)});
     } finally {
       _hostCalls--;
     }

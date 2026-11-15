@@ -89,7 +89,7 @@ Future<void> _startBackgroundServices({bool loadTheme = true}) async {
     ),
   );
   unawaited(_runStartupTask('haptics', TideHaptics.load));
-  unawaited(_runStartupTask('plugins', PluginService.instance.initialize));
+  unawaited(_runStartupTask('plugins', PluginService.instance.runDueTasks));
   unawaited(
     _runStartupTask('app log', AppLogService.instance.restoreForLaunch),
   );
@@ -111,6 +111,7 @@ Future<void> _startBackgroundServices({bool loadTheme = true}) async {
   NativeBackgroundCoordinator.start();
   unawaited(CognitionReviewService.instance.runDue());
   Timer.periodic(const Duration(minutes: 1), (_) {
+    unawaited(PluginService.instance.runDueTasks());
     unawaited(CognitionReviewService.instance.runDue());
   });
   Timer.periodic(const Duration(minutes: 2), (_) {
@@ -318,6 +319,7 @@ void onStart(ServiceInstance service) async {
       final now = DateTime.now().millisecondsSinceEpoch;
       await db.setKV('persistent_service_last_tick_started_at', '$now');
       await db.setKV('persistent_service_heartbeat', '$now');
+      unawaited(PluginService.instance.runDueTasks());
       final keepRunning =
           await db.getKV('persistent_notification') == 'true' ||
           await db.getKV('external_api_enabled') == 'true';

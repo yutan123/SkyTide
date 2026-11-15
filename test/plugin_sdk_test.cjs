@@ -33,6 +33,31 @@ function host() {
   return {context, call, requests, tick, run: code => vm.runInContext(code, context)};
 }
 
+test('chat read APIs bind to invocation and preserve host validation arguments', async () => {
+  const h = host();
+  h.run("tide.registerTool('read', async (args, context) => await context.chat.getRecentMessages({limit: args.limit}))");
+  const result = h.call('tool', 'read', {__tideInvocation: true, args: {limit: 4}, contextToken: 'read-token'});
+  await h.tick();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].method, 'chat.getRecentMessages');
+  assert.equal(h.requests[0].args.contextToken, 'read-token');
+  assert.equal(h.requests[0].args.limit, 4);
+  h.context.__tideResolve(h.requests[0].id, [{id: 'message'}], null);
+  assert.deepEqual(await result, [{id: 'message'}]);
+  assert.equal(h.context.tide.capabilities.includes('chat.read'), true);
+});
+
+test('message event contexts are scoped and do not leak into later events', async () => {
+  const h = host();
+  h.run("tide.on('chat.message', async (payload, context) => { await context.chat.getContext(); return payload; })");
+  const result = h.call('event', 'chat.message', {__tideEvent: true, contextToken: 'event-token', payload: {botId: 'b1'}});
+  await h.tick();
+  assert.equal(h.requests[0].args.contextToken, 'event-token');
+  h.context.__tideResolve(h.requests[0].id, {botId: 'b1'}, null);
+  assert.deepEqual(await result, {botId: 'b1'});
+  await assert.rejects(h.call('event', 'chat.message', {botId: 'b2'}), /requires a tool invocation or scoped event context/);
+});
+
 test('declarations must match registered tools in both directions', async () => {
   const h = host();
   h.run("tide.registerTool('first', args => args)");

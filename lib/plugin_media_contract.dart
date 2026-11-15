@@ -6,12 +6,16 @@ class PluginMediaContract {
     'storage',
     'network',
     'chat.send',
+    'chat.read',
+    'tasks',
+    'notifications',
     'media.download',
   };
   static const limits = {
     'image': 10 * 1024 * 1024,
     'video': 40 * 1024 * 1024,
     'audio': 20 * 1024 * 1024,
+    'document': 20 * 1024 * 1024,
   };
 
   static Uri uri(Object? value, List origins) {
@@ -52,6 +56,7 @@ class PluginMediaContract {
           (i) => bytes[offset + i] == magic[i],
         ).every((v) => v);
     bool word(int offset, String s) => at(offset, ascii.encode(s));
+    if (kind == 'document' && word(0, '%PDF-')) return 'pdf';
     if (kind == 'image') {
       if (at(0, [137, 80, 78, 71, 13, 10, 26, 10])) return 'png';
       if (at(0, [255, 216, 255])) return 'jpg';

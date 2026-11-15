@@ -154,5 +154,28 @@ void main() {
       ],
     }),
   );
+  PluginContract.layout({
+    'type': 'column',
+    'children': [
+      {'type': 'progress', 'value': null},
+      {'type': 'progress', 'value': 1},
+      {'type': 'badge', 'text': 'Ready'},
+      {'type': 'spacer', 'height': 200},
+    ],
+  });
+  for (final value in [-0.1, 1.1, double.nan, double.infinity, '0.5']) {
+    rejects(() => PluginContract.layout({'type': 'progress', 'value': value}));
+  }
+  for (final height in [-1, 201, double.nan, '12']) {
+    rejects(() => PluginContract.layout({'type': 'spacer', 'height': height}));
+  }
+  expect(PluginContract.capabilities.containsAll(['events.chat', 'tasks']));
+  expect(
+    PluginContract.hooks.containsAll([
+      'chat.message',
+      'chat.sent',
+      'task.trigger',
+    ]),
+  );
   print('Plugin contract: $checks checks passed');
 }

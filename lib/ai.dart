@@ -4345,7 +4345,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     String botId,
   ) async => [
     ...(await _toolPackages(db, botId)).schemas(),
-    ...await PluginService.instance.schemas(),
+    ...await PluginService.instance.schemas(botId: botId),
   ];
 
   Future<Map<String, dynamic>> _executePackageTool({

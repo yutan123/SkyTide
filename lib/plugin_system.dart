@@ -1,3 +1,4 @@
+import 'package:crypto/crypto.dart';
 import 'plugin_operation.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -56,6 +57,31 @@ class PluginSystem {
     deleteData: (id) => PluginCoordinator.locked('storage:$id', () async {
       await _secureStorage.delete(key: 'plugin_data_$id');
       await _secureStorage.delete(key: _configKey(id));
+      final db = await DBManager().database;
+      await db.delete(
+        'kv_store',
+        where: 'key = ?',
+        whereArgs: ['plugin_disabled_bots_$id'],
+      );
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'plugin_tasks'",
+      );
+      final eventTables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'plugin_events'",
+      );
+      if (eventTables.isNotEmpty)
+        await db.delete(
+          'plugin_events',
+          where: 'plugin_id = ?',
+          whereArgs: [id],
+        );
+      if (tables.isNotEmpty) {
+        await db.delete(
+          'plugin_tasks',
+          where: 'plugin_id = ?',
+          whereArgs: [id],
+        );
+      }
     }),
   );
   Future<void> _recover(Directory root) => _recovery.recover(root);
@@ -76,7 +102,11 @@ class PluginSystem {
     final bytes = await file.readAsBytes();
     final archive = await _decodeArchive(bytes, operation);
     operation?.check();
-    final manifest = archive.manifest;
+    final manifest = Map<String, dynamic>.from(archive.manifest);
+    manifest['_installedPackage'] = {
+      'source': 'local',
+      'sha256': sha256.convert(bytes).toString(),
+    };
     final id = manifest['id'] as String;
     _checkId(id);
     if (expectedId != null && id != expectedId) {

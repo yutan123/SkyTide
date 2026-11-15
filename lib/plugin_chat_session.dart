@@ -66,6 +66,11 @@ class PluginChatSession {
         throw StateError('未声明 media.download 权限');
       if (method == 'media.download')
         return _download(args, permissions, origins);
+      if (method == 'media.inspect') {
+        final resource = _resources[args['resourceId']];
+        if (resource == null) throw StateError('媒体引用不存在');
+        return Map<String, dynamic>.from(resource)..remove('path');
+      }
       if (method == 'media.release') {
         final resource = _resources.remove(args['resourceId']);
         if (resource == null) return false;
@@ -77,6 +82,7 @@ class PluginChatSession {
         'chat.sendImage',
         'chat.sendVideo',
         'chat.sendAudio',
+        'chat.sendDocument',
       }.contains(method))
         throw StateError('未知聊天 API');
       final requestId = PluginMediaContract.text(
@@ -200,7 +206,8 @@ class PluginChatSession {
       throw StateError('下载需要 network 和 media.download 权限');
     final kind = args['kind'];
     final max = PluginMediaContract.limits[kind];
-    if (max == null) throw const FormatException('kind 必须为 image/video/audio');
+    if (max == null)
+      throw const FormatException('kind 必须为 image/video/audio/document');
     if (_resources.length >= 4) throw StateError('单次调用最多保留 4 个媒体资源，请先释放');
     var uri = PluginMediaContract.uri(args['url'], origins);
     final client = host.createClient();

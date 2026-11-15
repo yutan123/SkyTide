@@ -2,7 +2,27 @@ import 'dart:convert';
 
 /// The supported, deliberately small JSON Schema subset shared by settings and SDK.
 class PluginContract {
-  static const hooks = {'tool.before', 'tool.after', 'app.ready'};
+  static const capabilities = {
+    'chat.read',
+    'chat.send',
+    'media.download',
+    'invocation.context',
+    'modules.commonjs',
+    'resources.read',
+    'ui.web',
+    'events.chat',
+    'tasks',
+    'notifications',
+    'network.transfer',
+  };
+  static const hooks = {
+    'tool.before',
+    'tool.after',
+    'app.ready',
+    'chat.message',
+    'chat.sent',
+    'task.trigger',
+  };
   static final identifier = RegExp(r'^[a-zA-Z][a-zA-Z0-9_]{0,39}$');
 
   static void layout(Map root) {
@@ -20,8 +40,23 @@ class PluginContract {
         'input',
         'toggle',
         'button',
+        'progress',
+        'badge',
+        'spacer',
       }.contains(type)) {
         throw const FormatException('不支持的界面组件');
+      }
+      if (type == 'progress' && node['value'] != null) {
+        final value = node['value'];
+        if (value is! num || !value.isFinite || value < 0 || value > 1) {
+          throw const FormatException('progress value 必须为 0～1 的数值');
+        }
+      }
+      if (type == 'spacer' && node['height'] != null) {
+        final height = node['height'];
+        if (height is! num || !height.isFinite || height < 0 || height > 200) {
+          throw const FormatException('spacer height 必须为 0～200 的数值');
+        }
       }
       for (final field in ['label', 'text', 'style', 'action', 'id']) {
         if (node[field] != null && node[field] is! String)

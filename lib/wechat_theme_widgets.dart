@@ -25,7 +25,7 @@ class WechatNavigationBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 58,
+          height: 50,
           child: Row(
             children: List.generate(4, (i) {
               final color = i == index ? theme.primary : theme.textStrong;
@@ -42,7 +42,7 @@ class WechatNavigationBar extends StatelessWidget {
                             kind: ['chat', 'contacts', 'discover', 'person'][i],
                             color: color,
                             filled: i == index,
-                            size: 27,
+                            size: 23,
                           ),
                           if (i == 0 && unread > 0)
                             Positioned(
@@ -228,7 +228,7 @@ class WechatBubble extends StatelessWidget {
           ),
         ),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: color,
             borderRadius: BorderRadius.circular(5),

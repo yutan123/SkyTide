@@ -154,6 +154,15 @@ class _PluginUiPageState extends State<PluginUiPage> {
             ),
           ),
         );
+      case 'progress':
+        return LinearProgressIndicator(
+          value: (node['value'] as num?)?.toDouble(),
+          semanticsLabel: label,
+        );
+      case 'badge':
+        return Chip(label: Text(node['text'] as String? ?? label));
+      case 'spacer':
+        return SizedBox(height: (node['height'] as num? ?? 12).toDouble());
       case 'divider':
         return const Divider();
       case 'input':

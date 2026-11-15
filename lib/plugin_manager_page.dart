@@ -4,6 +4,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import 'db.dart';
+import 'plugin_archive.dart';
+import 'package:crypto/crypto.dart';
 import 'plugin_config_dialog.dart';
 import 'plugin_service.dart';
 import 'plugin_operation.dart';
@@ -143,12 +146,84 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     }
   }
 
+  Future<String?> _reviewPackage(String path, {String? updatingId}) async {
+    final file = File(path);
+    if (await file.length() > PluginArchive.maxCompressed) {
+      throw const FormatException('插件包超过 256 MiB 限制');
+    }
+    final bytes = await file.readAsBytes();
+    final manifest = PluginArchive.decode(bytes).manifest;
+    if (updatingId != null && manifest['id'] != updatingId) {
+      throw const FormatException('更新包的插件 ID 不匹配');
+    }
+    final previous = _packages[updatingId]?.manifest;
+    final permissions = (manifest['permissions'] as List? ?? []).cast<String>();
+    final origins = (manifest['networkOrigins'] as List? ?? []).cast<String>();
+    final addedPermissions = permissions.where(
+      (value) => !(previous?['permissions'] as List? ?? []).contains(value),
+    );
+    final addedOrigins = origins.where(
+      (value) => !(previous?['networkOrigins'] as List? ?? []).contains(value),
+    );
+    if (!mounted) return null;
+    final approved =
+        await TideDialogs.show<bool>(
+          context: context,
+          builder: (ctx) => TideDialogSurface(
+            title: Text(updatingId == null ? '安装插件' : '更新插件'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${manifest['name']}  ${manifest['version']}'),
+                  Text('作者：${manifest['author'] ?? '未填写'}'),
+                  const Text('来源：本地导入文件'),
+                  if (permissions.isNotEmpty)
+                    Text('权限：${permissions.join('、')}'),
+                  if (origins.isNotEmpty) Text('网络域名：${origins.join('、')}'),
+                  if (updatingId != null && addedPermissions.isNotEmpty)
+                    Text('新增权限：${addedPermissions.join('、')}'),
+                  if (updatingId != null && addedOrigins.isNotEmpty)
+                    Text('新增域名：${addedOrigins.join('、')}'),
+                  const SizedBox(height: 12),
+                  SelectableText('SHA-256：${sha256.convert(bytes)}'),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('继续'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!approved || !mounted) return null;
+    _operation?.check();
+    final temporary = await Directory.systemTemp.createTemp('tide-reviewed-');
+    _tempDirs.add(temporary);
+    final snapshot = File(p.join(temporary.path, 'package.tideplugin'));
+    await snapshot.writeAsBytes(bytes, flush: true);
+    return snapshot.path;
+  }
+
   Future<void> _install() async {
     final path = await _pickZip();
     if (path == null) return;
     try {
       _operation?.check();
-      await PluginSystem.instance.installZip(path, operation: _operation);
+      final reviewedPath = await _reviewPackage(path);
+      if (reviewedPath == null) return;
+      await PluginSystem.instance.installZip(
+        reviewedPath,
+        operation: _operation,
+      );
       if (mounted) _notice('插件已安装，默认关闭；配置完成后可启用');
     } finally {
       await _cleanTemp();
@@ -160,9 +235,14 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     if (path == null) return;
     try {
       _operation?.check();
+      final reviewedPath = await _reviewPackage(
+        path,
+        updatingId: row['id'] as String,
+      );
+      if (reviewedPath == null) return;
       await PluginService.instance.updateZip(
         row['id'] as String,
-        path,
+        reviewedPath,
         operation: _operation,
       );
       if (mounted) _notice('插件已更新');
@@ -276,6 +356,61 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         );
     } catch (error) {
       if (mounted) _notice('设置失败：$error');
+    }
+  }
+
+  Future<void> _selectBots(TidePluginPackage pack) async {
+    try {
+      final bots = await DBManager().queryBots();
+      final disabled = await PluginService.instance.disabledBots(pack.id);
+      if (!mounted) return;
+      final saved = await TideDialogs.show<bool>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, refresh) => TideDialogSurface(
+            title: const Text('选择启用的机器人'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('默认对全部机器人启用，取消勾选可单独停用。新建机器人默认启用。'),
+                    for (final bot in bots)
+                      CheckboxListTile(
+                        title: Text(bot['name']?.toString() ?? '机器人'),
+                        value: !disabled.contains(bot['id'].toString()),
+                        onChanged: (value) => refresh(() {
+                          final id = bot['id'].toString();
+                          if (value == true) {
+                            disabled.remove(id);
+                          } else {
+                            disabled.add(id);
+                          }
+                        }),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (saved != true) return;
+      await PluginService.instance.setDisabledBots(pack.id, disabled);
+      if (mounted) _notice('机器人启用范围已保存');
+    } catch (error) {
+      if (mounted) _notice('保存失败：$error');
     }
   }
 
@@ -626,6 +761,12 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                         style: TextStyle(fontSize: 10, color: theme.textWeak),
                       ),
                     ),
+                    if (pack != null)
+                      _action(
+                        Icons.smart_toy_outlined,
+                        '选择启用的机器人',
+                        _busy ? null : () => _selectBots(pack),
+                      ),
                     if (pack != null &&
                         ((pack.manifest['config'] as Map?)?['properties']
                                     as Map? ??

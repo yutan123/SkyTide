@@ -43,21 +43,33 @@ class TransferProgress {
               canPop: false,
               child: TideDialogSurface(
                 alignment: Alignment.bottomCenter,
+                margin: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 12,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 content: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     SizedBox(
-                      width: 26,
-                      height: 26,
+                      width: 22,
+                      height: 22,
                       child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
+                        strokeWidth: 2.2,
                         color: theme.primary,
                       ),
                     ),
-                    const SizedBox(width: 18),
-                    Expanded(
+                    const SizedBox(width: 12),
+                    Flexible(
                       child: Text(
                         operation?.cancelled == true ? '正在取消…' : label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
+                          fontSize: 14,
                           color: theme.textStrong,
                           fontFamily: 'TideFont',
                         ),

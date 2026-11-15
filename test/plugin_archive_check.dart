@@ -153,7 +153,10 @@ Future<void> main() async {
     ...base(),
     Entry('lie', List.filled(4096, 65), method: 8, declaredSize: 8),
   ]);
-  rejects([...base(), for (var i = 0; i < 2000; i++) Entry('file$i', [])]);
+  rejects([
+    ...base(),
+    for (var i = 0; i < PluginArchive.maxEntries; i++) Entry('file$i', []),
+  ]);
   rejects(base({'entry': 'missing.js'}));
   rejects(base({'apiVersion': 2}));
   rejects(

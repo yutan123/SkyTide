@@ -111,7 +111,7 @@ class _ProfilePageState extends State<ProfilePage> {
             Text(
               '修改昵称',
               style: TextStyle(
-                fontSize: 17,
+                fontSize: TideTheme.of(ctx).isWechat ? 15 : 17,
                 fontWeight: FontWeight.w700,
                 fontFamily: 'TideFont',
                 color: TideTheme.of(ctx).textStrong,
@@ -174,7 +174,7 @@ class _ProfilePageState extends State<ProfilePage> {
         BouncyTap(
           onTap: _pickAvatar,
           child: CircleAvatar(
-            radius: 38,
+            radius: theme.isWechat ? 28 : 38,
             backgroundColor: theme.primary.withValues(alpha: 0.15),
             backgroundImage:
                 _avatarPath.isNotEmpty && File(_avatarPath).existsSync()
@@ -195,7 +195,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 Text(
                   _userName,
                   style: TextStyle(
-                    fontSize: 22,
+                    fontSize: theme.isWechat ? 19 : 22,
                     fontWeight: FontWeight.w600,
                     fontFamily: 'TideFont',
                     color: theme.onBackgroundStrong,
@@ -220,7 +220,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (theme.isWechat)
       return Container(
         color: theme.surface,
-        padding: const EdgeInsets.fromLTRB(24, 38, 24, 32),
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
         child: content,
       );
     // 全局背景图下不显示卡片，直接返回内容
@@ -264,7 +264,7 @@ class _ProfilePageState extends State<ProfilePage> {
         color: theme.surface,
         padding: const EdgeInsets.only(left: 20),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(0, 18, 20, 18),
+          padding: const EdgeInsets.fromLTRB(0, 13, 20, 13),
           decoration: BoxDecoration(
             border: Border(bottom: BorderSide(color: theme.border, width: .5)),
           ),

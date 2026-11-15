@@ -6,11 +6,15 @@ import 'package:flutter/material.dart';
 /// and a distinct brightness, rather than showing the image through the bar.
 Color chatHeaderSurface(Color sample, {required bool dark}) {
   final hsl = HSLColor.fromColor(sample);
+  // Keep the wallpaper hue while giving the toolbar its own opaque tonal
+  // plane. The small lightness shift makes it read as a bar over the image,
+  // rather than as a transparent continuation of the wallpaper.
+  final lightness = dark
+      ? (hsl.lightness * .78).clamp(.10, .30)
+      : (hsl.lightness * .86).clamp(.62, .90);
   return hsl
-      .withSaturation((hsl.saturation * .55).clamp(0.0, .45))
-      .withLightness(
-        dark ? .14 + hsl.lightness * .10 : .80 + hsl.lightness * .12,
-      )
+      .withSaturation((hsl.saturation * .72).clamp(.08, .52))
+      .withLightness(lightness)
       .toColor()
       .withValues(alpha: 1);
 }

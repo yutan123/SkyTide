@@ -19,37 +19,58 @@
     const callback = pending.get(id);
     if (!callback) return;
     pending.delete(id);
-    error ? callback.reject(new Error(error)) : callback.resolve(value);
+    if (!error) return callback.resolve(value);
+    let detail;
+    try { detail = JSON.parse(error); } catch (_) {}
+    const failure = new Error(detail && detail.tideError === 1 ? detail.message : String(error));
+    failure.code = detail && detail.tideError === 1 ? detail.code : 'HOST_ERROR';
+    failure.retryable = !!(detail && detail.tideError === 1 && detail.retryable);
+    callback.reject(failure);
   };
   const scoped = token => {
     const call = (method, options = {}) => {
-      if (!token) return Promise.reject(new Error('This API requires a tool invocation context'));
+      if (!token) return Promise.reject(new Error('This API requires a tool invocation or scoped event context'));
       return rpc(method, {...options, contextToken: token});
     };
     return Object.freeze({
       chat: Object.freeze({
         getContext: () => call('chat.context'),
+        getBotInfo: () => call('chat.getBotInfo'),
+        getRecentMessages: (options = {}) => call('chat.getRecentMessages', options),
+        getUnreadCount: () => call('chat.getUnreadCount'),
         sendText: options => call('chat.sendText', options),
         sendImage: options => call('chat.sendImage', options),
         sendVideo: options => call('chat.sendVideo', options),
         sendAudio: options => call('chat.sendAudio', options),
+        sendDocument: options => call('chat.sendDocument', options),
         getStatus: requestId => call('chat.status', {requestId}),
+      }),
+      notifications: Object.freeze({show: options => call('notifications.show', options)}),
+      tasks: Object.freeze({
+        list: () => call('tasks.list'),
+        schedule: options => call('tasks.schedule', options),
+        cancel: id => call('tasks.cancel', {id}),
       }),
       media: Object.freeze({
         download: options => call('media.download', options),
+        inspect: resourceId => call('media.inspect', {resourceId}),
         release: resourceId => call('media.release', {resourceId}),
       }),
     });
   };
   globalThis.tide = Object.freeze({
     apiVersion: 1,
-    capabilities: Object.freeze(['chat.send', 'media.download', 'invocation.context', 'modules.commonjs', 'resources.read', 'ui.web']),
+    capabilities: Object.freeze(['chat.read', 'chat.send', 'media.download', 'invocation.context', 'modules.commonjs', 'resources.read', 'ui.web', 'events.chat', 'tasks', 'notifications', 'network.transfer']),
     chat: Object.freeze({
       getContext: context => context.chat.getContext(),
+      getBotInfo: context => context.chat.getBotInfo(),
+      getRecentMessages: (context, options) => context.chat.getRecentMessages(options),
+      getUnreadCount: context => context.chat.getUnreadCount(),
       sendText: (context, options) => context.chat.sendText(options),
       sendImage: (context, options) => context.chat.sendImage(options),
       sendVideo: (context, options) => context.chat.sendVideo(options),
       sendAudio: (context, options) => context.chat.sendAudio(options),
+      sendDocument: (context, options) => context.chat.sendDocument(options),
       getStatus: (context, requestId) => context.chat.getStatus(requestId),
     }),
     media: Object.freeze({
@@ -84,6 +105,12 @@
     }),
     resources: Object.freeze({readText: path => rpc('resources.readText', {path}), readJson: path => rpc('resources.readJson', {path})}),
     request: options => rpc('http.request', options),
+    network: Object.freeze({
+      transfer: options => rpc('http.transfer', options),
+      cancel: requestId => rpc('http.cancel', {requestId}),
+      progress: requestId => rpc('http.progress', {requestId}),
+    }),
+    diagnostics: Object.freeze({getStatus: () => rpc('diagnostics.getStatus')}),
     log: message => rpc('log', {message: String(message)}),
   });
   globalThis.__tideDispatch = (id, kind, name, payload) => {
@@ -99,9 +126,11 @@
         const wrapped = payload && payload.__tideInvocation === true;
         return await handler(wrapped ? payload.args : payload, scoped(wrapped ? payload.contextToken : null));
       }
-      let result = payload;
+      const eventWrapped = payload && payload.__tideEvent === true;
+      const eventContext = scoped(eventWrapped ? payload.contextToken : null);
+      let result = eventWrapped ? payload.payload : payload;
       for (const handler of events.get(name) || []) {
-        const next = await handler(result);
+        const next = await handler(result, eventContext);
         if (next !== undefined) result = next;
       }
       return result;

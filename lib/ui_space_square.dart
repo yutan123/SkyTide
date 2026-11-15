@@ -1256,7 +1256,7 @@ class SquarePageState extends State<SquarePage>
         onTap: () => _openFeedDetail(feed),
         onLongPress: () => _deleteFeed(feed, key),
         child: Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             color: theme.surface,
             border: Border(bottom: BorderSide(color: theme.border, width: .5)),
@@ -1269,10 +1269,10 @@ class SquarePageState extends State<SquarePage>
                 path: feed['is_bot'] == true
                     ? feed['bot_avatar']?.toString()
                     : null,
-                size: 42,
+                size: 34,
                 radius: 5,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1281,7 +1281,7 @@ class SquarePageState extends State<SquarePage>
                       feed['user']?.toString() ?? '',
                       style: const TextStyle(
                         color: Color(0xFF576B95),
-                        fontSize: 16,
+                        fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -1289,8 +1289,8 @@ class SquarePageState extends State<SquarePage>
                     Text(
                       feed['content']?.toString() ?? '',
                       style: TextStyle(
-                        fontSize: 16,
-                        height: 1.5,
+                        fontSize: 14,
+                        height: 1.4,
                         color: theme.textStrong,
                       ),
                     ),

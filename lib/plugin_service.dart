@@ -1,3 +1,10 @@
+import 'plugin_task_store.dart';
+import 'ops.dart';
+import 'plugin_network.dart';
+import 'plugin_event_store.dart';
+import 'plugin_media_contract.dart';
+import 'chat_event_bus.dart';
+import 'db.dart';
 import 'plugin_operation.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -19,7 +26,150 @@ import 'plugin_package_files.dart';
 class PluginService {
   PluginService._() {
     PluginCoordinator.listen(_invalidateLocal);
+    ChatEventBus.instance.events.listen((event) {
+      if (event.type != ChatEventType.inserted ||
+          event.botId == null ||
+          event.message == null ||
+          (event.messageId?.startsWith('plugin_') ?? false))
+        return;
+      if (_pendingEvents >= 32) return;
+      _pendingEvents++;
+      unawaited(_deliverChatEvent(event).whenComplete(() => _pendingEvents--));
+    });
   }
+  int _pendingEvents = 0;
+  Future<void> _deliverChatEvent(ChatEvent event) async {
+    try {
+      await initialize();
+    } catch (error) {
+      _log('events', '消息事件初始化失败：$error');
+      return;
+    }
+    for (final pack in _packages.values.toList()) {
+      final name = event.message!['role'] == 'user'
+          ? 'chat.message'
+          : 'chat.sent';
+      if (!(pack.manifest['hooks'] as List? ?? []).contains(name) ||
+          !(pack.manifest['permissions'] as List? ?? []).contains('chat.read'))
+        continue;
+      PluginChatSession? session;
+      try {
+        final botId = event.botId!;
+        if (!await allowsBot(pack.id, botId)) continue;
+        final runtime = _running[pack.id];
+        if (runtime == null || runtime.closed) continue;
+        session = PluginChatSession(
+          host: const AppPluginChatHost(),
+          pluginId: pack.id,
+          botId: botId,
+          assertCurrent: () => _assertBotAllowed(pack, botId),
+        );
+        _chatSessions[session.token] = session;
+        await session.check();
+        final messageId = event.messageId ?? event.message!['id']?.toString();
+        if (messageId == null ||
+            !await PluginEventStore.claim(pack.id, botId, name, messageId))
+          continue;
+        await session.check();
+        await runtime.call('event', name, {
+          '__tideEvent': true,
+          'contextToken': session.token,
+          'payload': {
+            'botId': botId,
+            'messageId': event.messageId,
+            'message': {
+              for (final key in ['id', 'role', 'type', 'content', 'timestamp'])
+                key: event.message![key],
+            },
+          },
+        });
+      } catch (error) {
+        _log(pack.id, '消息事件失败：$error');
+      } finally {
+        if (session != null) {
+          _chatSessions.remove(session.token);
+          try {
+            await session.close();
+          } catch (error) {
+            _log(pack.id, '$error');
+          }
+        }
+      }
+    }
+  }
+
+  bool _runningTasks = false;
+  Future<void> runDueTasks() async {
+    if (_runningTasks) return;
+    _runningTasks = true;
+    try {
+      await initialize();
+      for (var count = 0; count < 8; count++) {
+        final task = await PluginTaskStore.claim();
+        if (task == null) break;
+        Object? failure;
+        PluginChatSession? session;
+        try {
+          final id = task['plugin_id'] as String;
+          final botId = task['bot_id'] as String;
+          final pack = _packages[id];
+          final runtime = _running[id];
+          if (pack == null ||
+              runtime == null ||
+              runtime.closed ||
+              !(pack.manifest['permissions'] as List? ?? []).contains(
+                'tasks',
+              ) ||
+              !(pack.manifest['hooks'] as List? ?? []).contains(
+                'task.trigger',
+              )) {
+            throw StateError('任务所属插件已停用或未声明任务能力');
+          }
+          session = PluginChatSession(
+            host: const AppPluginChatHost(),
+            pluginId: id,
+            botId: botId,
+            assertCurrent: () async {
+              await _assertBotAllowed(pack, botId);
+              await PluginTaskStore.assertClaim(task);
+            },
+          );
+          _chatSessions[session.token] = session;
+          await session.check();
+          if (!await const AppPluginChatHost().hasBot(botId))
+            throw StateError('任务机器人已删除');
+          await runtime.call('event', 'task.trigger', {
+            '__tideEvent': true,
+            'contextToken': session.token,
+            'payload': {
+              'id': task['id'],
+              'botId': botId,
+              'scheduledAt': task['due_at'],
+              'payload': jsonDecode(task['payload'] as String),
+            },
+          });
+          await session.check();
+        } catch (error) {
+          failure = error;
+        } finally {
+          if (session != null) {
+            _chatSessions.remove(session.token);
+            try {
+              await session.close();
+            } catch (error) {
+              failure ??= error;
+            }
+          }
+          await PluginTaskStore.finish(task, failure);
+        }
+      }
+    } catch (error) {
+      _log('scheduler', '任务调度失败：$error');
+    } finally {
+      _runningTasks = false;
+    }
+  }
+
   final _epochs = <String, int>{};
   final _chatSessions = <String, PluginChatSession>{};
   void _cancelChats(String id) {
@@ -40,6 +190,7 @@ class PluginService {
     for (final client in _clients.remove(id) ?? <http.Client>{}) {
       client.close();
     }
+    _networks.remove(id)?.close();
     errors.remove(id);
   }
 
@@ -51,6 +202,8 @@ class PluginService {
   Future<void> _queue = Future.value();
   static const _secure = FlutterSecureStorage();
   final _clients = <String, Set<http.Client>>{};
+  final _networks = <String, PluginNetwork>{};
+  final _notificationTimes = <String, int>{};
   final _stopping = <String>{};
   final _storageQueues = <String, Future<void>>{};
 
@@ -85,6 +238,7 @@ class PluginService {
           final snap = _configSnapshots[id];
           if (snap != null && snap != jsonEncode(config)) {
             await _stop(id);
+            _networks.remove(id)?.close();
             errors.remove(id);
           }
         }
@@ -104,6 +258,7 @@ class PluginService {
     PluginOperation? operation,
   }) => _exclusive(() async {
     operation?.check();
+    _networks.remove(id)?.close();
     errors.remove(id);
     if (!enabled) {
       await PluginSystem.instance.setEnabled(id, false);
@@ -124,6 +279,7 @@ class PluginService {
       await _stop(id);
       await PluginSystem.instance.setEnabled(id, false);
       if (operation?.cancelled == true) {
+        _networks.remove(id)?.close();
         errors.remove(id);
       } else {
         errors[id] = error.toString();
@@ -223,6 +379,7 @@ class PluginService {
     _stopping.add(id);
     _cancelChats(id);
     final runtime = _running.remove(id);
+    _networks.remove(id)?.close();
     // Cancel network work before invoking teardown; a plugin may be awaiting it.
     for (final client in _clients.remove(id) ?? <http.Client>{}) {
       client.close();
@@ -247,6 +404,7 @@ class PluginService {
     await PluginSystem.instance.setEnabled(id, false);
     await _stop(id);
     await PluginSystem.instance.delete(id);
+    _networks.remove(id)?.close();
     errors.remove(id);
   });
 
@@ -265,6 +423,7 @@ class PluginService {
     final wasEnabled = previous['enabled'] == 1;
     await PluginCoordinator.invalidate(id);
     await _stop(id);
+    _networks.remove(id)?.close();
     errors.remove(id);
     try {
       await PluginSystem.instance.installZip(
@@ -304,6 +463,7 @@ class PluginService {
       } catch (error) {
         await _stop(id);
         if (operation?.cancelled == true) {
+          _networks.remove(id)?.close();
           errors.remove(id);
         } else {
           errors[id] = error.toString();
@@ -329,6 +489,7 @@ class PluginService {
       await PluginSystem.instance.saveConfig(id, values);
       if (row['enabled'] == 1) {
         await _stop(id);
+        _networks.remove(id)?.close();
         errors.remove(id);
         try {
           await _start(pack);
@@ -341,14 +502,40 @@ class PluginService {
     },
   );
 
+  Future<Set<String>> disabledBots(String pluginId) async {
+    final raw = await DBManager().getKV('plugin_disabled_bots_$pluginId');
+    if (raw == null) return <String>{};
+    return (jsonDecode(raw) as List).cast<String>().toSet();
+  }
+
+  Future<bool> allowsBot(String pluginId, String? botId) async =>
+      botId == null || !(await disabledBots(pluginId)).contains(botId);
+
+  Future<void> setDisabledBots(String pluginId, Set<String> ids) async {
+    await DBManager().insertKV(
+      'plugin_disabled_bots_$pluginId',
+      jsonEncode(ids.toList()..sort()),
+    );
+    for (final session in _chatSessions.values.toList()) {
+      if (session.pluginId == pluginId && ids.contains(session.botId))
+        session.cancel();
+    }
+  }
+
+  Future<void> _assertBotAllowed(TidePluginPackage pack, String botId) async {
+    await _assertCurrent(pack);
+    if (!await allowsBot(pack.id, botId)) throw StateError('此机器人未启用该插件');
+  }
+
   static String toolName(String id, String name) =>
       'tp_${sha256.convert(utf8.encode(id)).toString().substring(0, 16)}_$name';
 
-  Future<List<Map<String, dynamic>>> schemas() async {
+  Future<List<Map<String, dynamic>>> schemas({String? botId}) async {
     await initialize();
     return [
       for (final pack in _packages.values)
-        if (_running[pack.id]?.closed == false)
+        if (_running[pack.id]?.closed == false &&
+            await allowsBot(pack.id, botId))
           for (final tool in pack.manifest['tools'] as List? ?? [])
             {
               'type': 'function',
@@ -370,6 +557,10 @@ class PluginService {
     for (final pack in _packages.values.toList()) {
       for (final tool in pack.manifest['tools'] as List? ?? []) {
         if (toolName(pack.id, tool['name'] as String) != name) continue;
+        if (!await allowsBot(pack.id, botId))
+          return {
+            'result': {'ok': false, 'error': '此机器人未启用该插件'},
+          };
         final runtime = _running[pack.id];
         if (runtime == null || runtime.closed) break;
         final session = botId == null
@@ -378,7 +569,7 @@ class PluginService {
                 host: const AppPluginChatHost(),
                 pluginId: pack.id,
                 botId: botId,
-                assertCurrent: () => _assertCurrent(pack),
+                assertCurrent: () => _assertBotAllowed(pack, botId),
               );
         if (session != null) _chatSessions[session.token] = session;
         try {
@@ -392,6 +583,9 @@ class PluginService {
             'contextToken': session?.token,
           });
           await _assertCurrent(pack);
+          if (!await allowsBot(pack.id, botId)) {
+            throw StateError('此机器人未启用该插件');
+          }
           return {
             'result': {'ok': true, 'data': value},
           };
@@ -422,15 +616,24 @@ class PluginService {
     Map<String, dynamic> payload,
   ) async {
     await initialize();
-    var current = payload;
+    var current = Map<String, dynamic>.from(payload);
+    final botId = payload['botId'] as String?;
     for (final pack in _packages.values.toList()) {
+      if (!await allowsBot(pack.id, botId)) continue;
       if (!(pack.manifest['hooks'] as List? ?? []).contains(name)) continue;
       final runtime = _running[pack.id];
       if (runtime == null || runtime.closed) continue;
       try {
         final result = await runtime.call('event', name, current);
         await _assertCurrent(pack);
-        if (result is Map) current = Map<String, dynamic>.from(result);
+        if (!await allowsBot(pack.id, botId)) continue;
+        if (result is Map) {
+          final next = Map<String, dynamic>.from(result);
+          if (next['botId'] != botId) {
+            throw StateError('插件 Hook 不允许修改机器人范围');
+          }
+          current = next;
+        }
       } catch (error) {
         errors[pack.id] = 'Hook $name：$error';
         _log(pack.id, errors[pack.id]!);
@@ -477,10 +680,122 @@ class PluginService {
       throw StateError('插件已停止');
     await _assertCurrent(pack);
     final permissions = pack.manifest['permissions'] as List? ?? [];
+    if (method == 'notifications.show') {
+      if (!permissions.contains('notifications'))
+        throw StateError('未声明 notifications 权限');
+      final session = _chatSessions[args['contextToken']];
+      if (session == null || session.pluginId != pack.id)
+        throw StateError('通知需要有效的会话上下文');
+      final title = PluginMediaContract.text(
+        args['title'],
+        'title',
+        120,
+        required: true,
+      );
+      final body = PluginMediaContract.text(
+        args['body'],
+        'body',
+        2000,
+        required: true,
+      );
+      await session.check();
+      final key = '${pack.id}:${session.botId}';
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - (_notificationTimes[key] ?? 0) < 10000)
+        throw StateError('同一机器人每十秒最多一条插件通知');
+      _notificationTimes[key] = now;
+      final digest = sha256.convert(utf8.encode('plugin:$key')).bytes;
+      final id =
+          0x40000000 |
+          ((digest[0] & 63) << 24) |
+          (digest[1] << 16) |
+          (digest[2] << 8) |
+          digest[3];
+      await OpsManager().showSystemNotification(
+        id: id,
+        title: '${pack.manifest['name']} · $title',
+        body: body,
+        botId: session.botId,
+      );
+      await session.check();
+      return null;
+    }
+    if (method.startsWith('tasks.')) {
+      final session = _chatSessions[args['contextToken']];
+      if (session == null || session.pluginId != pack.id) {
+        throw StateError('任务 API 需要有效的会话上下文');
+      }
+      if (!permissions.contains('tasks')) throw StateError('未声明 tasks 权限');
+      await session.check();
+      if (method == 'tasks.schedule') {
+        if (!(pack.manifest['hooks'] as List? ?? []).contains('task.trigger')) {
+          throw StateError('必须声明 task.trigger');
+        }
+        await PluginCoordinator.locked('lifecycle', () async {
+          await session.check();
+          await PluginTaskStore.schedule(pack.id, session.botId, args);
+        });
+        return {'id': args['id'], 'status': 'pending'};
+      }
+      if (method == 'tasks.list') {
+        final result = await PluginTaskStore.list(pack.id, session.botId);
+        await session.check();
+        return result;
+      }
+      if (method == 'tasks.cancel') {
+        final id = args['id'];
+        if (id is! String) throw const FormatException('任务 id 必须是字符串');
+        return PluginTaskStore.cancel(pack.id, session.botId, id);
+      }
+      throw StateError('未知任务 API');
+    }
     if (method.startsWith('chat.') || method.startsWith('media.')) {
       final session = _chatSessions[args['contextToken']];
       if (session == null || session.pluginId != pack.id)
-        throw StateError('此 API 需要有效的工具调用上下文');
+        throw StateError('此 API 需要有效的工具调用或事件上下文');
+      if (method == 'chat.getBotInfo' ||
+          method == 'chat.getRecentMessages' ||
+          method == 'chat.getUnreadCount') {
+        if (!permissions.contains('chat.read')) {
+          throw StateError('未声明 chat.read 权限');
+        }
+        await session.check();
+        final db = await DBManager().database;
+        dynamic result;
+        if (method == 'chat.getBotInfo') {
+          final rows = await db.query(
+            'bots',
+            columns: ['id', 'name', 'desc', 'created_at'],
+            where: 'id = ?',
+            whereArgs: [session.botId],
+            limit: 1,
+          );
+          result = rows.isEmpty ? null : rows.first;
+        } else if (method == 'chat.getRecentMessages') {
+          final limit = args['limit'] ?? 20;
+          if (limit is! int || limit < 1 || limit > 100) {
+            throw const FormatException('limit 必须为 1～100 的整数');
+          }
+          result = await db.query(
+            'chat_history',
+            columns: ['id', 'role', 'type', 'content', 'timestamp'],
+            where: 'bot_id = ?',
+            whereArgs: [session.botId],
+            orderBy: 'timestamp DESC, id DESC',
+            limit: limit,
+          );
+        } else {
+          final rows = await db.rawQuery(
+            'SELECT COUNT(*) AS count FROM chat_history WHERE bot_id = ? '
+            'AND role = ? AND timestamp > COALESCE('
+            '(SELECT last_read_at FROM bots WHERE id = ?), 0)',
+            [session.botId, 'assistant', session.botId],
+          );
+          result = rows.first['count'] ?? 0;
+        }
+        await session.check();
+        return result;
+      }
       return session.call(
         method,
         args,
@@ -496,6 +811,19 @@ class PluginService {
       final text = await PluginPackageFiles(pack.directory).text(path);
       await _assertCurrent(pack);
       return method == 'resources.readJson' ? jsonDecode(text) : text;
+    }
+    if (method == 'diagnostics.getStatus') {
+      return {
+        'pluginId': pack.id,
+        'version': pack.manifest['version'],
+        'apiVersion': 1,
+        'running': _running[pack.id]?.closed == false,
+        'activeContexts': _chatSessions.values
+            .where((s) => s.pluginId == pack.id)
+            .length,
+        'lastError': errors[pack.id],
+        'package': pack.manifest['_installedPackage'],
+      };
     }
     if (method == 'log') {
       _log(
@@ -551,8 +879,30 @@ class PluginService {
       );
       return operation;
     }
+    if (method == 'http.transfer' ||
+        method == 'http.cancel' ||
+        method == 'http.progress') {
+      if (!permissions.contains('network')) throw StateError('未声明 network 权限');
+      final network = _networks.putIfAbsent(pack.id, PluginNetwork.new);
+      if (method != 'http.transfer') return network.control(method, args);
+      return network.request(
+        args,
+        pack.manifest['networkOrigins'] as List? ?? [],
+        () => _assertCurrent(pack),
+      );
+    }
     if (method == 'http.request') {
       if (!permissions.contains('network')) throw StateError('未声明 network 权限');
+      final timeoutMs = args['timeoutMs'];
+      if (timeoutMs != null &&
+          (timeoutMs is! int ||
+              timeoutMs < 1 ||
+              timeoutMs > PluginTimeouts.network.inMilliseconds)) {
+        throw const FormatException('timeoutMs 必须为网络超时上限以内的正整数');
+      }
+      final timeout = timeoutMs == null
+          ? PluginTimeouts.network
+          : Duration(milliseconds: timeoutMs as int);
       final uri = Uri.parse(args['url'] as String);
       final origins = pack.manifest['networkOrigins'] as List? ?? [];
       if (uri.scheme != 'https' ||
@@ -581,12 +931,13 @@ class PluginService {
             bytes.addAll(chunk);
             if (bytes.length > 1024 * 1024) throw StateError('响应超过 1 MB');
           }
+          await _assertCurrent(pack);
           return {
             'status': response.statusCode,
             'headers': response.headers,
             'body': utf8.decode(bytes, allowMalformed: true),
           };
-        })().timeout(PluginTimeouts.network);
+        })().timeout(timeout);
       } finally {
         client.close();
         _clients[pack.id]?.remove(client);

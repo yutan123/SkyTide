@@ -1,3 +1,4 @@
+import 'plugin_error.dart';
 import 'plugin_operation.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -113,7 +114,7 @@ class PluginProcessTransport {
         }
       } catch (e) {
         value = null;
-        error = e.toString();
+        error = pluginHostError(e);
       }
       if (!_closed) {
         await _invoke('send', {

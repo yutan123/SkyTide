@@ -3774,7 +3774,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final action = await showTidePopover<String>(
       context: anchor,
       preferAbove: true,
-      width: retry ? 240 : 164,
+      width: retry ? 192 : 128,
       backgroundColor: const Color(0xFF4C4C4C),
       radius: 7,
       builder: (menuContext) => Row(
@@ -3788,17 +3788,17 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               child: InkWell(
                 onTap: () => Navigator.pop(menuContext, item.id),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(item.icon, color: Colors.white, size: 23),
-                      const SizedBox(height: 7),
+                      Icon(item.icon, color: Colors.white, size: 20),
+                      const SizedBox(height: 5),
                       Text(
                         item.label,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
+                          fontSize: 11,
                         ),
                       ),
                     ],
@@ -4015,20 +4015,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     );
   }
 
-  Color _messageTimeColor(TideTheme theme) => theme.isDark
-      ? Colors.white.withValues(alpha: .92)
-      : Colors.black.withValues(alpha: .72);
-
-  List<Shadow> _messageTimeShadows(TideTheme theme) => [
-    Shadow(
-      color: theme.isDark
-          ? Colors.black.withValues(alpha: .72)
-          : Colors.white.withValues(alpha: .78),
-      blurRadius: 3,
-    ),
-  ];
-
   String? _headerColorPath;
+
   Color? _headerSample;
   int _headerColorRevision = 0;
 
@@ -4070,8 +4058,17 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             : Brightness.light,
         statusBarBrightness: lightSurface ? Brightness.light : Brightness.dark,
       ),
-      child: ColoredBox(
-        color: background,
+      child: Container(
+        decoration: BoxDecoration(
+          color: background,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .10),
+              blurRadius: 7,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
         child: SafeArea(
           bottom: false,
           child: Container(
@@ -4179,7 +4176,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             child: Row(
               children: [
                 SizedBox(
-                  width: 56,
+                  width: 48,
                   child: IconButton(
                     tooltip: '返回',
                     icon: Icon(
@@ -4198,7 +4195,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                         _bot['name']?.toString() ?? '',
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: theme.textStrong,
                         ),
@@ -4212,13 +4209,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   ),
                 ),
                 SizedBox(
-                  width: 56,
+                  width: 48,
                   child: IconButton(
                     tooltip: '聊天信息',
                     icon: Icon(
                       Icons.more_horiz,
                       color: theme.textStrong,
-                      size: 28,
+                      size: 24,
                     ),
                     onPressed: () {
                       _inputFocus.unfocus();
@@ -4252,11 +4249,11 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   Widget _wechatMessageAvatar(bool isUser) => Padding(
-    padding: EdgeInsets.only(left: isUser ? 10 : 0, right: isUser ? 0 : 10),
+    padding: EdgeInsets.only(left: isUser ? 8 : 0, right: isUser ? 0 : 8),
     child: TideBotAvatar(
       name: isUser ? '我' : (_bot['name']?.toString() ?? 'TideBot'),
       path: isUser ? _userAvatar : _bot['avatar']?.toString(),
-      size: 40,
+      size: 34,
       radius: 4,
     ),
   );
@@ -4625,7 +4622,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (theme.isWechat && !isUser)
+                            if (theme.isWechat && _showChatAvatar && !isUser)
                               _wechatMessageAvatar(false),
                             if (isUser && hasRetryFailure)
                               GestureDetector(
@@ -4641,13 +4638,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                               ),
                             Container(
                               margin: EdgeInsets.only(
-                                bottom: theme.isWechat ? 14 : 8,
+                                bottom: theme.isWechat ? 10 : 8,
                               ),
                               constraints: BoxConstraints(
                                 maxWidth: theme.isWechat
                                     ? (MediaQuery.sizeOf(context).width -
                                               24 -
-                                              50 -
+                                              (_showChatAvatar ? 42 : 0) -
                                               (isUser && hasRetryFailure
                                                   ? 28
                                                   : 0))
@@ -4949,12 +4946,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                               fmtTime(ts),
                                               style: TextStyle(
                                                 fontSize: 10,
-                                                color: _messageTimeColor(
-                                                  TideTheme.of(context),
-                                                ),
-                                                shadows: _messageTimeShadows(
-                                                  TideTheme.of(context),
-                                                ),
+                                                color: TideTheme.of(
+                                                  context,
+                                                ).textFaint,
                                                 fontFamily: 'TideFont',
                                               ),
                                             ),
@@ -4976,7 +4970,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                 ],
                               ),
                             ),
-                            if (theme.isWechat && isUser)
+                            if (theme.isWechat && _showChatAvatar && isUser)
                               _wechatMessageAvatar(true),
                           ],
                         ),
@@ -5119,7 +5113,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 ? theme.textStrong
                 : const Color(0xFF111111))
           : (isUser ? Colors.white : theme.textStrong),
-      fontSize: theme.isWechat ? 17 : 14,
+      fontSize: theme.isWechat ? 15 : 14,
       fontFamily: 'TideFont',
       height: 1.5,
     );
@@ -5604,19 +5598,24 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(
+                      minWidth: 40,
+                      minHeight: 40,
+                    ),
                     tooltip: _isRecording ? '结束录音' : '录音',
                     onPressed: !_isRecording && _sendVoiceCooldown.isBlocked
                         ? null
                         : _toggleRec,
                     icon: WechatIcon(
                       kind: 'voice',
-                      size: 29,
+                      size: 24,
                       color: _isRecording ? Colors.red : theme.textStrong,
                     ),
                   ),
                   Expanded(
                     child: Container(
-                      constraints: const BoxConstraints(minHeight: 40),
+                      constraints: const BoxConstraints(minHeight: 36),
                       decoration: BoxDecoration(
                         color: theme.surface,
                         borderRadius: BorderRadius.circular(5),
@@ -5628,7 +5627,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                         minLines: 1,
                         maxLines: 4,
                         textInputAction: TextInputAction.newline,
-                        style: TextStyle(fontSize: 17, color: theme.textStrong),
+                        style: TextStyle(fontSize: 15, color: theme.textStrong),
                         decoration: InputDecoration(
                           filled: false,
                           enabledBorder: InputBorder.none,
@@ -5644,18 +5643,23 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 10,
-                            vertical: 10,
+                            vertical: 8,
                           ),
                         ),
                       ),
                     ),
                   ),
                   IconButton(
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(
+                      minWidth: 40,
+                      minHeight: 40,
+                    ),
                     tooltip: _showEmojiPanel ? '收起表情' : '表情',
                     onPressed: _toggleEmojiPanel,
                     icon: WechatIcon(
                       kind: 'smile',
-                      size: 29,
+                      size: 24,
                       color: theme.textStrong,
                     ),
                   ),
@@ -5679,11 +5683,16 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   else
                     Builder(
                       builder: (triggerContext) => IconButton(
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(
+                          minWidth: 40,
+                          minHeight: 40,
+                        ),
                         tooltip: '图片和文件',
                         onPressed: () => _pickMedia(triggerContext),
                         icon: WechatIcon(
                           kind: 'add',
-                          size: 29,
+                          size: 24,
                           color: theme.textStrong,
                         ),
                       ),

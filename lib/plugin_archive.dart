@@ -172,6 +172,13 @@ class PluginArchive {
     }
     if ((m['apiVersion'] ?? 1) != 1)
       throw const FormatException('不支持的 apiVersion');
+    final requiredCapabilities = m['requiredCapabilities'] ?? [];
+    if (requiredCapabilities is! List ||
+        requiredCapabilities.any(
+          (item) => !PluginContract.capabilities.contains(item),
+        )) {
+      throw const FormatException('插件要求当前宿主不支持的 requiredCapabilities');
+    }
     if (!entry.endsWith('.js') || files[entry]!.length > 2 * 1024 * 1024) {
       throw const FormatException('entry 必须为不超过 2 MB 的 JS bundle');
     }

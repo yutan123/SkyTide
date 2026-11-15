@@ -712,7 +712,7 @@ class ChatListPageState extends State<ChatListPage> {
                 child: TideBotAvatar(
                   name: bot['name']?.toString() ?? '',
                   path: bot['avatar']?.toString(),
-                  size: 48,
+                  size: 42,
                   radius: 5,
                 ),
               ),
@@ -753,7 +753,7 @@ class ChatListPageState extends State<ChatListPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 17,
+                            fontSize: 15,
                             color: theme.textStrong,
                           ),
                         ),
