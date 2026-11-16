@@ -44,7 +44,12 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
         children: [
           InterfaceThemeCard(
             title: 'TideBot主题',
-            applied: !theme.isWechat,
+            preview: Image.asset(
+              'assets/images/theme_preview_tidebot.jpg',
+              fit: BoxFit.contain,
+              semanticLabel: 'TideBot主题预览',
+            ),
+            applied: theme.interfaceTheme == 'default',
             busy: _saving,
             removable: false,
             onPressed: () => _select('default'),
@@ -52,9 +57,21 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
           const SizedBox(height: 20),
           InterfaceThemeCard(
             title: '微信风主题',
+            preview: Image.asset(
+              'assets/images/theme_preview_wechat.jpg',
+              fit: BoxFit.contain,
+              semanticLabel: '微信风主题预览',
+            ),
             applied: theme.isWechat,
             busy: _saving,
             onPressed: () => _select(theme.isWechat ? 'default' : 'wechat'),
+          ),
+          const SizedBox(height: 20),
+          InterfaceThemeCard(
+            title: 'QQ风格主题',
+            applied: theme.isQq,
+            busy: _saving,
+            onPressed: () => _select(theme.isQq ? 'default' : 'qq'),
           ),
         ],
       ),
@@ -62,7 +79,7 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
   }
 }
 
-/// 主题展示卡片，上部预留预览区域，后续可传入实际预览内容。
+/// 主题展示卡片，预览图片按原始比例完整展示。
 class InterfaceThemeCard extends StatelessWidget {
   const InterfaceThemeCard({
     super.key,
@@ -91,10 +108,13 @@ class InterfaceThemeCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            AspectRatio(
-              aspectRatio: 16 / 10,
-              child: ColoredBox(color: theme.surfaceVariant, child: preview),
-            ),
+            if (preview != null)
+              ColoredBox(color: theme.surfaceVariant, child: preview)
+            else
+              AspectRatio(
+                aspectRatio: 16 / 10,
+                child: ColoredBox(color: theme.surfaceVariant),
+              ),
             Padding(
               padding: const EdgeInsets.all(20),
               child: Column(

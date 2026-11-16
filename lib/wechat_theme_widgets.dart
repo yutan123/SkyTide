@@ -215,8 +215,8 @@ class WechatBubble extends StatelessWidget {
     return CustomPaint(
       painter: _WechatBubblePainter(color: color, isUser: isUser),
       child: Container(
-        constraints: const BoxConstraints(minHeight: 42),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        constraints: const BoxConstraints(minHeight: 36),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         child: child,
       ),
     );
@@ -259,8 +259,8 @@ class _WechatBubblePainter extends CustomPainter {
       oldDelegate.color != color || oldDelegate.isUser != isUser;
 }
 
-/// WeChat voice marks keep their shape during playback; only the outer waves
-/// cycle, rather than replacing the mark with a media-player pause button.
+/// WeChat voice marks keep all waves visible; their emphasis
+/// pulses during playback.
 class WechatVoiceIcon extends StatefulWidget {
   const WechatVoiceIcon({
     super.key,
@@ -314,11 +314,11 @@ class _WechatVoiceIconState extends State<WechatVoiceIcon>
       animation: _controller,
       builder: (_, __) => CustomPaint(
         painter: _WechatVoicePainter(
-          color: widget.color,
+          color: widget.playing
+              ? widget.color.withValues(alpha: .7 + .3 * _controller.value)
+              : widget.color,
           isUser: widget.isUser,
-          waves: widget.playing
-              ? 1 + (_controller.value * 3).floor().clamp(0, 2)
-              : 3,
+          waves: 3,
         ),
       ),
     ),

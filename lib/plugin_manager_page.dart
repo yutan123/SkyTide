@@ -55,6 +55,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   final _marketSources = <String, Map<String, dynamic>>{};
   String _query = '';
   String? _pendingReadmeId;
+  MarketPlugin? _pendingMarketDetails;
   final _readmes = <String, File>{};
   String? _downloadingId;
   int _downloaded = 0, _downloadTotal = 0;
@@ -121,7 +122,11 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         );
       }
       await PluginMarket.instance.saveSource(plugin);
-      _pendingReadmeId = plugin.id;
+      if (row == null) {
+        _pendingReadmeId = plugin.id;
+      } else {
+        _pendingMarketDetails = plugin;
+      }
       if (mounted) _notice(row == null ? '插件已安装，配置后可启用' : '插件已更新');
     } finally {
       if (mounted) setState(() => _downloadingId = null);
@@ -228,15 +233,20 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       if (mounted) setState(() => _busy = false);
       final id = _pendingReadmeId;
       _pendingReadmeId = null;
-      if (mounted && id != null && _readmes.containsKey(id))
+      final updatedPlugin = _pendingMarketDetails;
+      _pendingMarketDetails = null;
+      if (mounted && updatedPlugin != null) {
+        await _marketDetails(updatedPlugin, showChangelog: true);
+      } else if (mounted && id != null && _readmes.containsKey(id)) {
         await _showReadme(id);
+      }
     }
   }
 
   Future<String?> _pickZip() async {
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['zip', 'tideplugin'],
+      allowedExtensions: const ['zip'],
       withData: false,
     );
     if (picked == null || picked.files.isEmpty) return null;
@@ -285,7 +295,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       _operation?.check();
       final temporary = await Directory.systemTemp.createTemp('tide-reviewed-');
       _tempDirs.add(temporary);
-      final snapshot = File(p.join(temporary.path, 'package.tideplugin'));
+      final snapshot = File(p.join(temporary.path, 'package.zip'));
       await snapshot.writeAsBytes(bytes, flush: true);
       return snapshot.path;
     }
@@ -347,7 +357,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     _operation?.check();
     final temporary = await Directory.systemTemp.createTemp('tide-reviewed-');
     _tempDirs.add(temporary);
-    final snapshot = File(p.join(temporary.path, 'package.tideplugin'));
+    final snapshot = File(p.join(temporary.path, 'package.zip'));
     await snapshot.writeAsBytes(bytes, flush: true);
     return snapshot.path;
   }
@@ -751,12 +761,18 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     ),
   );
 
-  Future<void> _marketDetails(MarketPlugin plugin) =>
-      _textDialog(plugin.name, '''${plugin.author} · 版本:${plugin.version}
-
-${plugin.description}
-
-${plugin.changelog}''');
+  Future<void> _marketDetails(
+    MarketPlugin plugin, {
+    bool showChangelog = false,
+  }) => _textDialog(
+    plugin.name,
+    [
+      '${plugin.author} · 版本:${plugin.version}',
+      plugin.description,
+      if (showChangelog && plugin.changelog.trim().isNotEmpty)
+        '更新说明\n${plugin.changelog}',
+    ].join('\n\n'),
+  );
 
   Widget _action(
     IconData icon,
@@ -980,7 +996,7 @@ ${plugin.changelog}''');
                       ),
                     if (pack != null)
                       _action(
-                        Icons.smart_toy_outlined,
+                        Icons.group_outlined,
                         '选择启用的机器人',
                         _busy ? null : () => _selectBots(pack),
                       ),
@@ -1051,6 +1067,9 @@ ${plugin.changelog}''');
 
   Widget _marketUpdateButton(MarketPlugin plugin) => FilledButton.icon(
     style: FilledButton.styleFrom(
+      minimumSize: const Size(88, 42),
+      visualDensity: VisualDensity.standard,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       backgroundColor: const Color(0xFFFFD76A),
       foregroundColor: const Color(0xFF624400),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1246,12 +1265,6 @@ ${plugin.changelog}''');
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
-                              if (_readmes.containsKey(plugin.id))
-                                _action(
-                                  Icons.menu_book_rounded,
-                                  '查看自述文件',
-                                  _busy ? null : () => _showReadme(plugin.id),
-                                ),
                               if (update != null)
                                 _marketUpdateButton(plugin)
                               else
@@ -1259,12 +1272,16 @@ ${plugin.changelog}''');
                                   style: FilledButton.styleFrom(
                                     backgroundColor: theme.primary,
                                     foregroundColor: Colors.white,
-                                    minimumSize: const Size(0, 32),
-                                    visualDensity: VisualDensity.compact,
+                                    minimumSize: const Size(88, 42),
+                                    visualDensity: VisualDensity.standard,
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
+                                      horizontal: 16,
+                                      vertical: 10,
                                     ),
-                                    textStyle: const TextStyle(fontSize: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    textStyle: const TextStyle(fontSize: 13),
                                   ),
                                   onPressed: _busy || installed != null
                                       ? null

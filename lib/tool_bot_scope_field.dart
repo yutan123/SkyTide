@@ -44,7 +44,7 @@ class _ToolBotScopeFieldState extends State<ToolBotScopeField> {
     }
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: Icon(Icons.smart_toy_outlined, color: theme.primary),
+      leading: Icon(Icons.group_outlined, color: theme.primary),
       title: Text('启用机器人', style: TextStyle(color: theme.textStrong)),
       subtitle: Text(label, style: TextStyle(color: theme.textWeak)),
       trailing: Icon(Icons.chevron_right_rounded, color: theme.textWeak),

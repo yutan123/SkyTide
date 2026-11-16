@@ -228,7 +228,7 @@ class PluginMarket extends ChangeNotifier {
           ArchiveFile(entry.key, entry.value.length, entry.value),
         );
       }
-      final file = File('${temporary.path}/market.tideplugin');
+      final file = File('${temporary.path}/market.zip');
       await file.writeAsBytes(ZipEncoder().encode(archive), flush: true);
       operation.check();
       return file;

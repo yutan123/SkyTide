@@ -218,6 +218,17 @@ class _ProfilePageState extends State<ProfilePage> {
         Icon(Icons.edit_rounded, size: 18, color: theme.onBackgroundWeak),
       ],
     );
+    if (theme.isQq) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+        decoration: BoxDecoration(
+          color: theme.surface,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: content,
+      );
+    }
     if (theme.isWechat)
       return Container(
         color: theme.surface,
@@ -260,6 +271,17 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       ],
     );
+    if (theme.isQq) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        decoration: BoxDecoration(
+          color: theme.surface,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: content,
+      );
+    }
     if (theme.isWechat)
       return Container(
         color: theme.surface,

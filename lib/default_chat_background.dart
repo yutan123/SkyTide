@@ -14,8 +14,8 @@ class DefaultChatBackground extends StatelessWidget {
         child: CustomPaint(
           painter: _TideCanvas(
             isDark: theme.isDark,
-            primary: theme.primary,
-            accent: theme.primaryLight,
+            primary: theme.chatBackgroundPrimary,
+            accent: theme.chatBackgroundAccent,
           ),
           child: const SizedBox.expand(),
         ),

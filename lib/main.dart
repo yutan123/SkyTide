@@ -21,6 +21,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'theme.dart';
 import 'interface_theme_page.dart';
 import 'wechat_theme_widgets.dart';
+import 'qq_theme_widgets.dart';
 import 'chat_sidebar.dart';
 import 'plugin_manager_page.dart';
 import 'tool_manager_page.dart';
@@ -899,12 +900,12 @@ class _TideBotAppState extends State<TideBotApp> with WidgetsBindingObserver {
           debugShowCheckedModeBanner: false,
           themeMode: tideTheme.mode,
           theme: ThemeData(
-            switchTheme: tideTheme.isWechat
+            switchTheme: tideTheme.usesMessagingLayout
                 ? SwitchThemeData(
                     thumbColor: const WidgetStatePropertyAll(Colors.white),
                     trackColor: WidgetStateProperty.resolveWith(
                       (states) => states.contains(WidgetState.selected)
-                          ? const Color(0xFF07C160)
+                          ? tideTheme.primary
                           : (tideTheme.isDark
                                 ? const Color(0xFF393939)
                                 : const Color(0xFFE5E5E5)),
@@ -943,12 +944,12 @@ class _TideBotAppState extends State<TideBotApp> with WidgetsBindingObserver {
             highlightColor: Colors.transparent,
           ),
           darkTheme: ThemeData(
-            switchTheme: tideTheme.isWechat
+            switchTheme: tideTheme.usesMessagingLayout
                 ? SwitchThemeData(
                     thumbColor: const WidgetStatePropertyAll(Colors.white),
                     trackColor: WidgetStateProperty.resolveWith(
                       (states) => states.contains(WidgetState.selected)
-                          ? const Color(0xFF07C160)
+                          ? tideTheme.primary
                           : (tideTheme.isDark
                                 ? const Color(0xFF393939)
                                 : const Color(0xFFE5E5E5)),
@@ -1483,7 +1484,7 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
       body: Stack(
         children: [
           IndexedStack(index: _idx, children: _pages),
-          if (!theme.isWechat)
+          if (!theme.usesMessagingLayout)
             Positioned(
               left: 0,
               right: 0,
@@ -1494,8 +1495,19 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
                 onTap: _onDockTap,
               ),
             ),
+          if (theme.isQq)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: QqNavigationBar(
+                index: _idx,
+                unread: _unreadCount,
+                onTap: _onDockTap,
+              ),
+            ),
           // 聊天列表创建机器人悬浮球
-          if (_idx == 0 && !theme.isWechat)
+          if (_idx == 0 && !theme.usesMessagingLayout)
             Positioned(
               right: 20,
               bottom: bottomPadding + 76,
@@ -1547,7 +1559,7 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
               ),
             ),
           // 广场发布悬浮球
-          if (_idx == 2)
+          if (_idx == 2 && !theme.isQq)
             Positioned(
               right: 20,
               bottom: bottomPadding + 76,

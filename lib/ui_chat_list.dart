@@ -14,8 +14,10 @@ import 'chat_sidebar.dart';
 import 'ui_chat_room.dart';
 import 'theme.dart';
 import 'wechat_theme_widgets.dart';
+import 'qq_theme_widgets.dart';
 import 'ui_create_bot.dart';
 import 'bot_state.dart';
+import 'user_profile_changes.dart';
 
 class ChatListPage extends StatefulWidget {
   final GlobalKey<ChatListPageState>? pageKey;
@@ -31,6 +33,8 @@ class ChatListPageState extends State<ChatListPage> {
   static String? _lastCacheJson;
   static Future<void> _cacheWrite = Future<void>.value();
   List<Map<String, dynamic>> _bots = [];
+  String _qqUserName = 'TideBot';
+  String? _qqUserAvatar;
   bool _hasLoaded = false;
   bool _loadFailed = false;
   int _loadGeneration = 0;
@@ -48,6 +52,8 @@ class ChatListPageState extends State<ChatListPage> {
   @override
   void initState() {
     super.initState();
+    _loadQqIdentity();
+    UserProfileChanges.revision.addListener(_loadQqIdentity);
     final cached = _lastBots;
     if (cached != null) {
       _bots = cached;
@@ -69,8 +75,69 @@ class ChatListPageState extends State<ChatListPage> {
   @override
   void dispose() {
     _chatEvents?.cancel();
+    UserProfileChanges.revision.removeListener(_loadQqIdentity);
     super.dispose();
   }
+
+  Future<void> _loadQqIdentity() async {
+    try {
+      final revision = UserProfileChanges.revision.value;
+      final db = DBManager();
+      final name = await db.getKV('user_name');
+      final avatar = await db.getKV('user_avatar');
+      if (!mounted || revision != UserProfileChanges.revision.value) return;
+      setState(() {
+        _qqUserName = name?.trim().isNotEmpty == true ? name! : 'TideBot';
+        _qqUserAvatar = avatar;
+      });
+    } catch (error) {
+      debugPrint('QQ profile load failed: $error');
+    }
+  }
+
+  Widget _qqHeader(TideTheme theme) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 6, 12, 12),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            InkWell(
+              onTap: _openSidebar,
+              child: TideBotAvatar(
+                name: _qqUserName,
+                path: _qqUserAvatar,
+                size: 38,
+                radius: 19,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _qqUserName,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: theme.textStrong,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: '创建机器人',
+              icon: QqIcon(kind: 'add', color: theme.textStrong, size: 27),
+              onPressed: () async {
+                final result = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CreateBotPage()),
+                );
+                if (result == true && mounted) load();
+              },
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
 
   void _openSidebar() {
     widget.sidebar?.open();
@@ -419,7 +486,9 @@ class ChatListPageState extends State<ChatListPage> {
           top: !theme.isWechat,
           child: Column(
             children: [
-              if (theme.isWechat)
+              if (theme.isQq)
+                _qqHeader(theme)
+              else if (theme.isWechat)
                 Container(
                   height: 56 + MediaQuery.paddingOf(context).top,
                   decoration: BoxDecoration(
@@ -542,7 +611,9 @@ class ChatListPageState extends State<ChatListPage> {
                               ),
                             ),
                             Text(
-                              theme.isWechat ? '点击右上角 + 创建' : '点击右下角 + 创建',
+                              theme.usesMessagingLayout
+                                  ? '点击右上角 + 创建'
+                                  : '点击右下角 + 创建',
                               style: const TextStyle(
                                 color: Color(0xFFC7C7CC),
                                 fontSize: 13,
@@ -605,8 +676,12 @@ class ChatListPageState extends State<ChatListPage> {
   }
 
   Widget _list() => ListView.builder(
-    padding: TideTheme.of(context).isWechat
-        ? EdgeInsets.zero
+    padding: TideTheme.of(context).usesMessagingLayout
+        ? EdgeInsets.only(
+            bottom: TideTheme.of(context).isQq
+                ? 90 + MediaQuery.paddingOf(context).bottom
+                : 0,
+          )
         : const EdgeInsets.fromLTRB(16, 4, 16, 100),
     itemCount: _bots.length,
     itemBuilder: (ctx, i) {
@@ -686,7 +761,7 @@ class ChatListPageState extends State<ChatListPage> {
         ),
         child: Padding(
           padding: EdgeInsets.only(
-            bottom: TideTheme.of(context).isWechat ? 0 : 10,
+            bottom: TideTheme.of(context).usesMessagingLayout ? 0 : 10,
           ),
           child: _card(bot),
         ),
@@ -698,7 +773,13 @@ class ChatListPageState extends State<ChatListPage> {
     final theme = TideTheme.of(context);
     final pinned = bot['is_pinned'] == 1;
     final disabled = isBotDisabled(bot['is_disabled']);
-    final color = pinned ? theme.wechatBar : theme.surface;
+    final color = theme.isQq
+        ? (pinned
+              ? (theme.isDark
+                    ? const Color(0xFF272930)
+                    : const Color(0xFFECEEF5))
+              : theme.surface)
+        : (pinned ? theme.wechatBar : theme.surface);
     return Container(
       color: color,
       padding: const EdgeInsets.only(left: 16),
@@ -708,12 +789,12 @@ class ChatListPageState extends State<ChatListPage> {
             clipBehavior: Clip.none,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(5),
+                borderRadius: BorderRadius.circular(theme.isQq ? 26 : 5),
                 child: TideBotAvatar(
                   name: bot['name']?.toString() ?? '',
                   path: bot['avatar']?.toString(),
-                  size: 42,
-                  radius: 5,
+                  size: theme.isQq ? 52 : 42,
+                  radius: theme.isQq ? 26 : 5,
                 ),
               ),
               if (bot['unread'] == true)
@@ -734,12 +815,14 @@ class ChatListPageState extends State<ChatListPage> {
           const SizedBox(width: 12),
           Expanded(
             child: Container(
-              constraints: const BoxConstraints(minHeight: 76),
+              constraints: BoxConstraints(minHeight: theme.isQq ? 78 : 76),
               padding: const EdgeInsets.only(top: 13, bottom: 13, right: 16),
               decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(color: theme.divider, width: .5),
-                ),
+                border: theme.isQq
+                    ? null
+                    : Border(
+                        bottom: BorderSide(color: theme.divider, width: .5),
+                      ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -799,7 +882,7 @@ class ChatListPageState extends State<ChatListPage> {
 
   Widget _card(Map<String, dynamic> bot) {
     final av = (bot['avatar'] as String?) ?? '';
-    if (TideTheme.of(context).isWechat) return _wechatRow(bot);
+    if (TideTheme.of(context).usesMessagingLayout) return _wechatRow(bot);
     return GlassCard(
       liquid: true,
       padding: const EdgeInsets.all(14),

@@ -14,6 +14,7 @@ import 'global_notice.dart';
 import 'message_delivery_service.dart';
 import 'db.dart';
 import 'theme.dart';
+import 'qq_theme_widgets.dart';
 import 'world_book_preview_window.dart';
 import 'ai.dart';
 import 'game_arena_page.dart';
@@ -650,6 +651,8 @@ class SquarePageState extends State<SquarePage>
   @override
   void initState() {
     super.initState();
+    _loadQqUser();
+    UserProfileChanges.revision.addListener(_loadQqUser);
     _switchCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -665,6 +668,7 @@ class SquarePageState extends State<SquarePage>
 
   @override
   void dispose() {
+    UserProfileChanges.revision.removeListener(_loadQqUser);
     _scrollCtrl.dispose();
     _switchCtrl.dispose();
     super.dispose();
@@ -1083,7 +1087,10 @@ class SquarePageState extends State<SquarePage>
       context,
       f,
       onUpdate: () {
-        if (mounted) setState(() {});
+        if (mounted)
+          setState(() {
+            _qqCommentPreviews.remove(f['id']?.toString() ?? '');
+          });
       },
     );
   }
@@ -1187,7 +1194,24 @@ class SquarePageState extends State<SquarePage>
                   padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
                   child: Row(
                     children: [
+                      if (theme.isQq)
+                        Text(
+                          '空间动态',
+                          style: TextStyle(
+                            fontSize: 19,
+                            color: theme.textStrong,
+                          ),
+                        ),
                       const Spacer(),
+                      if (theme.isQq)
+                        IconButton(
+                          tooltip: '发布动态',
+                          onPressed: publishFeed,
+                          icon: Icon(
+                            Icons.edit_outlined,
+                            color: theme.textStrong,
+                          ),
+                        ),
                       BouncyTap(
                         onTap: toggleGames,
                         child: AnimatedRotation(
@@ -1237,6 +1261,270 @@ class SquarePageState extends State<SquarePage>
           )
         : content;
   }
+
+  String _qqUserName = '我';
+  String? _qqUserAvatar;
+  Future<void> _loadQqUser() async {
+    try {
+      final revision = UserProfileChanges.revision.value;
+      final db = DBManager();
+      final name = await db.getKV('user_name');
+      final avatar = await db.getKV('user_avatar');
+      if (!mounted || revision != UserProfileChanges.revision.value) return;
+      setState(() {
+        _qqUserName = name?.trim().isNotEmpty == true ? name! : '我';
+        _qqUserAvatar = avatar;
+      });
+    } catch (error) {
+      debugPrint('QQ feed profile load failed: $error');
+    }
+  }
+
+  final Map<String, Future<List<Map<String, dynamic>>>> _qqCommentPreviews = {};
+
+  Future<void> _qqToggleEvent(Map<String, dynamic> feed, String event) async {
+    final id = feed['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    try {
+      final active = await DBManager().toggleFeedEvent(
+        postId: id,
+        actorId: 'me',
+        eventType: event,
+      );
+      final likes = await DBManager().countPostLikes(id);
+      if (!mounted) return;
+      setState(() {
+        feed[event == 'like' ? 'favorited' : 'collected'] = active;
+        feed['likes'] = likes;
+      });
+    } catch (_) {
+      if (mounted) GlobalNotice.show('操作失败，请重试');
+    }
+  }
+
+  Widget _qqFeeds(TideTheme theme) => ListView.builder(
+    controller: _scrollCtrl,
+    padding: EdgeInsets.only(bottom: 90 + MediaQuery.paddingOf(context).bottom),
+    itemCount: _feeds.isEmpty ? 1 : _feeds.length,
+    itemBuilder: (context, index) {
+      if (_feeds.isEmpty)
+        return Padding(
+          padding: const EdgeInsets.all(32),
+          child: Center(
+            child: Text(_loadingMore ? '正在加载动态…' : '还没有动态，点击右上角发布第一条'),
+          ),
+        );
+      final feed = _feeds[index];
+      final id = feed['id']?.toString() ?? '';
+      final isSelf = feed['user'] == '我' || feed['author_id'] == 'me';
+      final key = GlobalKey();
+      final image = feed['image']?.toString() ?? '';
+      Widget action(
+        IconData icon,
+        String label,
+        VoidCallback onTap, {
+        bool active = false,
+      }) => TextButton.icon(
+        onPressed: onTap,
+        style: TextButton.styleFrom(
+          foregroundColor: active ? qqBlue : theme.textStrong,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          minimumSize: const Size(44, 40),
+        ),
+        icon: Icon(icon, size: 23),
+        label: Text(label, style: const TextStyle(fontSize: 11)),
+      );
+      return Container(
+        key: key,
+        margin: const EdgeInsets.only(bottom: 1),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        color: theme.surface,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                TideBotAvatar(
+                  name: isSelf
+                      ? _qqUserName
+                      : (feed['user']?.toString() ?? '用户'),
+                  path: isSelf ? _qqUserAvatar : feed['bot_avatar']?.toString(),
+                  size: 40,
+                  radius: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    isSelf ? _qqUserName : (feed['user']?.toString() ?? ''),
+                    style: const TextStyle(
+                      color: Color(0xFF405A83),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '动态操作',
+                  onPressed: () => showTideSheet(
+                    context: context,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          title: const Text('查看动态'),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _openFeedDetail(feed);
+                          },
+                        ),
+                        ListTile(
+                          title: const Text('删除动态'),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _deleteFeed(feed, key);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  icon: Icon(Icons.more_horiz, color: theme.textStrong),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () => _openFeedDetail(feed),
+              child: Text(
+                feed['content']?.toString() ?? '',
+                style: TextStyle(
+                  color: theme.textStrong,
+                  fontSize: 16,
+                  height: 1.5,
+                ),
+              ),
+            ),
+            if (image.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: GestureDetector(
+                  onTap: () => _openFeedDetail(feed),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.sizeOf(context).width * .72,
+                      maxHeight: 360,
+                    ),
+                    child: Image.file(
+                      File(image),
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, error, stack) =>
+                          const Icon(Icons.broken_image_outlined),
+                    ),
+                  ),
+                ),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    feed['time']?.toString() ?? '',
+                    style: TextStyle(fontSize: 11, color: theme.textWeak),
+                  ),
+                ),
+                action(
+                  feed['collected'] == true
+                      ? Icons.favorite
+                      : Icons.favorite_border,
+                  '',
+                  () => _qqToggleEvent(feed, 'collect'),
+                  active: feed['collected'] == true,
+                ),
+                action(
+                  feed['favorited'] == true
+                      ? Icons.thumb_up
+                      : Icons.thumb_up_outlined,
+                  '${feed['likes'] ?? 0}',
+                  () => _qqToggleEvent(feed, 'like'),
+                  active: feed['favorited'] == true,
+                ),
+                action(
+                  Icons.chat_bubble_outline,
+                  '${feed['comments'] ?? 0}',
+                  () => _openFeedDetail(feed),
+                ),
+                action(Icons.reply_outlined, '', () => _shareFeed(feed)),
+              ],
+            ),
+            if ((feed['comments'] as int? ?? 0) > 0)
+              FutureBuilder<List<Map<String, dynamic>>>(
+                future: _qqCommentPreviews.putIfAbsent(
+                  id,
+                  () => DBManager().queryPostComments(id),
+                ),
+                builder: (_, snapshot) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final comment
+                        in (snapshot.data ?? const <Map<String, dynamic>>[])
+                            .take(3))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 5),
+                        child: InkWell(
+                          onTap: () => _openFeedDetail(feed),
+                          child: Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(
+                                  text:
+                                      '${comment['author_id'] == 'me' ? _qqUserName : comment['author_id'] ?? '匿名'}：',
+                                  style: const TextStyle(
+                                    color: Color(0xFF405A83),
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: comment['content']?.toString() ?? '',
+                                  style: TextStyle(color: theme.textStrong),
+                                ),
+                              ],
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    TextButton(
+                      onPressed: () => _openFeedDetail(feed),
+                      child: const Text(
+                        '查看更多评论',
+                        style: TextStyle(color: Color(0xFF405A83)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            InkWell(
+              borderRadius: BorderRadius.circular(13),
+              onTap: () => _openFeedDetail(feed),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 11,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Text(
+                  '说点什么吧…',
+                  style: TextStyle(color: theme.textWeak, fontSize: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 
   Widget _wechatFeeds(TideTheme theme) => ListView.builder(
     controller: _scrollCtrl,
@@ -1360,7 +1648,9 @@ class SquarePageState extends State<SquarePage>
     },
   );
 
-  Widget _buildFeeds(TideTheme theme) => theme.isWechat
+  Widget _buildFeeds(TideTheme theme) => theme.isQq
+      ? _qqFeeds(theme)
+      : theme.isWechat
       ? _wechatFeeds(theme)
       : _feeds.isEmpty
       ? ListView(

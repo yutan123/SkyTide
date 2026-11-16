@@ -135,13 +135,15 @@ class TideTheme extends ChangeNotifier {
   String _interfaceTheme = 'default';
   String get interfaceTheme => _interfaceTheme;
   bool get isWechat => _interfaceTheme == 'wechat';
+  bool get isQq => _interfaceTheme == 'qq';
+  bool get usesMessagingLayout => isWechat || isQq;
   Color get wechatBar =>
       isDark ? const Color(0xFF191919) : const Color(0xFFEDEDED);
   Color get wechatOutgoing =>
       isDark ? const Color(0xFF3EB575) : const Color(0xFF95EC69);
 
   Future<void> setInterfaceTheme(String value) async {
-    if (value != 'default' && value != 'wechat') return;
+    if (!const {'default', 'wechat', 'qq'}.contains(value)) return;
     await DBManager().insertKV('interface_theme', value);
     _interfaceTheme = value;
     notifyListeners();
@@ -169,8 +171,18 @@ class TideTheme extends ChangeNotifier {
   double _backgroundPreparationDpr = 0;
   final Map<_BackgroundRegion, bool> _backgroundLightness = {};
 
-  Color get primary => isWechat ? const Color(0xFF07C160) : _primary;
-  Color get primaryLight => isWechat ? const Color(0xFF38CD7F) : _primaryLight;
+  Color get primary => isQq
+      ? const Color(0xFF0099FF)
+      : isWechat
+      ? const Color(0xFF07C160)
+      : _primary;
+  Color get primaryLight => isQq
+      ? const Color(0xFF73C8FF)
+      : isWechat
+      ? const Color(0xFF38CD7F)
+      : _primaryLight;
+  Color get chatBackgroundPrimary => isQq ? _primary : primary;
+  Color get chatBackgroundAccent => isQq ? _primaryLight : primaryLight;
   String get name => _name;
   ThemeMode get mode => _mode;
   bool get hasManualMode => _manualMode;
@@ -181,11 +193,11 @@ class TideTheme extends ChangeNotifier {
   bool get hasGlobalBackground => _globalBackground.isNotEmpty;
   bool get enableLiquidGlass => _enableLiquidGlass;
   bool get useLiquidGlass =>
-      hasGlobalBackground && enableLiquidGlass && !isWechat;
+      hasGlobalBackground && enableLiquidGlass && !usesMessagingLayout;
 
   /// The dock always retains its original flowing glass. Wallpaper glass
   /// controls page surfaces and the selected capsule independently.
-  bool get useDockLiquidGlass => !isWechat;
+  bool get useDockLiquidGlass => !usesMessagingLayout;
 
   void _setGlobalBackgroundImage(String path) {
     _configuredBackgroundPath = '';
@@ -445,7 +457,9 @@ class TideTheme extends ChangeNotifier {
 
   LinearGradient get primaryGradient =>
       LinearGradient(colors: [primary, primaryLight]);
-  Color get pageBackground => isWechat
+  Color get pageBackground => isQq
+      ? (isDark ? const Color(0xFF18191D) : const Color(0xFFF0F0F2))
+      : isWechat
       ? (isDark ? const Color(0xFF111111) : const Color(0xFFEDEDED))
       : (isDark ? const Color(0xFF151820) : const Color(0xFFF3F5FA));
   Color get bgColor =>
@@ -571,7 +585,9 @@ class TideTheme extends ChangeNotifier {
       final style = await db
           .getKV('interface_theme')
           .timeout(const Duration(seconds: 5));
-      _interfaceTheme = style == 'wechat' ? 'wechat' : 'default';
+      _interfaceTheme = const {'wechat', 'qq'}.contains(style)
+          ? style!
+          : 'default';
       final name = await db
           .getKV('theme_color')
           .timeout(const Duration(seconds: 5));

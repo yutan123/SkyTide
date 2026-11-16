@@ -841,7 +841,7 @@ class _ToolManagerPageState extends State<ToolManagerPage> {
                                 if (_isSkill)
                                   IconButton(
                                     tooltip: '修改启用机器人',
-                                    icon: const Icon(Icons.smart_toy_outlined),
+                                    icon: const Icon(Icons.group_outlined),
                                     onPressed: () => _editBotScope(item),
                                   ),
                                 if (!_isSkill)
