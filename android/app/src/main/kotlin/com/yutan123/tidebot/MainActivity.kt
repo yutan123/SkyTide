@@ -151,6 +151,14 @@ class MainActivity: FlutterActivity() {
         nativeChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         nativeChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
+                "listChatGallery" -> backgroundResult(result, "GALLERY_FAILED") {
+                    ChatGallery.page(applicationContext, call.argument<Int>("offset") ?: 0,
+                        call.argument<String>("kind") ?: "img")
+                }
+                "importChatGallery" -> backgroundResult(result, "GALLERY_IMPORT_FAILED") {
+                    ChatGallery.importImages(applicationContext, call.argument<List<String>>("ids") ?: emptyList(),
+                        call.argument<String>("kind") ?: "img")
+                }
                 "openChatFile" -> {
                     try {
                         val path = call.argument<String>("path")

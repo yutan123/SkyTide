@@ -212,16 +212,46 @@ class WechatBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
     final color = isUser ? theme.wechatOutgoing : theme.surface;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 34),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(4),
+    return CustomPaint(
+      painter: _WechatBubblePainter(color: color, isUser: isUser),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 40),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: child,
       ),
-      child: child,
     );
   }
+}
+
+/// Draw the tail outside the content box so it never changes text wrapping.
+class _WechatBubblePainter extends CustomPainter {
+  const _WechatBubblePainter({required this.color, required this.isUser});
+  final Color color;
+  final bool isUser;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final body = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(5)),
+      );
+    final edge = isUser ? size.width : 0.0;
+    final direction = isUser ? 1.0 : -1.0;
+    final tail = Path()
+      ..moveTo(edge - direction, 12)
+      ..lineTo(edge + direction * 5, 18)
+      ..quadraticBezierTo(edge + direction * 5.5, 19, edge + direction * 5, 20)
+      ..lineTo(edge - direction, 25)
+      ..close();
+    canvas.drawPath(
+      Path.combine(PathOperation.union, body, tail),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _WechatBubblePainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.isUser != isUser;
 }
 
 /// WeChat voice marks keep all waves visible; their emphasis

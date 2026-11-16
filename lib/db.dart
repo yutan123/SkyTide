@@ -1872,7 +1872,14 @@ class DBManager {
         final type = row['type']?.toString() ?? '';
         final path = row['file_path']?.toString().trim() ?? '';
         if (path.isNotEmpty &&
-            const {'image', 'video', 'audio', 'shared_post'}.contains(type)) {
+            const {
+              'image',
+              'video',
+              'audio',
+              'document',
+              'file',
+              'shared_post',
+            }.contains(type)) {
           mediaByBot.putIfAbsent(botId, () => <String>{}).add(path);
         }
       }

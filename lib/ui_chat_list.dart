@@ -486,7 +486,25 @@ class ChatListPageState extends State<ChatListPage> {
           top: !theme.isWechat,
           child: Column(
             children: [
-              if (theme.isQq)
+              if (theme.isTelegram)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: GestureDetector(
+                      onTap: _openSidebar,
+                      child: Text(
+                        'TideBot',
+                        style: TextStyle(
+                          fontSize: 25,
+                          fontWeight: FontWeight.w700,
+                          color: theme.isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              else if (theme.isQq)
                 _qqHeader(theme)
               else if (theme.isWechat)
                 Container(
@@ -611,8 +629,10 @@ class ChatListPageState extends State<ChatListPage> {
                               ),
                             ),
                             Text(
-                              theme.usesMessagingLayout
+                              theme.usesMessagingLayout && !theme.isTelegram
                                   ? '点击右上角 + 创建'
+                                  : theme.isTelegram
+                                  ? '点击右下角按钮创建机器人'
                                   : '点击右下角 + 创建',
                               style: const TextStyle(
                                 color: Color(0xFFC7C7CC),
@@ -678,7 +698,8 @@ class ChatListPageState extends State<ChatListPage> {
   Widget _list() => ListView.builder(
     padding: TideTheme.of(context).usesMessagingLayout
         ? EdgeInsets.only(
-            bottom: TideTheme.of(context).isQq
+            bottom:
+                (TideTheme.of(context).isQq || TideTheme.of(context).isTelegram)
                 ? 90 + MediaQuery.paddingOf(context).bottom
                 : 0,
           )
@@ -773,7 +794,7 @@ class ChatListPageState extends State<ChatListPage> {
     final theme = TideTheme.of(context);
     final pinned = bot['is_pinned'] == 1;
     final disabled = isBotDisabled(bot['is_disabled']);
-    final color = theme.isQq
+    final color = (theme.isQq || theme.isTelegram)
         ? (pinned
               ? (theme.isDark
                     ? const Color(0xFF272930)
@@ -789,12 +810,20 @@ class ChatListPageState extends State<ChatListPage> {
             clipBehavior: Clip.none,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(theme.isQq ? 26 : 5),
+                borderRadius: BorderRadius.circular(
+                  (theme.isQq || theme.isTelegram)
+                      ? (theme.isTelegram ? 28 : 26)
+                      : 5,
+                ),
                 child: TideBotAvatar(
                   name: bot['name']?.toString() ?? '',
                   path: bot['avatar']?.toString(),
-                  size: theme.isQq ? 52 : 42,
-                  radius: theme.isQq ? 26 : 5,
+                  size: (theme.isQq || theme.isTelegram)
+                      ? (theme.isTelegram ? 56 : 52)
+                      : 42,
+                  radius: (theme.isQq || theme.isTelegram)
+                      ? (theme.isTelegram ? 28 : 26)
+                      : 5,
                 ),
               ),
               if (bot['unread'] == true)
@@ -815,10 +844,12 @@ class ChatListPageState extends State<ChatListPage> {
           const SizedBox(width: 12),
           Expanded(
             child: Container(
-              constraints: BoxConstraints(minHeight: theme.isQq ? 78 : 76),
+              constraints: BoxConstraints(
+                minHeight: (theme.isQq || theme.isTelegram) ? 78 : 76,
+              ),
               padding: const EdgeInsets.only(top: 13, bottom: 13, right: 16),
               decoration: BoxDecoration(
-                border: theme.isQq
+                border: (theme.isQq || theme.isTelegram)
                     ? null
                     : Border(
                         bottom: BorderSide(color: theme.divider, width: .5),

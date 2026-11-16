@@ -136,14 +136,15 @@ class TideTheme extends ChangeNotifier {
   String get interfaceTheme => _interfaceTheme;
   bool get isWechat => _interfaceTheme == 'wechat';
   bool get isQq => _interfaceTheme == 'qq';
-  bool get usesMessagingLayout => isWechat || isQq;
+  bool get isTelegram => _interfaceTheme == 'telegram';
+  bool get usesMessagingLayout => isWechat || isQq || isTelegram;
   Color get wechatBar =>
       isDark ? const Color(0xFF191919) : const Color(0xFFEDEDED);
   Color get wechatOutgoing =>
       isDark ? const Color(0xFF3EB575) : const Color(0xFF95EC69);
 
   Future<void> setInterfaceTheme(String value) async {
-    if (!const {'default', 'wechat', 'qq'}.contains(value)) return;
+    if (!const {'default', 'wechat', 'qq', 'telegram'}.contains(value)) return;
     await DBManager().insertKV('interface_theme', value);
     _interfaceTheme = value;
     notifyListeners();
@@ -171,12 +172,16 @@ class TideTheme extends ChangeNotifier {
   double _backgroundPreparationDpr = 0;
   final Map<_BackgroundRegion, bool> _backgroundLightness = {};
 
-  Color get primary => isQq
+  Color get primary => isTelegram
+      ? const Color(0xFF12B86A)
+      : isQq
       ? const Color(0xFF0099FF)
       : isWechat
       ? const Color(0xFF07C160)
       : _primary;
-  Color get primaryLight => isQq
+  Color get primaryLight => isTelegram
+      ? const Color(0xFF71D4A4)
+      : isQq
       ? const Color(0xFF73C8FF)
       : isWechat
       ? const Color(0xFF38CD7F)
@@ -457,7 +462,9 @@ class TideTheme extends ChangeNotifier {
 
   LinearGradient get primaryGradient =>
       LinearGradient(colors: [primary, primaryLight]);
-  Color get pageBackground => isQq
+  Color get pageBackground => isTelegram
+      ? (isDark ? const Color(0xFF17212B) : const Color(0xFFF1F1F3))
+      : isQq
       ? (isDark ? const Color(0xFF18191D) : const Color(0xFFF0F0F2))
       : isWechat
       ? (isDark ? const Color(0xFF111111) : const Color(0xFFEDEDED))
@@ -585,7 +592,7 @@ class TideTheme extends ChangeNotifier {
       final style = await db
           .getKV('interface_theme')
           .timeout(const Duration(seconds: 5));
-      _interfaceTheme = const {'wechat', 'qq'}.contains(style)
+      _interfaceTheme = const {'wechat', 'qq', 'telegram'}.contains(style)
           ? style!
           : 'default';
       final name = await db

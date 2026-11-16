@@ -1,3 +1,4 @@
+import 'telegram_theme_widgets.dart';
 import 'auto_backup_service.dart';
 import 'plugin_market.dart';
 import 'plugin_process_entry.dart' as plugin_process;
@@ -1495,6 +1496,17 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
                 onTap: _onDockTap,
               ),
             ),
+          if (theme.isTelegram)
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: bottomPadding + 8,
+              child: TelegramNavigationBar(
+                index: _idx,
+                unread: _unreadCount,
+                onTap: _onDockTap,
+              ),
+            ),
           if (theme.isQq)
             Positioned(
               left: 0,
@@ -1507,7 +1519,7 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
               ),
             ),
           // 聊天列表创建机器人悬浮球
-          if (_idx == 0 && !theme.usesMessagingLayout)
+          if (_idx == 0 && (!theme.usesMessagingLayout || theme.isTelegram))
             Positioned(
               right: 20,
               bottom: bottomPadding + 76,
@@ -1535,13 +1547,16 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
                   if (r == true) _chatListKey.currentState?.load();
                 },
                 child: Container(
-                  width: 48,
-                  height: 48,
+                  width: theme.isTelegram ? 56 : 48,
+                  height: theme.isTelegram ? 56 : 48,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [theme.primary, theme.primaryLight],
-                    ),
+                    color: theme.isTelegram ? telegramGreen : null,
+                    gradient: theme.isTelegram
+                        ? null
+                        : LinearGradient(
+                            colors: [theme.primary, theme.primaryLight],
+                          ),
                     boxShadow: [
                       BoxShadow(
                         color: theme.primary.withValues(alpha: 0.35),
@@ -1550,8 +1565,8 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
                       ),
                     ],
                   ),
-                  child: const Icon(
-                    Icons.add_rounded,
+                  child: Icon(
+                    theme.isTelegram ? Icons.edit_rounded : Icons.add_rounded,
                     color: Colors.white,
                     size: 26,
                   ),

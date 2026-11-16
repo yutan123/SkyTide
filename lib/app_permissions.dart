@@ -8,8 +8,10 @@ import 'device_capability_service.dart';
 /// newer systems, but requesting first keeps the app compatible with devices
 /// that still require READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE.
 class AppPermissions {
-  static Future<bool> photos(BuildContext context,
-      {String feature = '选择图片'}) async {
+  static Future<bool> photos(
+    BuildContext context, {
+    String feature = '选择图片',
+  }) async {
     final state = await DeviceCapabilityService.instance.capabilityState();
     final permission = (state['sdkInt'] as int? ?? 33) >= 33
         ? Permission.photos
@@ -21,6 +23,28 @@ class AppPermissions {
     if (status.isGranted || status.isLimited) return true;
     if (!context.mounted) return false;
     _showDenied(context, '需要相册权限才能$feature', status.isPermanentlyDenied);
+    return false;
+  }
+
+  static Future<bool> attachments(BuildContext context, String kind) async {
+    if (kind == 'img') return photos(context);
+    final state = await DeviceCapabilityService.instance.capabilityState();
+    final sdk = state['sdkInt'] as int? ?? 33;
+    // Scoped storage exposes accessible documents without broad file permission.
+    if (kind == 'file' && sdk >= 29) return true;
+    final permission = sdk >= 33 ? Permission.videos : Permission.storage;
+    var status = await permission.status;
+    if (!status.isGranted && !status.isLimited) {
+      status = await permission.request();
+    }
+    if (status.isGranted || status.isLimited) return true;
+    if (context.mounted) {
+      _showDenied(
+        context,
+        kind == 'video' ? '需要视频权限才能浏览视频' : '需要存储权限才能浏览文件',
+        status.isPermanentlyDenied,
+      );
+    }
     return false;
   }
 
@@ -52,7 +76,10 @@ class AppPermissions {
   }
 
   static void _showDenied(
-      BuildContext context, String message, bool permanentlyDenied) {
+    BuildContext context,
+    String message,
+    bool permanentlyDenied,
+  ) {
     GlobalNotice.show(
       permanentlyDenied ? '$message，请在系统设置中开启' : message,
       color: const Color(0xFFE74C3C),

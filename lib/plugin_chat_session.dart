@@ -75,7 +75,10 @@ class PluginChatSession {
           throw StateError('未声明 media.process 权限');
         return _process(args, permissions, origins);
       }
-      if (method == 'media.fromFile') return _fromFile(args);
+      if (method == 'media.fromFile') {
+        if (!permissions.contains('files')) throw StateError('未声明 files 权限');
+        return _fromFile(args);
+      }
       if (method == 'media.saveFile') {
         if (!permissions.contains('files')) throw StateError('未声明 files 权限');
         final resource = _resources[args['resourceId']];
@@ -105,6 +108,7 @@ class PluginChatSession {
         'chat.sendVideo',
         'chat.sendAudio',
         'chat.sendDocument',
+        'chat.sendFile',
       }.contains(method))
         throw StateError('未知聊天 API');
       final requestId = PluginMediaContract.text(
@@ -141,9 +145,15 @@ class PluginChatSession {
           } else {
             resource = _resources[args['resourceId']];
           }
-          if (resource == null || resource['kind'] != kind)
+          if (resource == null || (kind != 'file' && resource['kind'] != kind))
             throw StateError('媒体引用不存在或类型不匹配');
         }
+        final fileName = kind == 'file'
+            ? PluginMediaContract.fileName(
+                args['fileName'] ?? resource?['fileName'],
+                fallback: 'attachment.${resource?['extension'] ?? 'bin'}',
+              )
+            : null;
         final duration = args['duration'] ?? 0;
         if (duration is! int || duration < 0 || duration > 86400)
           throw const FormatException('duration 必须为 0～86400 的秒数');
@@ -164,9 +174,13 @@ class PluginChatSession {
               p.join(docs.path, 'chat_media', 'plugins'),
             );
             await folder.create(recursive: true);
+            final destination = kind == 'file'
+                ? p.join(folder.path, id, fileName!)
+                : p.join(folder.path, '$id.${resource['extension']}');
+            await Directory(p.dirname(destination)).create(recursive: true);
             delivered = await File(
               resource['path'] as String,
-            ).copy(p.join(folder.path, '$id.${resource['extension']}'));
+            ).copy(destination);
             row['file_path'] = delivered.path;
           }
           // Lifecycle lock makes invalidation and the final commit mutually exclusive.
@@ -218,7 +232,11 @@ class PluginChatSession {
     return row == null ? {'status': 'not_found'} : _receipt(row);
   }
 
-  Future<Map<String, dynamic>> _registerFile(File file, String kind) async {
+  Future<Map<String, dynamic>> _registerFile(
+    File file,
+    String kind, {
+    String? fileName,
+  }) async {
     if (_resources.length >= 4) throw StateError('单次调用最多保留 4 个媒体资源，请先释放');
     final size = await file.length();
     if (size > PluginMediaContract.limits[kind]!) throw StateError('媒体超过大小限制');
@@ -236,6 +254,7 @@ class PluginChatSession {
       'kind': kind,
       'size': size,
       'extension': extension,
+      if (fileName != null) 'fileName': fileName,
       'path': file.path,
     };
     _resources[id] = resource;
@@ -262,7 +281,16 @@ class PluginChatSession {
           throw StateError('媒体超过大小限制');
         await source.copy(copy.path);
       });
-      return await _registerFile(copy, kind as String);
+      return await _registerFile(
+        copy,
+        kind as String,
+        fileName: kind == 'file'
+            ? PluginMediaContract.fileName(
+                args['fileName'],
+                fallback: p.posix.basename(args['path'] as String),
+              )
+            : null,
+      );
     } catch (_) {
       if (await copy.exists()) await copy.delete();
       rethrow;
@@ -444,9 +472,15 @@ class PluginChatSession {
     final kind = args['kind'];
     final max = PluginMediaContract.limits[kind];
     if (max == null)
-      throw const FormatException('kind 必须为 image/video/audio/document');
+      throw const FormatException('kind 必须为 image/video/audio/document/file');
     if (_resources.length >= 4) throw StateError('单次调用最多保留 4 个媒体资源，请先释放');
     var uri = PluginMediaContract.uri(args['url'], origins);
+    final fileName = kind == 'file'
+        ? PluginMediaContract.fileName(
+            args['fileName'],
+            fallback: _urlFileName(uri),
+          )
+        : null;
     final headers = PluginMediaContract.headers(args['headers']);
     final timeoutMs = args['timeoutMs'];
     if (timeoutMs != null &&
@@ -528,6 +562,7 @@ class PluginChatSession {
           'kind': kind,
           'size': size,
           'extension': extension,
+          if (fileName != null) 'fileName': fileName,
           'path': partial!.path,
         };
         _resources[resourceId] = resource;
@@ -551,6 +586,16 @@ class PluginChatSession {
       _clients.remove(client);
       await handle?.close();
       if (partial != null && await partial!.exists()) await partial!.delete();
+    }
+  }
+
+  String _urlFileName(Uri uri) {
+    if (uri.pathSegments.isEmpty || uri.pathSegments.last.isEmpty)
+      return 'attachment.bin';
+    try {
+      return PluginMediaContract.fileName(uri.pathSegments.last);
+    } on FormatException {
+      return 'attachment.bin';
     }
   }
 

@@ -336,11 +336,11 @@ class QqBubble extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) => Container(
-    constraints: const BoxConstraints(minHeight: 36),
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    constraints: const BoxConstraints(minHeight: 40),
+    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
     decoration: BoxDecoration(
       color: isUser ? qqBlue : TideTheme.of(context).surface,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(18),
     ),
     child: child,
   );

@@ -21,6 +21,7 @@ class PluginMediaContract {
     'video': 256 * 1024 * 1024,
     'audio': 64 * 1024 * 1024,
     'document': 64 * 1024 * 1024,
+    'file': 256 * 1024 * 1024,
   };
 
   static bool validOrigin(Object? value) {
@@ -104,6 +105,19 @@ class PluginMediaContract {
     return value;
   }
 
+  /// A display name is never allowed to escape the message's own directory.
+  static String fileName(Object? value, {String fallback = 'attachment.bin'}) {
+    final name = text(value ?? fallback, 'fileName', 180, required: true);
+    if (name == '.' ||
+        name == '..' ||
+        name.trim() != name ||
+        utf8.encode(name).length > 240 ||
+        name.contains(RegExp(r'[\\/\\\\\x00-\x1f\x7f]'))) {
+      throw const FormatException('fileName 必须为不含路径和控制字符的文件名');
+    }
+    return name;
+  }
+
   /// Inspect signatures, rather than trusting extensions or Content-Type.
   static String extension(List<int> bytes, String kind) {
     bool at(int offset, List<int> magic) =>
@@ -113,6 +127,7 @@ class PluginMediaContract {
           (i) => bytes[offset + i] == magic[i],
         ).every((v) => v);
     bool word(int offset, String s) => at(offset, ascii.encode(s));
+    if (kind == 'file') return 'bin';
     if (kind == 'document' && word(0, '%PDF-')) return 'pdf';
     if (kind == 'image') {
       if (at(0, [137, 80, 78, 71, 13, 10, 26, 10])) return 'png';

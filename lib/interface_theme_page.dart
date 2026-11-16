@@ -68,7 +68,19 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
           ),
           const SizedBox(height: 20),
           InterfaceThemeCard(
+            title: 'Telegram风格主题',
+            applied: theme.isTelegram,
+            busy: _saving,
+            onPressed: () => _select(theme.isTelegram ? 'default' : 'telegram'),
+          ),
+          const SizedBox(height: 20),
+          InterfaceThemeCard(
             title: 'QQ风格主题',
+            preview: Image.asset(
+              'assets/images/theme_preview_qq.jpg',
+              fit: BoxFit.contain,
+              semanticLabel: 'QQ风格主题预览',
+            ),
             applied: theme.isQq,
             busy: _saving,
             onPressed: () => _select(theme.isQq ? 'default' : 'qq'),
@@ -109,12 +121,7 @@ class InterfaceThemeCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (preview != null)
-              ColoredBox(color: theme.surfaceVariant, child: preview)
-            else
-              AspectRatio(
-                aspectRatio: 16 / 10,
-                child: ColoredBox(color: theme.surfaceVariant),
-              ),
+              ColoredBox(color: theme.surfaceVariant, child: preview),
             Padding(
               padding: const EdgeInsets.all(20),
               child: Column(

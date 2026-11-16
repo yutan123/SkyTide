@@ -14,6 +14,7 @@ class PluginContract {
     'tasks',
     'notifications',
     'network.transfer',
+    'chat.files',
     'media.requestHeaders',
     'network.originPatterns',
     'files',

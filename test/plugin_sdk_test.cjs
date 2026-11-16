@@ -223,3 +223,18 @@ test('AI generation and cancellation keep explicit request identity', async () =
   assert.equal(await cancel, true);
   await rejected;
 });
+
+test('general file API preserves names and scoped context through both SDK entry points', async () => {
+  for (const expression of ['context.chat.sendFile(args)', 'tide.chat.sendFile(context, args)']) {
+    const h = host();
+    h.run(`tide.registerTool('file', async (args, context) => ${expression})`);
+    const options = {resourceId: 'audio-1', fileName: '音乐.mp3', requestId: 'file-1'};
+    const result = h.call('tool', 'file', {__tideInvocation: true, args: options, contextToken: 'file-token'});
+    await h.tick();
+    assert.equal(h.requests[0].method, 'chat.sendFile');
+    assert.deepEqual(h.requests[0].args, {...options, contextToken: 'file-token'});
+    h.context.__tideResolve(h.requests[0].id, {messageId: 'f', type: 'file', status: 'sent'}, null);
+    assert.equal((await result).type, 'file');
+    assert.ok(h.context.tide.capabilities.includes('chat.files'));
+  }
+});

@@ -155,13 +155,35 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Column(
           children: [
             _buildProfileCard(),
-            SizedBox(height: TideTheme.of(context).isWechat ? 12 : 24),
-            ..._settings.map(
-              (s) => BouncyTap(
-                onTap: () => _onSetting(s),
-                child: _buildSettingItem(s),
-              ),
+            SizedBox(
+              height: TideTheme.of(context).isTelegram
+                  ? 8
+                  : (TideTheme.of(context).isWechat ? 12 : 24),
             ),
+            if (TideTheme.of(context).isTelegram)
+              Container(
+                decoration: BoxDecoration(
+                  color: TideTheme.of(context).surface,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    for (final s in _settings)
+                      InkWell(
+                        onTap: () => _onSetting(s),
+                        child: _buildSettingItem(s),
+                      ),
+                  ],
+                ),
+              )
+            else
+              ..._settings.map(
+                (s) => BouncyTap(
+                  onTap: () => _onSetting(s),
+                  child: _buildSettingItem(s),
+                ),
+              ),
             const SizedBox(height: 20),
           ],
         ),
@@ -218,9 +240,9 @@ class _ProfilePageState extends State<ProfilePage> {
         Icon(Icons.edit_rounded, size: 18, color: theme.onBackgroundWeak),
       ],
     );
-    if (theme.isQq) {
+    if (theme.isQq || theme.isTelegram) {
       return Container(
-        margin: const EdgeInsets.only(bottom: 14),
+        margin: EdgeInsets.only(bottom: theme.isTelegram ? 0 : 14),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
         decoration: BoxDecoration(
           color: theme.surface,
@@ -250,6 +272,32 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _buildSettingItem(Map<String, dynamic> s) {
     final theme = TideTheme.of(context);
+    if (theme.isTelegram) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(s['icon'] as IconData, color: theme.primary, size: 22),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                s['title'] ?? '',
+                style: TextStyle(
+                  fontSize: 15,
+                  color: theme.textStrong,
+                  fontFamily: 'TideFont',
+                ),
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 12,
+              color: theme.textWeak,
+            ),
+          ],
+        ),
+      );
+    }
     final content = Row(
       children: [
         Icon(s['icon'] as IconData, size: 24, color: theme.primary),
