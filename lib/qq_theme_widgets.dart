@@ -43,7 +43,7 @@ class QqNavigationBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 58,
+          height: 48,
           child: Row(
             children: List.generate(4, (i) {
               final selected = index == i;
@@ -69,7 +69,7 @@ class QqNavigationBar extends StatelessWidget {
                               ][i],
                               color: color,
                               filled: selected,
-                              size: 29,
+                              size: 23,
                             ),
                             if (i == 0 && unread > 0)
                               Positioned(
@@ -98,7 +98,7 @@ class QqNavigationBar extends StatelessWidget {
                         const SizedBox(height: 2),
                         Text(
                           ['聊天', '空间', '动态', '我'][i],
-                          style: TextStyle(color: color, fontSize: 12),
+                          style: TextStyle(color: color, fontSize: 10.5),
                         ),
                       ],
                     ),
@@ -336,10 +336,11 @@ class QqBubble extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+    constraints: const BoxConstraints(minHeight: 36),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
     decoration: BoxDecoration(
       color: isUser ? qqBlue : TideTheme.of(context).surface,
-      borderRadius: BorderRadius.circular(11),
+      borderRadius: BorderRadius.circular(14),
     ),
     child: child,
   );

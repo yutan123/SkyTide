@@ -1,3 +1,13 @@
+import 'dart:io';
+import 'plugin_worker_policy.dart';
+import 'plugin_worker_runner.dart';
+import 'plugin_database.dart';
+import 'plugin_ai.dart';
+import 'plugin_event_policy.dart';
+import 'package:path_provider/path_provider.dart';
+import 'plugin_file_store.dart';
+import 'plugin_file_transfer.dart';
+import 'plugin_native_media.dart';
 import 'plugin_task_store.dart';
 import 'ops.dart';
 import 'plugin_network.dart';
@@ -37,6 +47,13 @@ class PluginService {
       unawaited(_deliverChatEvent(event).whenComplete(() => _pendingEvents--));
     });
   }
+  List<TidePluginPackage> _orderedPackages() =>
+      _packages.values.toList()..sort((a, b) {
+        final order = PluginEventPolicy.priority(
+          b.manifest['eventPriority'],
+        ).compareTo(PluginEventPolicy.priority(a.manifest['eventPriority']));
+        return order == 0 ? a.id.compareTo(b.id) : order;
+      });
   int _pendingEvents = 0;
   Future<void> _deliverChatEvent(ChatEvent event) async {
     try {
@@ -45,11 +62,18 @@ class PluginService {
       _log('events', '消息事件初始化失败：$error');
       return;
     }
-    for (final pack in _packages.values.toList()) {
+    for (final pack in _orderedPackages()) {
       final name = event.message!['role'] == 'user'
           ? 'chat.message'
           : 'chat.sent';
-      if (!(pack.manifest['hooks'] as List? ?? []).contains(name) ||
+      final command = name == 'chat.message'
+          ? PluginEventPolicy.match(
+              event.message!['content'],
+              PluginEventPolicy.commands(pack.manifest['commands']),
+            )
+          : null;
+      if ((command == null &&
+              !(pack.manifest['hooks'] as List? ?? []).contains(name)) ||
           !(pack.manifest['permissions'] as List? ?? []).contains('chat.read'))
         continue;
       PluginChatSession? session;
@@ -71,18 +95,36 @@ class PluginService {
             !await PluginEventStore.claim(pack.id, botId, name, messageId))
           continue;
         await session.check();
-        await runtime.call('event', name, {
-          '__tideEvent': true,
-          'contextToken': session.token,
-          'payload': {
-            'botId': botId,
-            'messageId': event.messageId,
-            'message': {
-              for (final key in ['id', 'role', 'type', 'content', 'timestamp'])
-                key: event.message![key],
+        if (command != null) {
+          await runtime.call('command', command['name']!, {
+            '__tideInvocation': true,
+            'contextToken': session.token,
+            'args': {
+              'text': command['text'],
+              'botId': botId,
+              'messageId': messageId,
             },
-          },
-        });
+          });
+        }
+        if ((pack.manifest['hooks'] as List? ?? []).contains(name))
+          await runtime.call('event', name, {
+            '__tideEvent': true,
+            'contextToken': session.token,
+            'payload': {
+              'botId': botId,
+              'messageId': event.messageId,
+              'message': {
+                for (final key in [
+                  'id',
+                  'role',
+                  'type',
+                  'content',
+                  'timestamp',
+                ])
+                  key: event.message![key],
+              },
+            },
+          });
       } catch (error) {
         _log(pack.id, '消息事件失败：$error');
       } finally {
@@ -170,6 +212,20 @@ class PluginService {
     }
   }
 
+  final _workers = <String, PluginWorkerRunner>{};
+  final _waits = <String, PluginWaits>{};
+  final _ai = <String, PluginAI>{};
+  void _closeExtensions(String id) {
+    _fileTransfers.remove(id)?.close();
+    _networks.remove(id)?.close();
+    for (final client in _clients.remove(id) ?? <http.Client>{}) {
+      client.close();
+    }
+    _workers.remove(id)?.close();
+    _waits.remove(id)?.close();
+    _ai.remove(id)?.close();
+  }
+
   final _epochs = <String, int>{};
   final _chatSessions = <String, PluginChatSession>{};
   void _cancelChats(String id) {
@@ -183,6 +239,7 @@ class PluginService {
     _epochs[id] = epoch;
     _stopping.add(id);
     _cancelChats(id);
+    _closeExtensions(id);
     final runtime = _running.remove(id);
     runtime?.close();
     _packages.remove(id);
@@ -190,6 +247,7 @@ class PluginService {
     for (final client in _clients.remove(id) ?? <http.Client>{}) {
       client.close();
     }
+    _fileTransfers.remove(id)?.close();
     _networks.remove(id)?.close();
     errors.remove(id);
   }
@@ -202,6 +260,17 @@ class PluginService {
   Future<void> _queue = Future.value();
   static const _secure = FlutterSecureStorage();
   final _clients = <String, Set<http.Client>>{};
+  final _fileTransfers = <String, PluginFileTransfer>{};
+  Future<PluginFileStore> _files(
+    TidePluginPackage pack,
+  ) async => PluginFileStore(
+    Directory(
+      '${(await getApplicationSupportDirectory()).path}/plugin_files/${pack.id}',
+    ),
+    check: () => _assertCurrent(pack),
+    locked: <T>(Future<T> Function() work) =>
+        PluginCoordinator.locked('storage:${pack.id}', work),
+  );
   final _networks = <String, PluginNetwork>{};
   final _notificationTimes = <String, int>{};
   final _stopping = <String>{};
@@ -238,6 +307,7 @@ class PluginService {
           final snap = _configSnapshots[id];
           if (snap != null && snap != jsonEncode(config)) {
             await _stop(id);
+            _fileTransfers.remove(id)?.close();
             _networks.remove(id)?.close();
             errors.remove(id);
           }
@@ -258,6 +328,7 @@ class PluginService {
     PluginOperation? operation,
   }) => _exclusive(() async {
     operation?.check();
+    _fileTransfers.remove(id)?.close();
     _networks.remove(id)?.close();
     errors.remove(id);
     if (!enabled) {
@@ -279,6 +350,7 @@ class PluginService {
       await _stop(id);
       await PluginSystem.instance.setEnabled(id, false);
       if (operation?.cancelled == true) {
+        _fileTransfers.remove(id)?.close();
         _networks.remove(id)?.close();
         errors.remove(id);
       } else {
@@ -311,6 +383,7 @@ class PluginService {
       onClosed: () {
         if (!identical(_running[pack.id], runtime)) return;
         _stopping.add(pack.id);
+        _closeExtensions(pack.id);
         _cancelChats(pack.id);
         _running.remove(pack.id);
         _packages.remove(pack.id);
@@ -324,6 +397,7 @@ class PluginService {
     );
     final detachCancellation = operation?.listen(() {
       _stopping.add(pack.id);
+      _closeExtensions(pack.id);
       runtime.close();
       _cancelChats(pack.id);
       for (final client in _clients.remove(pack.id) ?? <http.Client>{}) {
@@ -348,10 +422,38 @@ class PluginService {
             .map((tool) => tool['name'])
             .toList(),
       );
+      await runtime.call(
+        'validateCommands',
+        '',
+        PluginEventPolicy.commands(pack.manifest['commands']),
+      );
       await runtime.call('event', 'activate', {});
       operation?.check();
       _running[pack.id] = runtime;
       _configSnapshots[pack.id] = jsonEncode(config);
+      final specs = PluginWorkerPolicy.validate(pack.manifest['workers']);
+      await runtime.call(
+        'validateWorkers',
+        '',
+        specs.map((s) => s['name']).toList(),
+      );
+      if (specs.isNotEmpty) {
+        final runner = PluginWorkerRunner(
+          pluginId: pack.id,
+          specs: specs,
+          check: () => _assertCurrent(pack),
+          dispatch: (name, token) =>
+              runtime.call('worker', name, {'workerToken': token}),
+          log: (message) => _log(pack.id, message),
+          lost: () {
+            _stopping.add(pack.id);
+            _closeExtensions(pack.id);
+            runtime.close();
+          },
+        );
+        _workers[pack.id] = runner;
+        await runner.start();
+      }
       if ((pack.manifest['hooks'] as List? ?? []).contains('app.ready')) {
         await runtime.call('event', 'app.ready', {'apiVersion': 1});
       }
@@ -360,6 +462,7 @@ class PluginService {
       // clean up. The id is removed from _stopping once the entry is gone so a
       // subsequent fresh start is not accidentally blocked.
       _stopping.add(pack.id);
+      _closeExtensions(pack.id);
       runtime.close();
       _running.remove(pack.id);
       _packages.remove(pack.id);
@@ -378,7 +481,9 @@ class PluginService {
   Future<void> _stop(String id) async {
     _stopping.add(id);
     _cancelChats(id);
+    _closeExtensions(id);
     final runtime = _running.remove(id);
+    _fileTransfers.remove(id)?.close();
     _networks.remove(id)?.close();
     // Cancel network work before invoking teardown; a plugin may be awaiting it.
     for (final client in _clients.remove(id) ?? <http.Client>{}) {
@@ -403,7 +508,10 @@ class PluginService {
   Future<void> delete(String id) => _exclusive(() async {
     await PluginSystem.instance.setEnabled(id, false);
     await _stop(id);
+    await PluginDatabase.delete(id);
+    await PluginWorkerRunner.delete(id);
     await PluginSystem.instance.delete(id);
+    _fileTransfers.remove(id)?.close();
     _networks.remove(id)?.close();
     errors.remove(id);
   });
@@ -423,6 +531,7 @@ class PluginService {
     final wasEnabled = previous['enabled'] == 1;
     await PluginCoordinator.invalidate(id);
     await _stop(id);
+    _fileTransfers.remove(id)?.close();
     _networks.remove(id)?.close();
     errors.remove(id);
     try {
@@ -463,6 +572,7 @@ class PluginService {
       } catch (error) {
         await _stop(id);
         if (operation?.cancelled == true) {
+          _fileTransfers.remove(id)?.close();
           _networks.remove(id)?.close();
           errors.remove(id);
         } else {
@@ -489,6 +599,7 @@ class PluginService {
       await PluginSystem.instance.saveConfig(id, values);
       if (row['enabled'] == 1) {
         await _stop(id);
+        _fileTransfers.remove(id)?.close();
         _networks.remove(id)?.close();
         errors.remove(id);
         try {
@@ -554,7 +665,7 @@ class PluginService {
     String? botId,
   }) async {
     await initialize();
-    for (final pack in _packages.values.toList()) {
+    for (final pack in _orderedPackages()) {
       for (final tool in pack.manifest['tools'] as List? ?? []) {
         if (toolName(pack.id, tool['name'] as String) != name) continue;
         if (!await allowsBot(pack.id, botId))
@@ -618,7 +729,7 @@ class PluginService {
     await initialize();
     var current = Map<String, dynamic>.from(payload);
     final botId = payload['botId'] as String?;
-    for (final pack in _packages.values.toList()) {
+    for (final pack in _orderedPackages()) {
       if (!await allowsBot(pack.id, botId)) continue;
       if (!(pack.manifest['hooks'] as List? ?? []).contains(name)) continue;
       final runtime = _running[pack.id];
@@ -680,6 +791,33 @@ class PluginService {
       throw StateError('插件已停止');
     await _assertCurrent(pack);
     final permissions = pack.manifest['permissions'] as List? ?? [];
+    if (method == 'runtime.sleep') {
+      return (_waits[pack.id] ??= PluginWaits()).sleep(args['ms'], () async {
+        await _assertCurrent(pack);
+        if (args['workerToken'] != null) {
+          final runner = _workers[pack.id];
+          if (runner == null) throw StateError('常驻任务已停止');
+          await runner.assertToken(args['workerToken']);
+        }
+      });
+    }
+    if (method.startsWith('database.')) {
+      if (!permissions.contains('database'))
+        throw StateError('未声明 database 权限');
+      return PluginDatabase.call(
+        pack.id,
+        method,
+        args,
+        () => _assertCurrent(pack),
+      );
+    }
+    if (method.startsWith('ai.')) {
+      if (!permissions.contains('ai')) throw StateError('未声明 ai 权限');
+      return (_ai[pack.id] ??= PluginAI(
+        providers: () => DBManager().queryChatProviders(),
+        check: () => _assertCurrent(pack),
+      )).call(method, args);
+    }
     if (method == 'notifications.show') {
       if (!permissions.contains('notifications'))
         throw StateError('未声明 notifications 权限');
@@ -720,6 +858,31 @@ class PluginService {
       await session.check();
       return null;
     }
+    if (method.startsWith('files.') ||
+        {
+          'http.downloadFile',
+          'http.uploadFile',
+          'http.cancelFile',
+          'http.fileProgress',
+        }.contains(method)) {
+      if (!permissions.contains('files')) throw StateError('未声明 files 权限');
+      if (method.startsWith('files.'))
+        return (await _files(pack)).call(method, args);
+      if (!permissions.contains('network')) throw StateError('未声明 network 权限');
+      final transfer = _fileTransfers.putIfAbsent(
+        pack.id,
+        PluginFileTransfer.new,
+      );
+      if (method == 'http.cancelFile' || method == 'http.fileProgress')
+        return transfer.control(method, args);
+      return transfer.request(
+        method,
+        args,
+        pack.manifest['networkOrigins'] as List? ?? [],
+        await _files(pack),
+        () => _assertCurrent(pack),
+      );
+    }
     if (method.startsWith('tasks.')) {
       final session = _chatSessions[args['contextToken']];
       if (session == null || session.pluginId != pack.id) {
@@ -741,6 +904,12 @@ class PluginService {
         final result = await PluginTaskStore.list(pack.id, session.botId);
         await session.check();
         return result;
+      }
+      if (method == 'tasks.update') {
+        return PluginCoordinator.locked('lifecycle', () async {
+          await session.check();
+          return PluginTaskStore.update(pack.id, session.botId, args);
+        });
       }
       if (method == 'tasks.cancel') {
         final id = args['id'];
@@ -796,6 +965,11 @@ class PluginService {
         await session.check();
         return result;
       }
+      if (method == 'media.fromFile' || method == 'media.saveFile') {
+        if (!permissions.contains('files')) throw StateError('未声明 files 权限');
+        session.files ??= await _files(pack);
+      }
+      session.processMedia ??= PluginNativeMedia.execute;
       return session.call(
         method,
         args,
@@ -822,6 +996,7 @@ class PluginService {
             .where((s) => s.pluginId == pack.id)
             .length,
         'lastError': errors[pack.id],
+        'workers': _workers[pack.id]?.status ?? [],
         'package': pack.manifest['_installedPackage'],
       };
     }
@@ -867,8 +1042,8 @@ class PluginService {
             throw StateError('未知存储 API');
           }
           final encoded = jsonEncode(data);
-          if (utf8.encode(encoded).length > 256 * 1024)
-            throw StateError('插件存储超过 256 KB');
+          if (utf8.encode(encoded).length > 8 * 1024 * 1024)
+            throw StateError('插件存储超过 8 MiB');
           await _secure.write(key: storageKey, value: encoded);
           return method == 'storage.compareAndSet' ? true : null;
         }),
@@ -907,11 +1082,19 @@ class PluginService {
       final origins = pack.manifest['networkOrigins'] as List? ?? [];
       if (uri.scheme != 'https' ||
           uri.userInfo.isNotEmpty ||
-          !origins.contains(uri.origin)) {
+          !PluginMediaContract.allows(uri, origins)) {
         throw StateError('请求地址不在声明的 HTTPS origin 中');
       }
       final verb = (args['method'] as String? ?? 'GET').toUpperCase();
-      if (!{'GET', 'POST', 'PUT', 'PATCH', 'DELETE'}.contains(verb))
+      if (!{
+        'GET',
+        'HEAD',
+        'OPTIONS',
+        'POST',
+        'PUT',
+        'PATCH',
+        'DELETE',
+      }.contains(verb))
         throw StateError('HTTP 方法不支持');
       final request = http.Request(verb, uri)..followRedirects = false;
       if (args['headers'] is Map)

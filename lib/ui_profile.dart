@@ -155,7 +155,7 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Column(
           children: [
             _buildProfileCard(),
-            SizedBox(height: TideTheme.of(context).isWechat ? 0 : 24),
+            SizedBox(height: TideTheme.of(context).isWechat ? 12 : 24),
             ..._settings.map(
               (s) => BouncyTap(
                 onTap: () => _onSetting(s),

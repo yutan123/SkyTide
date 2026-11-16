@@ -58,6 +58,10 @@ class PluginSystem {
     deleteRow: (id) => DBManager().deletePlugin(id),
     invalidate: PluginCoordinator.invalidate,
     deleteData: (id) => PluginCoordinator.locked('storage:$id', () async {
+      final files = Directory(
+        '${(await getApplicationSupportDirectory()).path}/plugin_files/$id',
+      );
+      if (await files.exists()) await files.delete(recursive: true);
       await _secureStorage.delete(key: 'plugin_data_$id');
       await _secureStorage.delete(key: _configKey(id));
       final db = await DBManager().database;

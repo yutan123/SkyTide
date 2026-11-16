@@ -14,6 +14,21 @@ class PluginContract {
     'tasks',
     'notifications',
     'network.transfer',
+    'media.requestHeaders',
+    'network.originPatterns',
+    'files',
+    'network.files',
+    'media.process',
+    'schema.nested',
+    'storage.large',
+    'tasks.recurring',
+    'workers',
+    'runtime.sleep',
+    'database',
+    'database.vector',
+    'commands',
+    'events.priority',
+    'ai',
   };
   static const hooks = {
     'tool.before',
@@ -122,14 +137,19 @@ class PluginContract {
     if (schema['type'] != 'object' || schema['properties'] is! Map) {
       throw const FormatException('配置/工具参数必须声明 object 和 properties');
     }
-    final properties = schema['properties'] as Map;
-    for (final entry in properties.entries) {
-      if (entry.key is! String || entry.value is! Map) {
-        throw const FormatException('Schema 属性无效');
-      }
-      final field = entry.value as Map;
-      if (!{'string', 'boolean', 'integer', 'number'}.contains(field['type'])) {
-        throw const FormatException('字段支持 string/boolean/integer/number');
+    var nodes = 0;
+    void visit(Map field, int depth) {
+      if (depth > 16 || ++nodes > 1000)
+        throw const FormatException('Schema 层级或节点过多');
+      if (!{
+        'string',
+        'boolean',
+        'integer',
+        'number',
+        'object',
+        'array',
+      }.contains(field['type'])) {
+        throw const FormatException('字段类型不支持');
       }
       for (final key in ['title', 'description', 'format']) {
         if (field[key] != null && field[key] is! String)
@@ -144,81 +164,135 @@ class PluginContract {
           field['maximum'] != null &&
           field['minimum'] > field['maximum'])
         throw const FormatException('minimum 不能大于 maximum');
-      if (field['maxLength'] != null &&
-          (field['maxLength'] is! int || field['maxLength'] < 0))
-        throw const FormatException('maxLength 必须为非负整数');
-      if (field['enum'] != null &&
-          (field['enum'] is! List || (field['enum'] as List).isEmpty)) {
-        throw const FormatException('enum 必须为非空数组');
+      for (final key in ['minLength', 'maxLength', 'minItems', 'maxItems']) {
+        if (field[key] != null && (field[key] is! int || field[key] < 0))
+          throw FormatException('$key 必须为非负整数');
       }
-      if (field['enum'] is List) {
-        final seen = <dynamic>{};
+      for (final pair in [
+        ['minLength', 'maxLength'],
+        ['minItems', 'maxItems'],
+      ]) {
+        if (field[pair[0]] != null &&
+            field[pair[1]] != null &&
+            field[pair[0]] > field[pair[1]])
+          throw const FormatException('最小值不能超过最大值');
+      }
+      if (field['type'] == 'object') {
+        if (field['properties'] is! Map)
+          throw const FormatException('object 必须声明 properties');
+        if (field['additionalProperties'] != null &&
+            field['additionalProperties'] is! bool)
+          throw const FormatException('additionalProperties 必须为布尔值');
+        final properties = field['properties'] as Map;
+        for (final entry in properties.entries) {
+          if (entry.key is! String || entry.value is! Map)
+            throw const FormatException('Schema 属性无效');
+          visit(entry.value as Map, depth + 1);
+        }
+        final required = field['required'];
+        if (required != null &&
+            (required is! List ||
+                required.any((key) => !properties.containsKey(key))))
+          throw const FormatException('required 必须引用已声明的属性');
+      }
+      if (field['type'] == 'array') {
+        if (field['items'] is! Map)
+          throw const FormatException('array 必须声明 items');
+        visit(field['items'] as Map, depth + 1);
+      }
+      if (field['enum'] != null) {
+        if (field['enum'] is! List || (field['enum'] as List).isEmpty)
+          throw const FormatException('enum 必须为非空数组');
+        final seen = <String>{};
         for (final option in field['enum'] as List) {
-          _field(entry.key, option, field);
-          if (!seen.add(option)) throw const FormatException('enum 不允许重复值');
+          _field('enum', option, {...field}..remove('enum'), depth);
+          if (!seen.add(jsonEncode(option)))
+            throw const FormatException('enum 不允许重复值');
         }
       }
       if (field.containsKey('default'))
-        _field(entry.key, field['default'], field);
+        _field('default', field['default'], field, depth);
     }
-    final required = schema['required'];
-    if (required != null &&
-        (required is! List ||
-            required.any((key) => !properties.containsKey(key)))) {
-      throw const FormatException('required 必须引用已声明的属性');
-    }
+
+    visit(schema, 0);
   }
 
   static Map<String, dynamic> values(Map schema, Map<String, dynamic> input) {
     schemaCheck(schema);
-    final properties = schema['properties'] as Map;
-    final result = <String, dynamic>{};
-    for (final entry in properties.entries) {
-      final field = entry.value as Map;
-      final key = entry.key as String;
-      final value = input.containsKey(key) ? input[key] : field['default'];
-      if (value == null) {
-        if ((schema['required'] as List? ?? []).contains(key)) {
-          throw FormatException('$key 为必填项');
-        }
-        continue;
-      }
-      _field(key, value, field);
-      result[key] = value;
-    }
-    if (input.keys.any((key) => !properties.containsKey(key))) {
-      throw const FormatException('包含未声明的配置/参数');
-    }
-    return result;
+    if (utf8.encode(jsonEncode(input)).length > 1024 * 1024)
+      throw const FormatException('参数超过 1 MiB');
+    return Map<String, dynamic>.from(_field('参数', input, schema, 0) as Map);
   }
 
   static void schemaCheck(Map value) => schema(value);
-
-  static void _field(Object key, dynamic value, Map field) {
+  static dynamic _field(Object key, dynamic value, Map field, int depth) {
+    if (depth > 16) throw FormatException('$key 层级过深');
     final valid = switch (field['type']) {
       'string' => value is String,
       'boolean' => value is bool,
       'integer' => value is int,
       'number' => value is num && value.isFinite,
+      'object' => value is Map,
+      'array' => value is List,
       _ => false,
     };
     if (!valid) throw FormatException('$key 的类型不符合 ${field['type']}');
-    if (field['enum'] is List && !(field['enum'] as List).contains(value)) {
+    if (field['enum'] is List &&
+        !(field['enum'] as List).any((v) => jsonEncode(v) == jsonEncode(value)))
       throw FormatException('$key 必须选择声明的枚举值');
-    }
     if (value is num) {
-      if (field['minimum'] is num && value < field['minimum']) {
+      if (field['minimum'] is num && value < field['minimum'])
         throw FormatException('$key 小于最小值');
-      }
-      if (field['maximum'] is num && value > field['maximum']) {
+      if (field['maximum'] is num && value > field['maximum'])
         throw FormatException('$key 大于最大值');
+    }
+    if (value is String) {
+      if (field['maxLength'] is int && value.length > field['maxLength'])
+        throw FormatException('$key 超出长度限制');
+      if (field['minLength'] is int && value.length < field['minLength'])
+        throw FormatException('$key 长度不足');
+      if (value.length > 65536) throw FormatException('$key 内容过长');
+    }
+    if (value is List) {
+      if (value.length > (field['maxItems'] as int? ?? 10000) ||
+          value.length < (field['minItems'] as int? ?? 0))
+        throw FormatException('$key 数组长度超限');
+      return [
+        for (var i = 0; i < value.length; i++)
+          _field('$key[$i]', value[i], field['items'] as Map, depth + 1),
+      ];
+    }
+    if (value is Map) {
+      final props = field['properties'] as Map;
+      if (value.keys.any(
+        (k) =>
+            k is! String ||
+            (!props.containsKey(k) && field['additionalProperties'] != true),
+      ))
+        throw FormatException('$key 包含未声明的配置/参数');
+      final result = <String, dynamic>{};
+      if (field['additionalProperties'] == true)
+        result.addAll(
+          Map<String, dynamic>.from(jsonDecode(jsonEncode(value)) as Map),
+        );
+      for (final entry in props.entries) {
+        final child = entry.value as Map;
+        final present = value.containsKey(entry.key);
+        final next = present ? value[entry.key] : child['default'];
+        if (next == null) {
+          if ((field['required'] as List? ?? []).contains(entry.key))
+            throw FormatException('${entry.key} 为必填项');
+          continue;
+        }
+        result[entry.key as String] = _field(
+          '$key.${entry.key}',
+          next,
+          child,
+          depth + 1,
+        );
       }
+      return result;
     }
-    if (value is String &&
-        field['maxLength'] is int &&
-        value.length > field['maxLength']) {
-      throw FormatException('$key 超出长度限制');
-    }
-    if (jsonEncode(value).length > 65536) throw FormatException('$key 内容过长');
+    return value;
   }
 }

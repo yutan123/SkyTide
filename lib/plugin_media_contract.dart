@@ -4,6 +4,11 @@ import 'dart:convert';
 class PluginMediaContract {
   static const permissions = {
     'storage',
+    'workers',
+    'database',
+    'ai',
+    'files',
+    'media.process',
     'network',
     'chat.send',
     'chat.read',
@@ -12,11 +17,63 @@ class PluginMediaContract {
     'media.download',
   };
   static const limits = {
-    'image': 10 * 1024 * 1024,
-    'video': 40 * 1024 * 1024,
-    'audio': 20 * 1024 * 1024,
-    'document': 20 * 1024 * 1024,
+    'image': 32 * 1024 * 1024,
+    'video': 256 * 1024 * 1024,
+    'audio': 64 * 1024 * 1024,
+    'document': 64 * 1024 * 1024,
   };
+
+  static bool validOrigin(Object? value) {
+    if (value == '*') return true;
+    if (value is! String) return false;
+    final normalized = value.startsWith('https://*.')
+        ? value.replaceFirst('https://*.', 'https://')
+        : value;
+    final parsed = Uri.tryParse(normalized);
+    return parsed != null &&
+        parsed.scheme == 'https' &&
+        parsed.host.isNotEmpty &&
+        !parsed.host.contains('*') &&
+        parsed.userInfo.isEmpty &&
+        parsed.origin == normalized;
+  }
+
+  static bool allows(Uri uri, List origins) {
+    if (uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.fragment.isNotEmpty)
+      return false;
+    return origins.any((origin) {
+      if (!validOrigin(origin)) return false;
+      if (origin == '*' || origin == uri.origin) return true;
+      if (origin is String && origin.startsWith('https://*.')) {
+        final base = Uri.parse(origin.replaceFirst('https://*.', 'https://'));
+        return uri.port == base.port &&
+            uri.host.endsWith('.${base.host}') &&
+            uri.host != base.host;
+      }
+      return false;
+    });
+  }
+
+  static Map<String, String> headers(Object? value) {
+    if (value == null) return {};
+    if (value is! Map) throw const FormatException('headers 必须为字符串映射');
+    final result = <String, String>{};
+    for (final entry in value.entries) {
+      if (entry.key is! String ||
+          entry.value is! String ||
+          !RegExp(
+            r"^[!#$%&'*+.^_`|~0-9a-zA-Z-]+$",
+          ).hasMatch(entry.key as String) ||
+          (entry.value as String).contains(RegExp(r'[\r\n\x00]'))) {
+        throw const FormatException('请求头名称或值无效');
+      }
+      result[(entry.key as String).toLowerCase()] = entry.value as String;
+    }
+    return result;
+  }
 
   static Uri uri(Object? value, List origins) {
     if (value is! String) throw const FormatException('url 必须为 HTTPS 地址');
@@ -26,8 +83,8 @@ class PluginMediaContract {
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
         uri.fragment.isNotEmpty ||
-        !origins.contains(uri.origin)) {
-      throw const FormatException('媒体地址必须属于 networkOrigins 中声明的 HTTPS origin');
+        !allows(uri, origins)) {
+      throw const FormatException('媒体地址未获得 networkOrigins 授权');
     }
     return uri;
   }

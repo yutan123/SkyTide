@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import 'plugin_contract.dart';
@@ -31,11 +32,16 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
       final value = widget.values[key] ?? field['default'];
       if (field['type'] == 'boolean' && field['enum'] is! List) {
         _values[key] = value ?? false;
-      } else if (field['enum'] is List) {
+      } else if (field['enum'] is List &&
+          !{'object', 'array'}.contains(field['type'])) {
         if (value != null) _values[key] = value;
       } else {
         _controllers[key] = TextEditingController(
-          text: value?.toString() ?? '',
+          text: value == null
+              ? ''
+              : ({'object', 'array'}.contains(field['type'])
+                    ? const JsonEncoder.withIndent('  ').convert(value)
+                    : value.toString()),
         );
       }
     }
@@ -52,6 +58,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
         values[entry.key] = switch (type) {
           'integer' => int.parse(text),
           'number' => double.parse(text),
+          'object' || 'array' => jsonDecode(text),
           _ => text,
         };
       }
@@ -116,7 +123,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
 
   Widget _field(String key, Map field) {
     final title = field['title']?.toString() ?? key;
-    if (field['enum'] is List) {
+    if (field['enum'] is List && !{'object', 'array'}.contains(field['type'])) {
       final options = field['enum'] as List;
       return DropdownButtonFormField<dynamic>(
         initialValue: options.contains(_values[key]) ? _values[key] : null,
@@ -143,6 +150,8 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
     return TextField(
       controller: _controllers[key],
       obscureText: field['format'] == 'password',
+      minLines: {'object', 'array'}.contains(field['type']) ? 3 : 1,
+      maxLines: {'object', 'array'}.contains(field['type']) ? 8 : 1,
       keyboardType: {'number', 'integer'}.contains(field['type'])
           ? const TextInputType.numberWithOptions(decimal: true, signed: true)
           : TextInputType.text,

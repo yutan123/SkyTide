@@ -1,5 +1,7 @@
 import 'plugin_media_contract.dart';
 import 'dart:convert';
+import 'plugin_worker_policy.dart';
+import 'plugin_event_policy.dart';
 
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
@@ -226,6 +228,18 @@ class PluginArchive {
       }
       PluginContract.schema(tool['parameters'] as Map);
     }
+    final commands = PluginEventPolicy.commands(m['commands']);
+    PluginEventPolicy.priority(m['eventPriority']);
+    if (commands.isNotEmpty &&
+        !(m['permissions'] is List &&
+            (m['permissions'] as List).contains('chat.read')))
+      throw const FormatException('commands 需要 chat.read 权限');
+    final workers = PluginWorkerPolicy.validate(m['workers']);
+    if (workers.isNotEmpty &&
+        !(m['permissions'] is List &&
+            (m['permissions'] as List).contains('workers'))) {
+      throw const FormatException('workers 需要 workers 权限');
+    }
     final hooks = m['hooks'] ?? [];
     if (hooks is! List ||
         hooks.any((hook) => !PluginContract.hooks.contains(hook))) {
@@ -241,13 +255,10 @@ class PluginArchive {
     final origins = m['networkOrigins'] ?? [];
     if (origins is! List) throw const FormatException('networkOrigins 必须为数组');
     for (final origin in origins) {
-      final uri = origin is String ? Uri.tryParse(origin) : null;
-      if (uri == null ||
-          uri.scheme != 'https' ||
-          uri.host.isEmpty ||
-          uri.userInfo.isNotEmpty ||
-          uri.origin != origin) {
-        throw const FormatException('networkOrigins 必须为 HTTPS origin，不带路径或尾斜线');
+      if (!PluginMediaContract.validOrigin(origin)) {
+        throw const FormatException(
+          'networkOrigins 必须为 HTTPS origin、https://*.example.com 或 *',
+        );
       }
     }
     if (ui is Map) {

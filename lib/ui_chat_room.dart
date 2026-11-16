@@ -296,6 +296,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   bool _dimParentheticalText = true;
   bool _showChatAvatar = false;
   String? _userAvatar;
+  static const double _qqHeaderHeight = 48;
   double _wechatComposerHeight = 76;
   bool _showSearchSources = false;
   late Map<String, dynamic> _bot;
@@ -2924,10 +2925,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               MediaQuery.of(context).size.width *
               (theme.isWechat ? 0.70 : 0.75),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: EdgeInsets.symmetric(
+          horizontal: theme.usesMessagingLayout ? 10 : 12,
+          vertical: theme.usesMessagingLayout ? 5 : 8,
+        ),
         decoration: BoxDecoration(
           color: theme.bubbleAi,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(
+            theme.isWechat ? 4 : (theme.isQq ? 8 : 12),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2938,7 +2944,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 Text(
                   '内心独白',
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: theme.usesMessagingLayout ? 12 : 13,
                     color: theme.textWeak,
                     fontWeight: FontWeight.w500,
                   ),
@@ -2958,7 +2964,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               Text(
                 content,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: theme.usesMessagingLayout ? 12 : 13,
                   color: theme.textWeak.withValues(alpha: 0.8),
                   height: 1.4,
                   fontStyle: FontStyle.italic,
@@ -4281,7 +4287,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             Positioned.fill(child: _chatBody()),
             Positioned(left: 0, right: 0, top: 0, child: _chatHeader()),
             Positioned(
-              top: MediaQuery.paddingOf(context).top + 64,
+              top: MediaQuery.paddingOf(context).top + _qqHeaderHeight + 8,
               left: 16,
               right: 16,
               child: IncomingCallBanner(botId: _bot['id']?.toString() ?? ''),
@@ -4485,7 +4491,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         child: SafeArea(
           bottom: false,
           child: SizedBox(
-            height: 60,
+            height: _qqHeaderHeight,
             child: Row(
               children: [
                 IconButton(
@@ -4494,7 +4500,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   icon: Icon(
                     Icons.arrow_back_ios_new,
                     color: theme.textStrong,
-                    size: 23,
+                    size: 20,
                   ),
                 ),
                 Expanded(
@@ -4505,7 +4511,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                       Text(
                         _bot['name']?.toString() ?? '',
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: theme.textStrong, fontSize: 19),
+                        style: TextStyle(color: theme.textStrong, fontSize: 17),
                       ),
                       if (_typing)
                         Text(
@@ -4564,13 +4570,18 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }) => Expanded(
       child: IconButton(
         tooltip: label,
+        padding: const EdgeInsets.all(8),
+        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+        style: IconButton.styleFrom(
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
         onPressed: action,
         icon: QqIcon(
           kind: kind,
           color: active
               ? qqBlue
               : (action == null ? theme.textFaint : theme.textStrong),
-          size: 27,
+          size: 23,
         ),
       ),
     );
@@ -4579,7 +4590,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         top: false,
         bottom: !_emojiPanelMounted,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 7, 16, 0),
+          padding: const EdgeInsets.fromLTRB(12, 5, 12, 0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -4591,10 +4602,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 children: [
                   Expanded(
                     child: Container(
-                      constraints: const BoxConstraints(minHeight: 42),
+                      constraints: const BoxConstraints(minHeight: 34),
                       decoration: BoxDecoration(
                         color: theme.surface,
-                        borderRadius: BorderRadius.circular(13),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: TextField(
                         contextMenuBuilder: androidTextContextMenu,
@@ -4618,13 +4629,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12,
-                            vertical: 11,
+                            vertical: 6,
                           ),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   FilledButton(
                     onPressed: canSend ? _sendFromComposer : null,
                     style: FilledButton.styleFrom(
@@ -4632,17 +4643,18 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                       disabledBackgroundColor: qqBlue.withValues(alpha: .48),
                       foregroundColor: Colors.white,
                       disabledForegroundColor: Colors.white70,
-                      minimumSize: const Size(72, 42),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      minimumSize: const Size(80, 34),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(13),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                     child: const Text('发送'),
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               Row(
                 children: [
                   tool(
@@ -4773,8 +4785,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     child: TideBotAvatar(
       name: isUser ? '我' : (_bot['name']?.toString() ?? 'TideBot'),
       path: isUser ? _userAvatar : _bot['avatar']?.toString(),
-      size: TideTheme.of(context).isQq ? 40 : 34,
-      radius: TideTheme.of(context).isQq ? 20 : 4,
+      size: TideTheme.of(context).isQq ? 32 : 34,
+      radius: TideTheme.of(context).isQq ? 16 : 4,
     ),
   );
 
@@ -4954,7 +4966,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       // height plus a small gap so the last bubble sits just above it.
       padding: EdgeInsets.fromLTRB(
         12,
-        TideTheme.of(context).isQq ? MediaQuery.paddingOf(context).top + 72 : 8,
+        TideTheme.of(context).isQq
+            ? MediaQuery.paddingOf(context).top + _qqHeaderHeight + 12
+            : 8,
         12,
         TideTheme.of(context).usesMessagingLayout
             ? _wechatComposerHeight + 8
@@ -4975,7 +4989,12 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         // 内心独白单独处理
         if (type == 'inner_thought') {
           return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
+            padding: EdgeInsets.only(
+              left: theme.usesMessagingLayout && _showChatAvatar
+                  ? (theme.isQq ? 40 : 42)
+                  : 0,
+              bottom: theme.usesMessagingLayout ? 6 : 8,
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -5185,21 +5204,23 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                             Container(
                               margin: EdgeInsets.only(
                                 bottom: theme.usesMessagingLayout
-                                    ? (theme.isQq ? 16 : 10)
+                                    ? (theme.isQq ? 10 : 8)
                                     : 8,
                               ),
                               constraints: BoxConstraints(
                                 maxWidth: theme.usesMessagingLayout
                                     ? (MediaQuery.sizeOf(context).width -
                                               24 -
-                                              (_showChatAvatar ? 42 : 0) -
+                                              (_showChatAvatar
+                                                  ? (theme.isQq ? 40 : 42)
+                                                  : 0) -
                                               (isUser && hasRetryFailure
                                                   ? 28
                                                   : 0))
                                           .clamp(
                                             0.0,
                                             MediaQuery.sizeOf(context).width *
-                                                .70,
+                                                (theme.isQq ? .74 : .72),
                                           )
                                           .toDouble()
                                     : MediaQuery.sizeOf(context).width * .75,
@@ -5640,9 +5661,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 ? theme.textStrong
                 : const Color(0xFF111111))
           : (isUser ? Colors.white : theme.textStrong),
-      fontSize: theme.usesMessagingLayout ? 16 : 14,
+      fontSize: theme.isQq ? 14.5 : (theme.isWechat ? 15 : 14),
       fontFamily: 'TideFont',
-      height: theme.usesMessagingLayout ? 1.35 : 1.5,
+      height: theme.usesMessagingLayout ? 1.4 : 1.5,
     );
     final spans = <TextSpan>[];
     final reg = RegExp(r'\(.*?\)');
@@ -6159,7 +6180,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   child: _pendingExpressionPreview(theme),
                 ),
               Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   IconButton(
                     visualDensity: VisualDensity.compact,
@@ -6179,7 +6200,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   ),
                   Expanded(
                     child: Container(
-                      constraints: const BoxConstraints(minHeight: 36),
+                      constraints: const BoxConstraints(minHeight: 32),
                       decoration: BoxDecoration(
                         color: theme.surface,
                         borderRadius: BorderRadius.circular(5),
@@ -6207,7 +6228,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 10,
-                            vertical: 8,
+                            vertical: 5,
                           ),
                         ),
                       ),

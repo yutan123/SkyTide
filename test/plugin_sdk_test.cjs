@@ -171,3 +171,55 @@ test('legacy handler input remains intact and missing context rejects chat APIs'
   assert.deepEqual(await h.call('tool','legacy',{hello:'world'}),{hello:'world'});
   await assert.rejects(h.call('tool','send',{}),/requires a tool invocation/);
 });
+test('workers validate declarations and bind cancellable waits to worker identity', async () => {
+  const h = host();
+  h.run(`tide.registerWorker('sync', async context => { await context.sleep(25); return context.name; });`);
+  await h.call('validateWorkers', '', ['sync']);
+  await assert.rejects(h.call('validateWorkers', '', []), /Undeclared/);
+  await assert.rejects(h.call('validateWorkers', '', ['missing']), /Unregistered/);
+  const result = h.call('worker', 'sync', {workerToken: 'lease-token'});
+  await h.tick();
+  assert.equal(h.requests[0].method, 'runtime.sleep');
+  assert.deepEqual(h.requests[0].args, {ms: 25, workerToken: 'lease-token'});
+  h.context.__tideResolve(h.requests[0].id, null, null);
+  assert.equal(await result, 'sync');
+});
+test('command handlers receive scoped chat context and declaration validation', async () => {
+  const h = host();
+  h.run(`tide.registerCommand('echo', async (args, context) => { await context.chat.sendText({text: args.text, requestId: 'echo-' + args.messageId}); });`);
+  await h.call('validateCommands', '', ['echo']);
+  await assert.rejects(h.call('validateCommands', '', []), /Undeclared/);
+  assert.throws(() => h.run(`tide.registerCommand('echo', () => {});`), /duplicate/);
+  const result = h.call('command', 'echo', {args: {text: 'hello', messageId: 'm1'}, contextToken: 'chat-scope'});
+  await h.tick();
+  assert.equal(h.requests[0].method, 'chat.sendText');
+  assert.deepEqual(h.requests[0].args, {text: 'hello', requestId: 'echo-m1', contextToken: 'chat-scope'});
+  h.context.__tideResolve(h.requests[0].id, {status: 'sent'}, null);
+  assert.equal(await result, null);
+});
+test('database RPC uses explicit collection and cannot be overridden by options', async () => {
+  const h = host();
+  h.run(`tide.registerTool('db', () => tide.database.put('safe', 'key', {v: 1}, {collection: 'wrong', key: 'wrong', vector: [1, 0]}));`);
+  const result = h.call('tool', 'db', {});
+  await h.tick();
+  assert.equal(h.requests[0].method, 'database.put');
+  assert.deepEqual(h.requests[0].args, {collection: 'safe', key: 'key', value: {v: 1}, vector: [1, 0]});
+  h.context.__tideResolve(h.requests[0].id, null, null);
+  assert.equal(await result, null);
+});
+test('AI generation and cancellation keep explicit request identity', async () => {
+  const h = host();
+  h.run(`tide.registerTool('generate', args => tide.ai.generate(args)); tide.registerTool('cancel', args => tide.ai.cancel(args.id));`);
+  const result = h.call('tool', 'generate', {requestId: 'ai-1', providerId: 'p', messages: [{role:'user',content:'hello'}]});
+  await h.tick();
+  assert.equal(h.requests[0].method, 'ai.generate');
+  const rejected = assert.rejects(result, /cancelled/);
+  const cancel = h.call('tool', 'cancel', {id: 'ai-1'});
+  await h.tick();
+  assert.equal(h.requests[1].method, 'ai.cancel');
+  assert.equal(h.requests[1].args.requestId, 'ai-1');
+  h.context.__tideResolve(h.requests[1].id, true, null);
+  h.context.__tideResolve(h.requests[0].id, null, 'cancelled');
+  assert.equal(await cancel, true);
+  await rejected;
+});

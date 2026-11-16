@@ -35,6 +35,8 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   @override
   void dispose() {
     PluginMarket.instance.removeListener(_marketChanged);
+    _marketScrollController.dispose();
+    _marketSearchController.dispose();
     _operation?.cancel();
     _cleanTemp();
     super.dispose();
@@ -47,6 +49,8 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   @override
   void initState() {
     super.initState();
+    _syncMarketOrder();
+    _marketScrollController.addListener(_queueMarketScrollCheck);
     _reload();
     PluginMarket.instance.addListener(_marketChanged);
     unawaited(PluginMarket.instance.refresh());
@@ -54,6 +58,86 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
 
   final _marketSources = <String, Map<String, dynamic>>{};
   String _query = '';
+  static const _marketPageSize = 20;
+  final _marketScrollController = ScrollController(keepScrollOffset: false);
+  final _marketSearchController = TextEditingController();
+  final _marketOrder = <String>[];
+  int _marketVisibleCount = _marketPageSize;
+  int _marketGeneration = 0;
+  bool _marketLoadingMore = false;
+  bool _marketScrollCheckQueued = false;
+
+  // Keep a single randomized order for the browsing session. Index refreshes
+  // update metadata without reshuffling pages that the user has already seen.
+  void _syncMarketOrder({bool reshuffle = false}) {
+    final ids = PluginMarket.instance.plugins.map((p) => p.id).toSet();
+    if (reshuffle) _marketOrder.clear();
+    _marketOrder.removeWhere((id) => !ids.contains(id));
+    final known = _marketOrder.toSet();
+    final added = ids.where((id) => !known.contains(id)).toList()..shuffle();
+    _marketOrder.addAll(added);
+  }
+
+  List<MarketPlugin> get _filteredMarketEntries {
+    final byId = {for (final p in PluginMarket.instance.plugins) p.id: p};
+    final query = _query.trim().toLowerCase();
+    return [
+      for (final id in _marketOrder)
+        if (byId[id] case final plugin?)
+          if ('${plugin.name} ${plugin.author} ${plugin.description}'
+              .toLowerCase()
+              .contains(query))
+            plugin,
+    ];
+  }
+
+  void _resetMarketPages({bool reshuffle = false}) {
+    _marketGeneration++;
+    _marketLoadingMore = false;
+    _marketVisibleCount = _marketPageSize;
+    _syncMarketOrder(reshuffle: reshuffle);
+    if (_marketScrollController.hasClients) {
+      _marketScrollController.jumpTo(0);
+    }
+  }
+
+  void _selectTab(int index) {
+    if (_tab == index) return;
+    setState(() {
+      if (index == 1) _resetMarketPages(reshuffle: true);
+      _tab = index;
+    });
+  }
+
+  void _checkMarketScroll() {
+    if (!mounted ||
+        _tab != 1 ||
+        _marketLoadingMore ||
+        !_marketScrollController.hasClients ||
+        _marketScrollController.position.extentAfter > 240 ||
+        _marketVisibleCount >= _filteredMarketEntries.length)
+      return;
+    final generation = _marketGeneration;
+    setState(() => _marketLoadingMore = true);
+    // Render the loading footer before revealing the next local index batch.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _marketGeneration) return;
+      setState(() {
+        _marketVisibleCount += _marketPageSize;
+        _marketLoadingMore = false;
+      });
+    });
+  }
+
+  void _queueMarketScrollCheck() {
+    if (_marketScrollCheckQueued) return;
+    _marketScrollCheckQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _marketScrollCheckQueued = false;
+      if (mounted) _checkMarketScroll();
+    });
+  }
+
   String? _pendingReadmeId;
   MarketPlugin? _pendingMarketDetails;
   final _readmes = <String, File>{};
@@ -61,7 +145,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   int _downloaded = 0, _downloadTotal = 0;
 
   void _marketChanged() {
-    if (mounted) setState(() {});
+    if (mounted) setState(_syncMarketOrder);
   }
 
   MarketPlugin? _marketUpdate(Map<String, dynamic> row) {
@@ -77,6 +161,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   }
 
   Future<void> _refreshAll() async {
+    if (_tab == 1) setState(() => _resetMarketPages(reshuffle: true));
     await PluginMarket.instance.refresh();
     await _reload();
   }
@@ -1067,9 +1152,11 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
 
   Widget _marketUpdateButton(MarketPlugin plugin) => FilledButton.icon(
     style: FilledButton.styleFrom(
-      minimumSize: const Size(88, 42),
+      minimumSize: const Size(76, 34),
       visualDensity: VisualDensity.standard,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      textStyle: const TextStyle(fontSize: 12),
       backgroundColor: const Color(0xFFFFD76A),
       foregroundColor: const Color(0xFF624400),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1088,19 +1175,20 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   Widget _marketBody() {
     final market = PluginMarket.instance;
     final theme = TideTheme.of(context);
-    final entries = market.plugins
-        .where(
-          (p) => '${p.name} ${p.author} ${p.description}'
-              .toLowerCase()
-              .contains(_query.toLowerCase()),
-        )
-        .toList();
+    final allEntries = _filteredMarketEntries;
+    final entries = allEntries.take(_marketVisibleCount).toList();
+    final hasMore = entries.length < allEntries.length;
+    _queueMarketScrollCheck();
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           child: TextField(
-            onChanged: (v) => setState(() => _query = v),
+            controller: _marketSearchController,
+            onChanged: (v) => setState(() {
+              _query = v;
+              _resetMarketPages();
+            }),
             decoration: InputDecoration(
               hintText: '搜索插件、作者',
               isDense: true,
@@ -1130,16 +1218,18 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
             ),
           ),
         ),
-        if (market.loading) LinearProgressIndicator(color: theme.primary),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _refreshAll,
             child: ListView.separated(
+              controller: _marketScrollController,
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
               itemCount: entries.isEmpty
                   ? 1
-                  : entries.length + (market.error == null ? 0 : 1),
+                  : entries.length +
+                        (hasMore ? 1 : 0) +
+                        (market.error == null ? 0 : 1),
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (_, index) {
                 if (entries.isEmpty)
@@ -1173,7 +1263,22 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                       ),
                     ),
                   );
-                if (index == entries.length)
+                if (hasMore && index == entries.length) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: theme.primary,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                if (index >= entries.length)
                   return Text(
                     '刷新失败，当前显示缓存内容',
                     style: TextStyle(color: theme.textWeak),
@@ -1272,16 +1377,18 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                                   style: FilledButton.styleFrom(
                                     backgroundColor: theme.primary,
                                     foregroundColor: Colors.white,
-                                    minimumSize: const Size(88, 42),
+                                    minimumSize: const Size(76, 34),
                                     visualDensity: VisualDensity.standard,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 10,
+                                      horizontal: 12,
+                                      vertical: 6,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
+                                      borderRadius: BorderRadius.circular(11),
                                     ),
-                                    textStyle: const TextStyle(fontSize: 13),
+                                    textStyle: const TextStyle(fontSize: 12),
                                   ),
                                   onPressed: _busy || installed != null
                                       ? null
@@ -1357,7 +1464,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                       color: Colors.transparent,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(13),
-                        onTap: () => setState(() => _tab = index),
+                        onTap: () => _selectTab(index),
                         child: Center(
                           child: AnimatedDefaultTextStyle(
                             duration: const Duration(milliseconds: 180),

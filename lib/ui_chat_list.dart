@@ -124,7 +124,7 @@ class ChatListPageState extends State<ChatListPage> {
             ),
             IconButton(
               tooltip: '创建机器人',
-              icon: QqIcon(kind: 'add', color: theme.textStrong, size: 27),
+              icon: QqIcon(kind: 'add', color: theme.textStrong, size: 21),
               onPressed: () async {
                 final result = await Navigator.push<bool>(
                   context,

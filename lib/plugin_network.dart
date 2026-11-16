@@ -1,3 +1,4 @@
+import 'plugin_media_contract.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -63,7 +64,7 @@ class PluginNetwork {
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
         uri.fragment.isNotEmpty ||
-        !origins.contains(uri.origin)) {
+        !PluginMediaContract.allows(uri, origins)) {
       throw const FormatException('请求地址必须属于已声明的 HTTPS origin');
     }
     final timeout = args['timeoutMs'] ?? PluginTimeouts.network.inMilliseconds;
@@ -72,7 +73,15 @@ class PluginNetwork {
         timeout > PluginTimeouts.network.inMilliseconds)
       throw const FormatException('timeoutMs 无效');
     final method = (args['method'] as String? ?? 'GET').toUpperCase();
-    if (!{'GET', 'POST', 'PUT', 'PATCH', 'DELETE'}.contains(method))
+    if (!{
+      'GET',
+      'HEAD',
+      'OPTIONS',
+      'POST',
+      'PUT',
+      'PATCH',
+      'DELETE',
+    }.contains(method))
       throw const FormatException('HTTP 方法不支持');
     final request = http.Request(method, uri)..followRedirects = false;
     if (args['headers'] != null)

@@ -130,6 +130,43 @@ Future<void> main() async {
     throw StateError('Accepted invalid ZIP: ${entries.map((e) => e.name)}');
   }
 
+  accepts(
+    base({
+      'permissions': ['files', 'media.process'],
+      'requiredCapabilities': [
+        'files',
+        'network.files',
+        'media.process',
+        'schema.nested',
+        'storage.large',
+        'tasks.recurring',
+      ],
+      'config': {
+        'type': 'object',
+        'properties': {
+          'items': {
+            'type': 'array',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'id': {'type': 'integer'},
+              },
+            },
+          },
+        },
+      },
+    }),
+  );
+  rejects(
+    base({
+      'config': {
+        'type': 'object',
+        'properties': {
+          'items': {'type': 'array'},
+        },
+      },
+    }),
+  );
   for (final id in [
     'tidebot_meme_search',
     'tidebot.meme.serch',
@@ -216,6 +253,20 @@ Future<void> main() async {
     ...base(),
     for (var i = 0; i < PluginArchive.maxEntries; i++) Entry('file$i', []),
   ]);
+  accepts(
+    base({
+      'networkOrigins': ['https://*.bilivideo.com', '*'],
+      'requiredCapabilities': [
+        'media.requestHeaders',
+        'network.originPatterns',
+      ],
+    }),
+  );
+  rejects(
+    base({
+      'networkOrigins': ['https://foo.*.com'],
+    }),
+  );
   rejects(base({'entry': 'missing.js'}));
   rejects(base({'apiVersion': 2}));
   rejects(

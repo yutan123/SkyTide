@@ -1,3 +1,5 @@
+import 'plugin_media_pipeline.dart';
+import 'plugin_file_store.dart';
 import 'plugin_operation.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -26,7 +28,11 @@ class PluginChatSession {
     required this.assertCurrent,
     required this.host,
     this.downloadTimeout = PluginTimeouts.media,
+    this.processMedia,
+    this.files,
   });
+  PluginFileStore? files;
+  Future<void> Function(List<String>, Future<void> Function())? processMedia;
   final PluginChatHost host;
   final Duration downloadTimeout;
   final String pluginId, botId;
@@ -64,6 +70,22 @@ class PluginChatSession {
       if (method.startsWith('media.') &&
           !permissions.contains('media.download'))
         throw StateError('未声明 media.download 权限');
+      if (method == 'media.process') {
+        if (!permissions.contains('media.process'))
+          throw StateError('未声明 media.process 权限');
+        return _process(args, permissions, origins);
+      }
+      if (method == 'media.fromFile') return _fromFile(args);
+      if (method == 'media.saveFile') {
+        if (!permissions.contains('files')) throw StateError('未声明 files 权限');
+        final resource = _resources[args['resourceId']];
+        if (resource == null || files == null) throw StateError('媒体引用或私有文件不可用');
+        return files!.writeStream(
+          args['path'],
+          File(resource['path'] as String).openRead(),
+          beforeCommit: check,
+        );
+      }
       if (method == 'media.download')
         return _download(args, permissions, origins);
       if (method == 'media.inspect') {
@@ -196,6 +218,221 @@ class PluginChatSession {
     return row == null ? {'status': 'not_found'} : _receipt(row);
   }
 
+  Future<Map<String, dynamic>> _registerFile(File file, String kind) async {
+    if (_resources.length >= 4) throw StateError('单次调用最多保留 4 个媒体资源，请先释放');
+    final size = await file.length();
+    if (size > PluginMediaContract.limits[kind]!) throw StateError('媒体超过大小限制');
+    final handle = await file.open();
+    String extension;
+    try {
+      extension = PluginMediaContract.extension(await handle.read(64), kind);
+    } finally {
+      await handle.close();
+    }
+    await check();
+    final id = 'r${Random.secure().nextInt(1 << 32)}';
+    final resource = <String, dynamic>{
+      'resourceId': id,
+      'kind': kind,
+      'size': size,
+      'extension': extension,
+      'path': file.path,
+    };
+    _resources[id] = resource;
+    return Map<String, dynamic>.from(resource)..remove('path');
+  }
+
+  Future<Map<String, dynamic>> _fromFile(Map args) async {
+    final store = files;
+    if (store == null) throw StateError('私有文件不可用');
+    final kind = args['kind'];
+    if (!PluginMediaContract.limits.containsKey(kind))
+      throw const FormatException('kind 无效');
+    final folder = Directory(
+      p.join((await host.temporary()).path, 'tide_plugin_media', token),
+    );
+    await folder.create(recursive: true);
+    final copy = File(
+      p.join(folder.path, 'import-${Random.secure().nextInt(1 << 32)}'),
+    );
+    try {
+      await store.locked(() async {
+        final source = await store.file(args['path']);
+        if (await source.length() > PluginMediaContract.limits[kind]!)
+          throw StateError('媒体超过大小限制');
+        await source.copy(copy.path);
+      });
+      return await _registerFile(copy, kind as String);
+    } catch (_) {
+      if (await copy.exists()) await copy.delete();
+      rethrow;
+    }
+  }
+
+  Future<String> _fetchPart(
+    String address,
+    File target,
+    Map headers,
+    List origins,
+    void Function(int) received,
+  ) async {
+    var uri = PluginMediaContract.uri(address, origins);
+    final requestHeaders = PluginMediaContract.headers(headers);
+    final client = host.createClient();
+    _clients.add(client);
+    try {
+      return await (() async {
+        for (var redirects = 0; redirects <= 3; redirects++) {
+          await check();
+          final response = await client.send(
+            http.Request('GET', uri)
+              ..followRedirects = false
+              ..headers.addAll(requestHeaders),
+          );
+          if ({301, 302, 303, 307, 308}.contains(response.statusCode)) {
+            final location = response.headers['location'];
+            if (location == null || redirects == 3)
+              throw StateError('媒体重定向过多或缺少地址');
+            final next = PluginMediaContract.uri(
+              uri.resolve(location).toString(),
+              origins,
+            );
+            if (next.origin != uri.origin)
+              for (final key in [
+                'authorization',
+                'cookie',
+                'proxy-authorization',
+                'host',
+              ]) {
+                requestHeaders.remove(key);
+              }
+            uri = next;
+            await response.stream.drain<void>();
+            continue;
+          }
+          if (response.statusCode != 200)
+            throw StateError('媒体下载 HTTP ${response.statusCode}');
+          final output = await target.open(mode: FileMode.write);
+          var size = 0;
+          try {
+            await for (final chunk in response.stream) {
+              await check();
+              size += chunk.length;
+              received(chunk.length);
+              if (size > 256 * 1024 * 1024) throw StateError('HLS 分片超过大小限制');
+              await output.writeFrom(chunk);
+            }
+          } finally {
+            await output.close();
+          }
+          return uri.toString();
+        }
+        throw StateError('媒体重定向过多');
+      })().timeout(downloadTimeout);
+    } finally {
+      client.close();
+      _clients.remove(client);
+    }
+  }
+
+  Future<Map<String, dynamic>> _process(
+    Map args,
+    List permissions,
+    List origins,
+  ) async {
+    final processor = processMedia;
+    if (processor == null) throw StateError('媒体处理不可用');
+    if (_resources.length >= 4) throw StateError('请先释放媒体资源');
+    final operation = args['operation'];
+    final format = args['format'] ?? 'mp4';
+    // Validate the plan before downloading inputs.
+    PluginMediaPipeline.arguments(
+      args,
+      operation == 'merge' ? ['video', 'audio'] : ['input'],
+      'output',
+    );
+    final work = await Directory(
+      p.join((await host.temporary()).path, 'tide_plugin_media', token),
+    ).create(recursive: true);
+    final folder = await work.createTemp('process-');
+    File? delivered;
+    try {
+      final inputs = <String>[];
+      if (operation == 'hls') {
+        if (!permissions.contains('network'))
+          throw StateError('HLS 下载需要 network 权限');
+        final url = args['url'];
+        if (url is! String) throw const FormatException('url 必须为字符串');
+        var downloaded = 0;
+        final originalOrigin = PluginMediaContract.uri(url, origins).origin;
+        inputs.add(
+          await PluginMediaPipeline.hls(
+            url: url,
+            directory: folder,
+            download: (address, file) {
+              final headers = PluginMediaContract.headers(args['headers']);
+              if (PluginMediaContract.uri(address, origins).origin !=
+                  originalOrigin) {
+                for (final key in [
+                  'authorization',
+                  'cookie',
+                  'proxy-authorization',
+                  'host',
+                ]) {
+                  headers.remove(key);
+                }
+              }
+              return _fetchPart(address, file, headers, origins, (bytes) {
+                downloaded += bytes;
+                if (downloaded > 256 * 1024 * 1024)
+                  throw StateError('HLS 总下载量超过 256 MiB');
+              });
+            },
+            check: check,
+          ),
+        );
+      } else {
+        final ids = operation == 'merge'
+            ? [args['videoResourceId'], args['audioResourceId']]
+            : [args['resourceId']];
+        for (var i = 0; i < ids.length; i++) {
+          final resource = _resources[ids[i]];
+          if (resource == null ||
+              !{'video', 'audio'}.contains(resource['kind']))
+            throw StateError('媒体引用不存在或类型不支持');
+          if (operation == 'merge' &&
+              resource['kind'] != (i == 0 ? 'video' : 'audio'))
+            throw StateError('合并需要视频和音频引用');
+          inputs.add(resource['path'] as String);
+        }
+      }
+      final output = File(p.join(folder.path, 'output.$format'));
+      await processor(
+        PluginMediaPipeline.arguments(args, inputs, output.path),
+        check,
+      );
+      await check();
+      if (!await output.exists() || await output.length() >= 256 * 1024 * 1024)
+        throw StateError('媒体处理输出无效或达到大小上限');
+      delivered = await output.rename(
+        p.join(
+          work.path,
+          'processed-${Random.secure().nextInt(1 << 32)}.$format',
+        ),
+      );
+      return await _registerFile(
+        delivered,
+        {'mp3', 'wav', 'm4a'}.contains(format) ? 'audio' : 'video',
+      );
+    } catch (_) {
+      if (delivered != null && await delivered.exists())
+        await delivered.delete();
+      rethrow;
+    } finally {
+      if (await folder.exists()) await folder.delete(recursive: true);
+    }
+  }
+
   Future<Map<String, dynamic>> _download(
     Map<String, dynamic> args,
     List permissions,
@@ -210,6 +447,17 @@ class PluginChatSession {
       throw const FormatException('kind 必须为 image/video/audio/document');
     if (_resources.length >= 4) throw StateError('单次调用最多保留 4 个媒体资源，请先释放');
     var uri = PluginMediaContract.uri(args['url'], origins);
+    final headers = PluginMediaContract.headers(args['headers']);
+    final timeoutMs = args['timeoutMs'];
+    if (timeoutMs != null &&
+        (timeoutMs is! int ||
+            timeoutMs < 1 ||
+            timeoutMs > PluginTimeouts.media.inMilliseconds)) {
+      throw const FormatException('timeoutMs 必须为媒体超时上限以内的正整数');
+    }
+    final timeout = timeoutMs == null
+        ? downloadTimeout
+        : Duration(milliseconds: timeoutMs as int);
     final client = host.createClient();
     _clients.add(client);
     File? partial;
@@ -228,16 +476,25 @@ class PluginChatSession {
         for (var redirects = 0; redirects <= 3; redirects++) {
           await downloadCheck();
           response = await client.send(
-            http.Request('GET', uri)..followRedirects = false,
+            http.Request('GET', uri)
+              ..followRedirects = false
+              ..headers.addAll(headers),
           );
           if ({301, 302, 303, 307, 308}.contains(response.statusCode)) {
             final location = response.headers['location'];
             if (location == null || redirects == 3)
               throw StateError('媒体重定向过多或缺少地址');
-            uri = PluginMediaContract.uri(
+            final next = PluginMediaContract.uri(
               uri.resolve(location).toString(),
               origins,
             );
+            if (next.origin != uri.origin) {
+              headers.remove('authorization');
+              headers.remove('cookie');
+              headers.remove('proxy-authorization');
+              headers.remove('host');
+            }
+            uri = next;
             await response.stream.drain<void>();
             continue;
           }
@@ -278,7 +535,7 @@ class PluginChatSession {
         return Map<String, dynamic>.from(resource)..remove('path');
       })();
       return await operation.timeout(
-        downloadTimeout,
+        timeout,
         onTimeout: () async {
           expired = true;
           client.close();

@@ -212,51 +212,16 @@ class WechatBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
     final color = isUser ? theme.wechatOutgoing : theme.surface;
-    return CustomPaint(
-      painter: _WechatBubblePainter(color: color, isUser: isUser),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 36),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        child: child,
+    return Container(
+      constraints: const BoxConstraints(minHeight: 34),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
       ),
+      child: child,
     );
   }
-}
-
-/// A small, softly rounded tail joins the body at the first line, so multiline
-/// messages keep the same avatar alignment as single-line messages.
-class _WechatBubblePainter extends CustomPainter {
-  const _WechatBubblePainter({required this.color, required this.isUser});
-  final Color color;
-  final bool isUser;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final body = Path()
-      ..addRRect(
-        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(4)),
-      );
-    final tail = Path()
-      ..moveTo(1, 14)
-      ..lineTo(-5, 19)
-      ..quadraticBezierTo(-6, 20, -5, 21)
-      ..lineTo(1, 26)
-      ..close();
-    canvas.save();
-    if (isUser) {
-      canvas.translate(size.width, 0);
-      canvas.scale(-1, 1);
-    }
-    canvas.drawPath(
-      Path.combine(PathOperation.union, body, tail),
-      Paint()..color = color,
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _WechatBubblePainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.isUser != isUser;
 }
 
 /// WeChat voice marks keep all waves visible; their emphasis
