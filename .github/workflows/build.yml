@@ -96,16 +96,14 @@ jobs:
           test/video_input_test.dart
 
       - name: 编译已签名正式版 APK
-        run: flutter build apk --release --no-pub --split-per-abi
+        run: flutter build apk --release --no-pub
 
       - name: 验证 APK 签名
         run: |
           APKSIGNER="$(find "${ANDROID_HOME}" -path '*/build-tools/*/apksigner' -type f | sort -V | tail -n 1)"
-          for ABI in arm64-v8a armeabi-v7a x86_64; do
-            APK="build/app/outputs/flutter-apk/app-$ABI-release.apk"
-            test -s "$APK" || { echo "::error::未生成 $ABI 正式版 APK"; exit 1; }
-            "$APKSIGNER" verify --verbose "$APK"
-          done
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK" || { echo "::error::未生成正式版 APK"; exit 1; }
+          "$APKSIGNER" verify --verbose "$APK"
 
       - name: 清理临时签名文件
         if: always()
@@ -115,5 +113,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TideBot-Dev-APK
-          path: build/app/outputs/flutter-apk/app-*-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
