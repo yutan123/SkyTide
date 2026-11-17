@@ -558,17 +558,35 @@ extension _TelegramChat on _ChatRoomPageState {
   Widget _telegramContent(
     Map<String, dynamic> message,
     bool visible,
-    Widget child,
-  ) {
+    Widget child, {
+    required int index,
+    bool document = false,
+    bool inlineStamp = false,
+  }) {
     if (!TideTheme.of(context).isTelegram || !visible) return child;
     final streaming = message['id'].toString().startsWith('stream_');
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        child,
+        if (!streaming && !inlineStamp) _telegramMessageStamp(message),
+      ],
+    );
+    if (document) return content;
+    final next = index + 1 < _msgs.length ? _msgs[index + 1] : null;
+    final showTail =
+        next == null ||
+        next['role'] != message['role'] ||
+        next['type'] == 'voice_call_card' ||
+        telegramStartsNewDay(
+          (next['timestamp'] as num?)?.toInt() ?? 0,
+          (message['timestamp'] as num?)?.toInt() ?? 0,
+        );
     return TelegramBubble(
       isUser: message['role'] == 'user',
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [child, if (!streaming) _telegramMessageStamp(message)],
-      ),
+      showTail: showTail,
+      child: content,
     );
   }
 

@@ -7,6 +7,7 @@ import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 
 import 'plugin_contract.dart';
+import 'plugin_connections.dart';
 
 /// Pure Dart package validation, shared by installation and package checks.
 class PluginArchive {
@@ -251,6 +252,12 @@ class PluginArchive {
           (item) => !PluginMediaContract.permissions.contains(item),
         )) {
       throw const FormatException('permissions 包含不支持的权限');
+    }
+    final endpoints = m['networkEndpoints'] ?? [];
+    if (endpoints is! List ||
+        endpoints.length > 64 ||
+        endpoints.any((e) => !PluginConnectionPolicy.validEndpoint(e))) {
+      throw const FormatException('networkEndpoints 必须为最多 64 个精确协议、主机和端口地址');
     }
     final origins = m['networkOrigins'] ?? [];
     if (origins is! List) throw const FormatException('networkOrigins 必须为数组');

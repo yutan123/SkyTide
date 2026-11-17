@@ -255,10 +255,20 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         _marketSources
           ..clear()
           ..addAll(sources);
-        _plugins = [
-          ...rows.where((row) => row['enabled'] == 1),
-          ...rows.where((row) => row['enabled'] != 1),
-        ];
+        if (_loading) {
+          _plugins = [
+            ...rows.where((row) => row['enabled'] == 1),
+            ...rows.where((row) => row['enabled'] != 1),
+          ];
+        } else {
+          // Keep card positions stable until the page is opened again.
+          final remaining = {for (final row in rows) row['id']: row};
+          _plugins = [
+            for (final previous in _plugins)
+              if (remaining.remove(previous['id']) case final row?) row,
+            ...remaining.values,
+          ];
+        }
         _readmes
           ..clear()
           ..addAll(readmes);
@@ -381,18 +391,16 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         throw const FormatException('插件包与市场信息不匹配');
       }
     }
-    if (market != null || updatingId == null) {
-      if (!mounted) return null;
-      _operation?.check();
-      final temporary = await Directory.systemTemp.createTemp('tide-reviewed-');
-      _tempDirs.add(temporary);
-      final snapshot = File(p.join(temporary.path, 'package.zip'));
-      await snapshot.writeAsBytes(bytes, flush: true);
-      return snapshot.path;
-    }
-    final previous = _packages[updatingId]?.manifest;
+    final previous = updatingId == null
+        ? null
+        : _packages[updatingId]?.manifest;
     final permissions = (manifest['permissions'] as List? ?? []).cast<String>();
     final origins = (manifest['networkOrigins'] as List? ?? []).cast<String>();
+    final endpoints = (manifest['networkEndpoints'] as List? ?? [])
+        .cast<String>();
+    final addedEndpoints = endpoints.where(
+      (v) => !(previous?['networkEndpoints'] as List? ?? []).contains(v),
+    );
     final addedPermissions = permissions.where(
       (value) => !(previous?['permissions'] as List? ?? []).contains(value),
     );
@@ -404,7 +412,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         await TideDialogs.show<bool>(
           context: context,
           builder: (ctx) => TideDialogSurface(
-            title: const Text('更新插件'),
+            title: Text(updatingId == null ? '导入插件' : '更新插件'),
             content: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -422,9 +430,12 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                   if (permissions.isNotEmpty)
                     Text('权限：${permissions.join('、')}'),
                   if (origins.isNotEmpty) Text('网络域名：${origins.join('、')}'),
-                  if (addedPermissions.isNotEmpty)
+                  if (endpoints.isNotEmpty) Text('连接端点：${endpoints.join('、')}'),
+                  if (previous != null && addedEndpoints.isNotEmpty)
+                    Text('新增端点：${addedEndpoints.join('、')}'),
+                  if (previous != null && addedPermissions.isNotEmpty)
                     Text('新增权限：${addedPermissions.join('、')}'),
-                  if (addedOrigins.isNotEmpty)
+                  if (previous != null && addedOrigins.isNotEmpty)
                     Text('新增域名：${addedOrigins.join('、')}'),
                   const SizedBox(height: 12),
                   SelectableText('SHA-256：${sha256.convert(bytes)}'),
@@ -779,6 +790,22 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                   '工具 ${(pack.manifest['tools'] as List? ?? []).length} 个',
                   style: TextStyle(fontSize: 12, color: theme.textWeak),
                 ),
+                for (final entry in {
+                  '网络域名': 'networkOrigins',
+                  '连接端点': 'networkEndpoints',
+                }.entries)
+                  if ((pack.manifest[entry.value] as List? ?? [])
+                      .isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      '${entry.key}  ${(pack.manifest[entry.value] as List).join(' · ')}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.5,
+                        color: theme.textWeak,
+                      ),
+                    ),
+                  ],
                 if ((pack.manifest['permissions'] as List? ?? [])
                     .isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -922,125 +949,95 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Stack(
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: _pluginIcon(pack),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                row['name']?.toString() ?? id,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                  color: theme.textStrong,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                row['description']?.toString() ?? '暂无介绍',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  height: 1.4,
-                                  color: theme.textWeak,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 5,
-                                runSpacing: 4,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  Text(
-                                    '${_author(row)} · 版本:${row['version']}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: theme.textWeak,
-                                    ),
-                                  ),
-                                  if (update != null) ...[
-                                    Text(
-                                      '→',
-                                      style: TextStyle(color: theme.textWeak),
-                                    ),
-                                    _versionBadge(update.version),
-                                  ],
-                                ],
-                              ),
-                            ],
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: _pluginIcon(pack),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            row['name']?.toString() ?? id,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: theme.textStrong,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Semantics(
-                            label: '启用插件',
-                            toggled: enabled,
-                            button: true,
-                            child: Tooltip(
-                              message: enabled ? '停用插件' : '启用插件',
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(20),
-                                onTap: _busy || pack == null
-                                    ? null
-                                    : () => _operate(
-                                        () => PluginService.instance.setEnabled(
-                                          id,
-                                          !enabled,
-                                          operation: _operation,
-                                        ),
-                                        cancellable: !enabled,
-                                        label: enabled ? '正在关闭插件…' : '正在启用插件…',
-                                      ),
-                                child: SizedBox(
-                                  width: 48,
-                                  height: 44,
-                                  child: Center(
-                                    child: AnimatedContainer(
-                                      duration: const Duration(
-                                        milliseconds: 200,
-                                      ),
-                                      width: 38,
-                                      height: 23,
-                                      padding: const EdgeInsets.all(3),
+                          const SizedBox(height: 5),
+                          Text(
+                            row['description']?.toString() ?? '暂无介绍',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                              color: theme.textWeak,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Semantics(
+                        label: '启用插件',
+                        toggled: enabled,
+                        button: true,
+                        child: Tooltip(
+                          message: enabled ? '停用插件' : '启用插件',
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: _busy || pack == null
+                                ? null
+                                : () => _operate(
+                                    () => PluginService.instance.setEnabled(
+                                      id,
+                                      !enabled,
+                                      operation: _operation,
+                                    ),
+                                    cancellable: !enabled,
+                                    label: enabled ? '正在关闭插件…' : '正在启用插件…',
+                                  ),
+                            child: SizedBox(
+                              width: 48,
+                              height: 44,
+                              child: Center(
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  width: 38,
+                                  height: 23,
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    color: enabled
+                                        ? theme.primary
+                                        : theme.surfaceVariant,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: AnimatedAlign(
+                                    duration: const Duration(milliseconds: 200),
+                                    curve: Curves.easeOutCubic,
+                                    alignment: enabled
+                                        ? Alignment.centerRight
+                                        : Alignment.centerLeft,
+                                    child: Container(
+                                      width: 17,
+                                      height: 17,
                                       decoration: BoxDecoration(
-                                        color: enabled
-                                            ? theme.primary
-                                            : theme.surfaceVariant,
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: AnimatedAlign(
-                                        duration: const Duration(
-                                          milliseconds: 200,
-                                        ),
-                                        curve: Curves.easeOutCubic,
-                                        alignment: enabled
-                                            ? Alignment.centerRight
-                                            : Alignment.centerLeft,
-                                        child: Container(
-                                          width: 17,
-                                          height: 17,
-                                          decoration: BoxDecoration(
-                                            color: _busy || pack == null
-                                                ? theme.textFaint
-                                                : enabled
-                                                ? Colors.white
-                                                : theme.textWeak,
-                                            shape: BoxShape.circle,
-                                          ),
-                                        ),
+                                        color: _busy || pack == null
+                                            ? theme.textFaint
+                                            : enabled
+                                            ? Colors.white
+                                            : theme.textWeak,
+                                        shape: BoxShape.circle,
                                       ),
                                     ),
                                   ),
@@ -1049,13 +1046,37 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                             ),
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
+                  ],
+                ),
+                Row(
+                  children: [
+                    const SizedBox(width: 56),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 5,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            '${_author(row)} · 版本:${row['version']}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: theme.textWeak,
+                            ),
+                          ),
+                          if (update != null) ...[
+                            Text('→', style: TextStyle(color: theme.textWeak)),
+                            _versionBadge(update.version),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    SizedBox(
                       height: 32,
-                      width: 40,
+                      width: 48,
                       child: _action(
                         Icons.upgrade_rounded,
                         '从本地 ZIP 更新',

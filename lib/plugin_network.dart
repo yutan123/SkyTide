@@ -1,4 +1,6 @@
 import 'plugin_media_contract.dart';
+import 'plugin_connections.dart';
+import 'plugin_oauth.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -9,10 +11,14 @@ class PluginNetwork {
   PluginNetwork({http.Client Function()? createClient})
     : _createClient = createClient ?? http.Client.new;
   final http.Client Function() _createClient;
+  final connections = PluginConnections();
+  final authorizations = PluginOAuth();
   bool _closed = false;
   final _calls = <String, _Transfer>{};
   void close() {
     _closed = true;
+    connections.close();
+    authorizations.close();
     for (final call in _calls.values) {
       call.cancelled = true;
       call.client.close();

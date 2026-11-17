@@ -1,3 +1,4 @@
+import 'builtin_generation_settings.dart';
 import 'chat_api_endpoint.dart';
 import 'reasoning_control.dart';
 import 'bot_avatar_crop_page.dart';
@@ -148,7 +149,11 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) => TideBackground(
     child: SafeArea(
       child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
+        physics: TideTheme.of(context).isTelegram
+            ? const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              )
+            : const BouncingScrollPhysics(),
         padding: TideTheme.of(context).isWechat
             ? const EdgeInsets.only(bottom: 24)
             : const EdgeInsets.fromLTRB(16, 16, 16, 92),
@@ -273,17 +278,18 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildSettingItem(Map<String, dynamic> s) {
     final theme = TideTheme.of(context);
     if (theme.isTelegram) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      return Container(
+        constraints: const BoxConstraints(minHeight: 64),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
         child: Row(
           children: [
-            Icon(s['icon'] as IconData, color: theme.primary, size: 22),
-            const SizedBox(width: 14),
+            Icon(s['icon'] as IconData, color: theme.primary, size: 26),
+            const SizedBox(width: 18),
             Expanded(
               child: Text(
                 s['title'] ?? '',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 17,
                   color: theme.textStrong,
                   fontFamily: 'TideFont',
                 ),
@@ -291,7 +297,7 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             Icon(
               Icons.arrow_forward_ios_rounded,
-              size: 12,
+              size: 14,
               color: theme.textWeak,
             ),
           ],
@@ -1158,6 +1164,9 @@ class GeneralSettingsPage extends StatefulWidget {
 }
 
 class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
+  bool _dailyQuoteGeneration = true;
+  bool _worldBookRecording = true;
+  bool _diaryGeneration = true;
   bool _showTime = true;
   bool _dimParentheticalText = true;
   bool _showAvatar = false;
@@ -1221,9 +1230,21 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
 
   Future<void> _load() async {
     final db = DBManager();
+    final dailyQuote = await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.dailyQuote,
+    );
+    final worldBook = await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.worldBook,
+    );
+    final diary = await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.diary,
+    );
     final speed = int.tryParse(await db.getKV('streaming_speed') ?? '');
     if (!mounted) return;
     setState(() {
+      _dailyQuoteGeneration = dailyQuote;
+      _worldBookRecording = worldBook;
+      _diaryGeneration = diary;
       _showTime = true;
       _showAvatar = false;
       _streaming = true;
@@ -1701,6 +1722,45 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
               ? const EdgeInsets.only(bottom: 32)
               : const EdgeInsets.fromLTRB(12, 8, 12, 32),
           children: [
+            _sectionHeader(theme, '内置生成与记录', Icons.auto_awesome_outlined),
+            FrostCard(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                children: [
+                  _settingSwitch(
+                    theme: theme,
+                    title: '今日一言生成',
+                    help: '默认开启。关闭后停止生成今日一言，保留已有内容。',
+                    value: _dailyQuoteGeneration,
+                    onChanged: (v) {
+                      setState(() => _dailyQuoteGeneration = v);
+                      _save(BuiltinGenerationSettings.dailyQuote, '$v');
+                    },
+                  ),
+                  _settingSwitch(
+                    theme: theme,
+                    title: '世界书记录',
+                    help:
+                        '默认开启。关闭后停止内置自动记忆整理、认知复核及机器人记忆写入，保留已有记录的查看与检索，方便使用插件记忆。',
+                    value: _worldBookRecording,
+                    onChanged: (v) {
+                      setState(() => _worldBookRecording = v);
+                      _save(BuiltinGenerationSettings.worldBook, '$v');
+                    },
+                  ),
+                  _settingSwitch(
+                    theme: theme,
+                    title: '日记生成',
+                    help: '默认开启。关闭后停止自动补写和机器人日记写入，保留已有日记。',
+                    value: _diaryGeneration,
+                    onChanged: (v) {
+                      setState(() => _diaryGeneration = v);
+                      _save(BuiltinGenerationSettings.diary, '$v');
+                    },
+                  ),
+                ],
+              ),
+            ),
             _sectionHeader(theme, '对话表现', Icons.forum_outlined),
             FrostCard(
               padding: const EdgeInsets.symmetric(vertical: 4),

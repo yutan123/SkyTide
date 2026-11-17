@@ -1,3 +1,4 @@
+import 'builtin_generation_settings.dart';
 import 'ai.dart';
 import 'db.dart';
 import 'daily_quote_output.dart';
@@ -12,8 +13,13 @@ class DailyQuoteService {
   String _dateKey(DateTime value) =>
       '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
-  Future<String> get(String botId, {DateTime? now}) {
-    if (botId.isEmpty) return Future.value(_fallback);
+  Future<String> get(String botId, {DateTime? now}) async {
+    if (botId.isEmpty) return _fallback;
+    if (!await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.dailyQuote,
+    )) {
+      return _recentOrFallback(botId);
+    }
     final key = '$botId:${_dateKey(now ?? DateTime.now())}';
     return _inFlight.putIfAbsent(key, () async {
       final db = DBManager();

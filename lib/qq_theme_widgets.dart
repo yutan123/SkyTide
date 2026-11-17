@@ -340,7 +340,7 @@ class QqBubble extends StatelessWidget {
     padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
     decoration: BoxDecoration(
       color: isUser ? qqBlue : TideTheme.of(context).surface,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(10),
     ),
     child: child,
   );

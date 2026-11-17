@@ -1,3 +1,4 @@
+import 'builtin_generation_settings.dart';
 import 'chat_api_endpoint.dart';
 import 'plugin_service.dart';
 import 'proactive_request_gate.dart';
@@ -285,6 +286,17 @@ class AIManager {
             if (quoteTask) task = AIRequestTask.dailyQuote;
             diaryTask = task == AIRequestTask.diary;
             quoteTask = task == AIRequestTask.dailyQuote;
+            final generationSetting = switch (task) {
+              AIRequestTask.dailyQuote => BuiltinGenerationSettings.dailyQuote,
+              AIRequestTask.diary => BuiltinGenerationSettings.diary,
+              AIRequestTask.memoryReview || AIRequestTask.cognitionReview =>
+                BuiltinGenerationSettings.worldBook,
+              _ => null,
+            };
+            if (generationSetting != null &&
+                !await BuiltinGenerationSettings.enabled(generationSetting)) {
+              return <String, dynamic>{'success': false, 'error': '该内置生成功能已关闭'};
+            }
             if (task.internal) {
               persistResponse = false;
               includeChatHistory = false;
@@ -1274,6 +1286,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         {'role': 'system', 'content': stableSystemPrompt},
       ];
 
+      final pluginContext = !diaryTask && !quoteTask
+          ? await PluginService.instance.buildContext(botId, text)
+          : '';
+      if (pluginContext.isNotEmpty) {
+        messages.add({'role': 'system', 'content': pluginContext});
+      }
       final historyMessages = <Map<String, dynamic>>[];
       // 先标准化历史，再仅对历史部分执行预算裁剪。
       for (final msg in history) {
@@ -3448,6 +3466,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         "${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}";
     final lastDate = await db.getKV('quote_date_$botId');
     final lastQuote = await db.getKV('quote_text_$botId');
+    if (!await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.dailyQuote,
+    )) {
+      return lastQuote == null ? '今天也要开心度过哦。' : singleDailyQuote(lastQuote);
+    }
 
     if (lastDate == todayStr && lastQuote != null)
       return singleDailyQuote(lastQuote);
@@ -3480,6 +3503,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       allowStickers: false,
       forceSingleReply: true,
     );
+    if (!await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.dailyQuote,
+    )) {
+      return lastQuote == null ? '今天也要开心度过哦。' : singleDailyQuote(lastQuote);
+    }
     if (res['success'] == true) {
       final normalized = singleDailyQuote(res['reply']?.toString() ?? '');
       await db.setKV('quote_date_$botId', todayStr);
@@ -4321,10 +4349,18 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     if (allowSilence && await db.getKV('adaptive_silence_enabled') != 'false') {
       tools.add(_adaptiveSilenceToolSchema());
     }
-    tools.add(_memoryToolSchema());
-    tools.add(_createMemoryCategoryToolSchema());
+    if (await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.worldBook,
+    )) {
+      tools.add(_memoryToolSchema());
+      tools.add(_createMemoryCategoryToolSchema());
+    }
     tools.add(_searchMemoryToolSchema()); // 新增：记忆库搜索工具
-    tools.add(_diaryToolSchema());
+    if (await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.diary,
+    )) {
+      tools.add(_diaryToolSchema());
+    }
     tools.add(_queryDiaryToolSchema());
     if (await db.getKV('voice_reply_enabled') == 'true') {
       final bot = await db.getBotById(botId);
@@ -5344,6 +5380,22 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         'result': {'ok': true, 'silent': true},
       };
     }
+    if ((name == 'create_memory_category' || name == 'save_memory') &&
+        !await BuiltinGenerationSettings.enabled(
+          BuiltinGenerationSettings.worldBook,
+        )) {
+      return {
+        'result': {'ok': false, 'error': '世界书记录已关闭'},
+      };
+    }
+    if (name == 'write_diary' &&
+        !await BuiltinGenerationSettings.enabled(
+          BuiltinGenerationSettings.diary,
+        )) {
+      return {
+        'result': {'ok': false, 'error': '日记生成已关闭'},
+      };
+    }
     if (name == 'create_memory_category') {
       final category = args['name']?.toString().trim() ?? '';
       if (category.isEmpty || category.length > 40 || category.contains('\n')) {
@@ -6242,6 +6294,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     String botId,
     String rawReply,
   ) async {
+    if (!await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.worldBook,
+    ))
+      return;
     try {
       final regex = RegExp(r'\[记忆\s*[:：]\s*([^\]]+)\]');
       final matches = regex.allMatches(rawReply).toList();

@@ -43,10 +43,14 @@ class _ChatMediaStackState extends State<ChatMediaStack>
     duration: const Duration(milliseconds: 240),
   );
   int _index = 0;
+  int _step = 1;
+
+  int _itemIndex(int depth) => (_index + depth * _step) % widget.items.length;
   double _drag = 0;
   double _from = 0;
   double _to = 0;
   bool _turning = false;
+  bool _advancing = false;
 
   double get _offset => _turning
       ? _from + (_to - _from) * Curves.easeOutCubic.transform(_motion.value)
@@ -68,13 +72,16 @@ class _ChatMediaStackState extends State<ChatMediaStack>
   Future<void> _settle(double target, {required bool advance}) async {
     if (_turning || _motion.isAnimating) return;
     _turning = true;
+    _advancing = advance;
+    if (advance) _step = target < 0 ? 1 : -1;
     _from = _drag;
     _to = target;
     try {
+      _motion.duration = Duration(milliseconds: advance ? 480 : 240);
       await _motion.forward(from: 0).orCancel;
       if (!mounted) return;
       setState(() {
-        if (advance) _index = (_index + 1) % widget.items.length;
+        if (advance) _index = (_index + _step) % widget.items.length;
         _drag = 0;
         _turning = false;
         _motion.reset();
@@ -114,6 +121,7 @@ class _ChatMediaStackState extends State<ChatMediaStack>
                     borderRadius: BorderRadius.circular(24),
                     child: InkWell(
                       onTap: widget.onExpand,
+                      onLongPress: () => widget.onLongPress(_index),
                       borderRadius: BorderRadius.circular(24),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -138,10 +146,36 @@ class _ChatMediaStackState extends State<ChatMediaStack>
                 child: AnimatedBuilder(
                   animation: _motion,
                   builder: (context, _) {
-                    final dx = _offset;
-                    final progress = (dx.abs() / cardWidth).clamp(0.0, 1.0);
+                    final recycling = _turning && _advancing;
+                    final returning = recycling && _motion.value >= .5;
+                    final leg = recycling
+                        ? Curves.easeInOutCubic.transform(
+                            ((_motion.value - (returning ? .5 : 0)) * 2).clamp(
+                              0.0,
+                              1.0,
+                            ),
+                          )
+                        : 0.0;
+                    final dx = recycling
+                        ? (returning
+                              ? _to * (1 - leg)
+                              : _from + (_to - _from) * leg)
+                        : _offset;
+                    final progress = recycling
+                        ? (returning ? 1.0 : leg)
+                        : (dx.abs() / cardWidth).clamp(0.0, 1.0);
+                    final count = math.min(3, widget.items.length);
+                    final depths = [
+                      for (var depth = count - 1; depth >= 0; depth--) depth,
+                    ];
+                    // Once clear of the deck, slide the outgoing card underneath.
+                    if (returning) {
+                      depths.remove(0);
+                      depths.insert(0, 0);
+                    }
                     return Semantics(
-                      label: '媒体 ${_index + 1} / ${widget.items.length}，左右滑动翻页',
+                      label:
+                          '媒体 ${_index + 1} / ${widget.items.length}，向右滑动上一张，向左滑动下一张',
                       onIncrease: () =>
                           _settle(-cardWidth * 1.35, advance: true),
                       onDecrease: () =>
@@ -150,7 +184,10 @@ class _ChatMediaStackState extends State<ChatMediaStack>
                         behavior: HitTestBehavior.opaque,
                         onHorizontalDragUpdate: (details) {
                           if (_turning) return;
-                          setState(() => _drag += details.delta.dx);
+                          setState(() {
+                            _drag += details.delta.dx;
+                            if (_drag.abs() > 4) _step = _drag < 0 ? 1 : -1;
+                          });
                         },
                         onHorizontalDragEnd: (details) {
                           if (_turning) return;
@@ -178,34 +215,50 @@ class _ChatMediaStackState extends State<ChatMediaStack>
                           clipBehavior: Clip.none,
                           alignment: Alignment.topCenter,
                           children: [
-                            for (var depth = 2; depth >= 0; depth--)
+                            for (final depth in depths)
                               Positioned(
+                                key: ValueKey(
+                                  widget.items[_itemIndex(depth)].id,
+                                ),
                                 top: 8,
                                 child: Transform.translate(
                                   offset: depth == 0
-                                      ? Offset(dx, dx.abs() * .045)
+                                      ? Offset(
+                                          dx +
+                                              (returning
+                                                  ? (count == 2 ? -7 : 7) * leg
+                                                  : 0),
+                                          returning
+                                              ? (count - 1) * 10 * leg
+                                              : dx.abs() * .045,
+                                        )
                                       : Offset(
                                           (depth == 1 ? -7 : 7) *
-                                              (1 - progress),
+                                                  (1 - progress) +
+                                              (depth == 2 ? -7 * progress : 0),
                                           (depth * 10 - progress * 10),
                                         ),
                                   child: Transform.rotate(
                                     angle: depth == 0
-                                        ? dx / cardWidth * .19
+                                        ? (returning
+                                              ? .035 *
+                                                    (count == 2 ? -1 : 1) *
+                                                    leg
+                                              : dx / cardWidth * .19)
                                         : (depth == 1 ? -.035 : .035) *
-                                              (1 - progress),
+                                                  (1 - progress) -
+                                              (depth == 2
+                                                  ? .035 * progress
+                                                  : 0),
                                     child: Transform.scale(
                                       scale: depth == 0
-                                          ? 1
+                                          ? 1 -
+                                                (returning
+                                                    ? (count - 1) * .055 * leg
+                                                    : 0)
                                           : 1 - depth * .055 + progress * .055,
                                       child: Opacity(
-                                        opacity: depth == 0
-                                            ? 1 -
-                                                  ((progress - .7) / .3).clamp(
-                                                    0.0,
-                                                    1.0,
-                                                  )
-                                            : 1,
+                                        opacity: 1,
                                         child: Container(
                                           width: cardWidth,
                                           height: cardHeight,
@@ -236,14 +289,11 @@ class _ChatMediaStackState extends State<ChatMediaStack>
                                               _StackPreview(
                                                 key: ValueKey(
                                                   widget
-                                                      .items[(_index + depth) %
-                                                          widget.items.length]
+                                                      .items[_itemIndex(depth)]
                                                       .id,
                                                 ),
-                                                item:
-                                                    widget.items[(_index +
-                                                            depth) %
-                                                        widget.items.length],
+                                                item: widget
+                                                    .items[_itemIndex(depth)],
                                               ),
                                               if (depth == 0)
                                                 Positioned(

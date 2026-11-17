@@ -1,3 +1,4 @@
+import 'builtin_generation_settings.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -24,7 +25,7 @@ class WorldBookEntry {
   final bool matchWholeWords;
   final bool useRegex;
   final String
-      position; // 'before_char' | 'after_char' | 'depth_N' | 'author_note'
+  position; // 'before_char' | 'after_char' | 'depth_N' | 'author_note'
   final int insertionOrder;
   final int priority;
   final bool enabled;
@@ -141,6 +142,11 @@ class WorldBookService {
 
   /// 触发AI记忆判断（对话结束时调用）
   Future<void> triggerMemoryJudgment(String botId) async {
+    cancelConversationTimer(botId);
+    if (!await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.worldBook,
+    ))
+      return;
     // 防止重复触发
     if (_pendingJudgments[botId] == true) return;
     _pendingJudgments[botId] = true;
@@ -151,19 +157,23 @@ class WorldBookService {
 
       // SQL must select the newest records before limiting, then restore order.
       final messages = recentTaskMessages(
-          await db.queryMessages(botId, limit: 160, descending: true),
-          limit: 40);
+        await db.queryMessages(botId, limit: 160, descending: true),
+        limit: 40,
+      );
       if (messages.length < 2) return;
       final cursorKey = 'memory_review_cursor_$botId';
       final lastId = await db.getKV(cursorKey);
       final previous = messages.indexWhere((m) => m['id'] == lastId);
-      final fresh =
-          previous >= 0 ? messages.skip(previous + 1).toList() : messages;
+      final fresh = previous >= 0
+          ? messages.skip(previous + 1).toList()
+          : messages;
       if (fresh.isEmpty) return;
       final recentWorldBook = await db.queryMemories(botId, limit: 200);
-      final existing =
-          recentWorldBook.where((m) => m['category'] == '记忆').toList();
-      final prompt = '【任务】只整理新增真实对话中的“记忆”事件条目；寒暄与琐事不记。\n'
+      final existing = recentWorldBook
+          .where((m) => m['category'] == '记忆')
+          .toList();
+      final prompt =
+          '【任务】只整理新增真实对话中的“记忆”事件条目；寒暄与琐事不记。\n'
           '$memoryCategoryPolicy\n'
           '【禁止】修改人物画像、自我认知或关系；混淆你与对方的经历；保存内部指令、推测或编造的事实。'
           '未来约定须明确标为计划。\n'
@@ -178,12 +188,17 @@ class WorldBookService {
           '\n${recentMemoryReference(recentWorldBook)}'
           '\n已有记忆（只用于去重和更正）：${jsonEncode(existing)}';
       final result = await AIManager().sendMessage(
-          botId: botId,
-          task: AIRequestTask.memoryReview,
-          text: prompt,
-          priority: false,
-          persistResponse: false);
-      if (result['success'] != true) return;
+        botId: botId,
+        task: AIRequestTask.memoryReview,
+        text: prompt,
+        priority: false,
+        persistResponse: false,
+      );
+      if (result['success'] != true ||
+          !await BuiltinGenerationSettings.enabled(
+            BuiltinGenerationSettings.worldBook,
+          ))
+        return;
       final judgment = jsonDecode(result['reply'] as String);
       final actions = validateMemoryReview(judgment, existing);
       final database = await db.database;
@@ -193,9 +208,11 @@ class WorldBookService {
           final type = action['type'];
           final now = DateTime.now().millisecondsSinceEpoch;
           if (type == 'delete') {
-            await txn.delete('memories',
-                where: 'bot_id = ? AND id = ? AND category = ?',
-                whereArgs: [botId, action['id'], '记忆']);
+            await txn.delete(
+              'memories',
+              where: 'bot_id = ? AND id = ? AND category = ?',
+              whereArgs: [botId, action['id'], '记忆'],
+            );
             continue;
           }
           final values = memoryReviewValues(action, now);
@@ -211,9 +228,12 @@ class WorldBookService {
               'timestamp': now,
             });
           } else {
-            await txn.update('memories', values,
-                where: 'bot_id = ? AND id = ? AND category = ?',
-                whereArgs: [botId, action['id'], '记忆']);
+            await txn.update(
+              'memories',
+              values,
+              where: 'bot_id = ? AND id = ? AND category = ?',
+              whereArgs: [botId, action['id'], '记忆'],
+            );
           }
         }
       });
@@ -325,8 +345,10 @@ class WorldBookService {
           matched = testText.contains(testKey);
         }
       } else if (matchWholeWords) {
-        final pattern = RegExp(r'\b' + RegExp.escape(testKey) + r'\b',
-            caseSensitive: caseSensitive);
+        final pattern = RegExp(
+          r'\b' + RegExp.escape(testKey) + r'\b',
+          caseSensitive: caseSensitive,
+        );
         matched = pattern.hasMatch(text);
       } else {
         matched = testText.contains(testKey);
@@ -359,7 +381,8 @@ class WorldBookService {
         list.sort((a, b) => a.insertionOrder.compareTo(b.insertionOrder));
         for (final entry in list) {
           buffer.writeln(
-              '[记录时间：${DateTime.fromMillisecondsSinceEpoch(entry.createdAt).toIso8601String()}] ${entry.content.trim()}');
+            '[记录时间：${DateTime.fromMillisecondsSinceEpoch(entry.createdAt).toIso8601String()}] ${entry.content.trim()}',
+          );
           buffer.writeln();
         }
       }
@@ -435,7 +458,7 @@ class WorldBookService {
       'caseSensitive',
       'matchWholeWords',
       'useRegex',
-      'enabled'
+      'enabled',
     ]) {
       if (data.containsKey(field) && data[field] is bool) {
         final snakeCase = field.replaceAllMapped(
@@ -447,20 +470,29 @@ class WorldBookService {
       }
     }
 
-    await database.update('world_book_entries', data,
-        where: 'id = ?', whereArgs: [entryId]);
+    await database.update(
+      'world_book_entries',
+      data,
+      where: 'id = ?',
+      whereArgs: [entryId],
+    );
   }
 
   /// 删除条目
   Future<void> deleteEntry(String entryId) async {
     final database = await db.database;
-    await database
-        .delete('world_book_entries', where: 'id = ?', whereArgs: [entryId]);
+    await database.delete(
+      'world_book_entries',
+      where: 'id = ?',
+      whereArgs: [entryId],
+    );
   }
 
   /// 获取条目列表
-  Future<List<WorldBookEntry>> getEntries(
-      {String? bookId, String? botId}) async {
+  Future<List<WorldBookEntry>> getEntries({
+    String? bookId,
+    String? botId,
+  }) async {
     final database = await db.database;
 
     String? where;
@@ -599,8 +631,9 @@ class WorldBookService {
     }
 
     // 按相似度排序
-    scored
-        .sort((a, b) => (b['score'] as double).compareTo(a['score'] as double));
+    scored.sort(
+      (a, b) => (b['score'] as double).compareTo(a['score'] as double),
+    );
 
     // 更新激活统计
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -649,7 +682,8 @@ class WorldBookService {
     final priorityWeight = entry.priority / 100.0;
 
     // 综合评分（可根据实际情况调整权重）
-    final rawScore = signalScore * 0.2 +
+    final rawScore =
+        signalScore * 0.2 +
         cueScore * 2.0 +
         recencyScore * 1.0 +
         priorityWeight * 0.5;
@@ -665,22 +699,27 @@ class WorldBookService {
     int maxResults = 5,
     double ngramThreshold = 0.2, // Retained for source compatibility only.
   }) async {
-    final rows = await MemoryRetrievalService.instance
-        .search(botId, conversationText, limit: maxResults);
+    final rows = await MemoryRetrievalService.instance.search(
+      botId,
+      conversationText,
+      limit: maxResults,
+    );
     return rows
-        .map((r) => WorldBookEntry(
-              id: r['id'].toString(),
-              bookId: r['book_id']?.toString() ?? 'memories',
-              botId: r['bot_id']?.toString(),
-              title: r['title']?.toString() ?? '',
-              content: r['content']?.toString() ?? '',
-              keys: memoryKeys(r['_source'] == 'world_book_entries'
-                  ? r['keys']
-                  : r['keys_json']),
-              priority: memoryImportance(r) * 20,
-              createdAt: (r['timestamp'] as num?)?.toInt() ?? 0,
-              updatedAt: (r['updated_at'] as num?)?.toInt() ?? 0,
-            ))
+        .map(
+          (r) => WorldBookEntry(
+            id: r['id'].toString(),
+            bookId: r['book_id']?.toString() ?? 'memories',
+            botId: r['bot_id']?.toString(),
+            title: r['title']?.toString() ?? '',
+            content: r['content']?.toString() ?? '',
+            keys: memoryKeys(
+              r['_source'] == 'world_book_entries' ? r['keys'] : r['keys_json'],
+            ),
+            priority: memoryImportance(r) * 20,
+            createdAt: (r['timestamp'] as num?)?.toInt() ?? 0,
+            updatedAt: (r['updated_at'] as num?)?.toInt() ?? 0,
+          ),
+        )
         .toList();
   }
 
@@ -695,31 +734,33 @@ class WorldBookService {
     try {
       debugPrint('[WorldBook] 机器人主动搜索记忆：$query');
 
-      final results = await MemoryRetrievalService.instance
-          .search(botId, query, limit: limit);
+      final results = await MemoryRetrievalService.instance.search(
+        botId,
+        query,
+        limit: limit,
+      );
       return {
         'success': true,
         'found': results.isNotEmpty,
         'count': results.length,
         'results': results
-            .map((r) => {
-                  'id': r['id'],
-                  'source': r['_source'],
-                  'category': r['category'],
-                  'title': r['title'],
-                  'content': r['content'],
-                  'importance': r['importance'],
-                  'type': r['type'],
-                  'timestamp': r['timestamp'],
-                })
+            .map(
+              (r) => {
+                'id': r['id'],
+                'source': r['_source'],
+                'category': r['category'],
+                'title': r['title'],
+                'content': r['content'],
+                'importance': r['importance'],
+                'type': r['type'],
+                'timestamp': r['timestamp'],
+              },
+            )
             .toList(),
       };
     } catch (e) {
       debugPrint('[WorldBook] 搜索记忆异常: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-      };
+      return {'success': false, 'error': e.toString()};
     }
   }
 }

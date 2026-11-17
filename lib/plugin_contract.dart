@@ -3,6 +3,18 @@ import 'dart:convert';
 /// The supported, deliberately small JSON Schema subset shared by settings and SDK.
 class PluginContract {
   static const capabilities = {
+    'network.sockets',
+    'network.websocket',
+    'network.stream',
+    'network.binary',
+    'network.endpoints',
+    'crypto',
+    'auth.pkce',
+    'auth.oauth',
+    'credentials',
+    'background.send',
+    'context.inject',
+
     'chat.read',
     'chat.send',
     'media.download',
@@ -32,6 +44,7 @@ class PluginContract {
     'ai',
   };
   static const hooks = {
+    'context.build',
     'tool.before',
     'tool.after',
     'app.ready',

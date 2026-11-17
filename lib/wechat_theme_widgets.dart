@@ -135,27 +135,18 @@ class _WechatIconPainter extends CustomPainter {
           p,
         );
       } else {
-        canvas.drawPath(
-          Path()
-            ..moveTo(10, 12)
-            ..lineTo(14, 9)
-            ..lineTo(14, 23)
-            ..lineTo(10, 20)
-            ..close(),
-          p,
-        );
-        canvas.drawPath(
-          Path()
-            ..moveTo(18, 12)
-            ..quadraticBezierTo(23, 16, 18, 20),
-          p,
-        );
-        canvas.drawPath(
-          Path()
-            ..moveTo(21, 8)
-            ..quadraticBezierTo(29, 16, 21, 24),
-          p,
-        );
+        // Three nested sound waves inside the circle, without a speaker cone.
+        p.strokeCap = StrokeCap.butt;
+        for (var i = 0; i < 3; i++) {
+          final x = 10.0 + i * 4;
+          final halfHeight = 3.0 + i * 3.0;
+          canvas.drawPath(
+            Path()
+              ..moveTo(x, 16 - halfHeight)
+              ..quadraticBezierTo(x + halfHeight, 16, x, 16 + halfHeight),
+            p,
+          );
+        }
       }
     } else if (kind == 'chat') {
       final path = Path()

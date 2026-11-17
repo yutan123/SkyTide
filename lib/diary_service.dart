@@ -1,3 +1,4 @@
+import 'builtin_generation_settings.dart';
 import 'dart:convert';
 import 'diary_output.dart';
 import 'ai.dart';
@@ -18,6 +19,10 @@ class DiaryService {
   /// Schedules daily diary catch-up at 00:00 using AlarmManager.
   Future<void> scheduleDailyAlarm() async {
     try {
+      if (!await BuiltinGenerationSettings.enabled(
+        BuiltinGenerationSettings.diary,
+      ))
+        return;
       final now = DateTime.now();
       var nextRun = DateTime(now.year, now.month, now.day);
       if (now.isAfter(nextRun)) {
@@ -38,6 +43,11 @@ class DiaryService {
   }
 
   Future<void> catchUp() async {
+    if (_running ||
+        !await BuiltinGenerationSettings.enabled(
+          BuiltinGenerationSettings.diary,
+        ))
+      return;
     if (_running) return;
     _running = true;
     try {
@@ -59,9 +69,15 @@ class DiaryService {
           byDate.putIfAbsent(key, () => []).add(message);
         }
         // Start from yesterday and go back up to 30 days, never including today
-        for (var day = yesterday;
-            day.isAfter(yesterday.subtract(const Duration(days: 30)));
-            day = day.subtract(const Duration(days: 1))) {
+        for (
+          var day = yesterday;
+          day.isAfter(yesterday.subtract(const Duration(days: 30)));
+          day = day.subtract(const Duration(days: 1))
+        ) {
+          if (!await BuiltinGenerationSettings.enabled(
+            BuiltinGenerationSettings.diary,
+          ))
+            return;
           final dateKey = _dateKey(day);
           // Double-check: never write diary for today or future dates
           if (!day.isBefore(today)) continue;
@@ -72,10 +88,14 @@ class DiaryService {
               ? created.toInt()
               : int.tryParse(created?.toString() ?? '');
           if (createdMillis != null) {
-            final createdDate =
-                DateTime.fromMillisecondsSinceEpoch(createdMillis);
-            final createdDay =
-                DateTime(createdDate.year, createdDate.month, createdDate.day);
+            final createdDate = DateTime.fromMillisecondsSinceEpoch(
+              createdMillis,
+            );
+            final createdDay = DateTime(
+              createdDate.year,
+              createdDate.month,
+              createdDate.day,
+            );
             if (day.isBefore(createdDay)) continue;
           }
 
@@ -92,21 +112,31 @@ class DiaryService {
           if (!await db.claimBackgroundJob(job)) continue;
           var completed = false;
           try {
-            completed = await db.getDiary(botId, dateKey) != null ||
+            completed =
+                await db.getDiary(botId, dateKey) != null ||
                 await _writeDiary(botId, dateKey, byDate[dateKey] ?? []);
           } catch (error) {
-            AppLogService.instance
-                .add('DIARY', '$botId $dateKey 日记生成失败：$error');
+            AppLogService.instance.add(
+              'DIARY',
+              '$botId $dateKey 日记生成失败：$error',
+            );
           } finally {
-            if (completed) {
+            if (completed ||
+                !await BuiltinGenerationSettings.enabled(
+                  BuiltinGenerationSettings.diary,
+                )) {
               await db.releaseBackgroundJob(job);
             } else {
               // Preserve a cooldown across foreground events and app restarts.
               final retryAt = DateTime.now().add(const Duration(minutes: 30));
               await db.setKV(
-                  'job_lease_$job', '${retryAt.millisecondsSinceEpoch}');
-              AppLogService.instance
-                  .add('DIARY', '$botId $dateKey 补写失败，30 分钟后允许自动重试');
+                'job_lease_$job',
+                '${retryAt.millisecondsSinceEpoch}',
+              );
+              AppLogService.instance.add(
+                'DIARY',
+                '$botId $dateKey 补写失败，30 分钟后允许自动重试',
+              );
             }
           }
         }
@@ -129,7 +159,10 @@ class DiaryService {
   }
 
   Future<bool> _writeDiary(
-      String botId, String dateKey, List<Map<String, dynamic>> messages) async {
+    String botId,
+    String dateKey,
+    List<Map<String, dynamic>> messages,
+  ) async {
     final db = DBManager();
     final schedule = await db.getLifeSchedule(botId, dateKey);
     final transcript = messages
@@ -137,9 +170,9 @@ class DiaryService {
         .map((m) {
           final stamp = (m['timestamp'] as num?)?.toInt();
           final timeStr = stamp != null
-              ? DateTime.fromMillisecondsSinceEpoch(stamp)
-                  .toIso8601String()
-                  .substring(11, 16) // HH:mm
+              ? DateTime.fromMillisecondsSinceEpoch(
+                  stamp,
+                ).toIso8601String().substring(11, 16) // HH:mm
               : '';
           final role = m['role'] == 'assistant' ? '你' : '对方';
           final content = m['content'] ?? '';
@@ -181,14 +214,20 @@ class DiaryService {
       task: AIRequestTask.diary,
       allowTools: false,
     );
+    if (!await BuiltinGenerationSettings.enabled(
+      BuiltinGenerationSettings.diary,
+    ))
+      return false;
     final content = result['reply']?.toString().trim() ?? '';
     if (result['success'] == true && content.isNotEmpty) {
       await db.upsertDiary(botId: botId, dateKey: dateKey, content: content);
       AppLogService.instance.add('DIARY', '已补写 $botId $dateKey 日记');
       return true;
     } else {
-      AppLogService.instance
-          .add('DIARY', '$botId $dateKey 未保存：${result['error'] ?? '日记正文为空'}');
+      AppLogService.instance.add(
+        'DIARY',
+        '$botId $dateKey 未保存：${result['error'] ?? '日记正文为空'}',
+      );
     }
     return false;
   }

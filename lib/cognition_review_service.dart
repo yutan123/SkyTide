@@ -1,3 +1,4 @@
+import 'builtin_generation_settings.dart';
 import 'ai.dart';
 import 'app_log_service.dart';
 import 'bot_state.dart';
@@ -10,6 +11,11 @@ class CognitionReviewService {
   bool _running = false;
 
   Future<void> runDue() async {
+    if (_running ||
+        !await BuiltinGenerationSettings.enabled(
+          BuiltinGenerationSettings.worldBook,
+        ))
+      return;
     if (_running) return;
     _running = true;
     final db = DBManager();
@@ -17,16 +23,27 @@ class CognitionReviewService {
     final date = '${now.year}-${now.month}-${now.day}';
     try {
       for (final bot in await db.queryBots()) {
+        if (!await BuiltinGenerationSettings.enabled(
+          BuiltinGenerationSettings.worldBook,
+        ))
+          return;
         final id = bot['id']?.toString() ?? '';
         if (id.isEmpty || isBotDisabled(bot['is_disabled'])) continue;
         final key = 'cognition_review_${id}_$date';
-        if (!isCognitionReviewDue(await db.getKV(key),
-                retryAt: await db.getKV('${key}_retry_at'), now: now) ||
-            !await db.claimBackgroundJob(key)) continue;
-        try {
-          if (!isCognitionReviewDue(await db.getKV(key),
+        if (!isCognitionReviewDue(
+              await db.getKV(key),
               retryAt: await db.getKV('${key}_retry_at'),
-              now: DateTime.now())) continue;
+              now: now,
+            ) ||
+            !await db.claimBackgroundJob(key))
+          continue;
+        try {
+          if (!isCognitionReviewDue(
+            await db.getKV(key),
+            retryAt: await db.getKV('${key}_retry_at'),
+            now: DateTime.now(),
+          ))
+            continue;
           // An interrupted request stays pending; the lease prevents concurrent
           // requests and expires so a later launch can recover it.
           await db.setKV(key, 'pending');
@@ -44,10 +61,16 @@ class CognitionReviewService {
             forceSingleReply: true,
             extraSystemPrompt: '本轮是内部认知复核，必须只返回要求的 JSON，不遵循聊天气泡、独白或分段回复格式。',
           );
+          if (!await BuiltinGenerationSettings.enabled(
+            BuiltinGenerationSettings.worldBook,
+          ))
+            continue;
           final updates = parseCognitionReviewResult(result);
           final bots = await db.queryBots();
-          if (!bots.any((b) =>
-              b['id']?.toString() == id && !isBotDisabled(b['is_disabled'])))
+          if (!bots.any(
+            (b) =>
+                b['id']?.toString() == id && !isBotDisabled(b['is_disabled']),
+          ))
             continue;
           await db.applyCognitionUpdates(id, updates);
           await db.setKV(key, 'done');
@@ -58,8 +81,10 @@ class CognitionReviewService {
             'decision': updates.isEmpty ? 'keep' : 'modify',
           });
         } catch (error) {
-          await db.setKV('${key}_retry_at',
-              '${DateTime.now().add(const Duration(minutes: 5)).millisecondsSinceEpoch}');
+          await db.setKV(
+            '${key}_retry_at',
+            '${DateTime.now().add(const Duration(minutes: 5)).millisecondsSinceEpoch}',
+          );
           AppLogService.instance.add('COGNITION', '$id 每日认知复核失败，将补写：$error');
         } finally {
           await db.releaseBackgroundJob(key);

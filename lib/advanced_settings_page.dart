@@ -66,9 +66,9 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
       final id = await capability.boundBot(feature);
       if (id != null && id.isNotEmpty) {
         final bot = bots.cast<Map<String, dynamic>>().firstWhere(
-              (item) => item['id']?.toString() == id,
-              orElse: () => const {},
-            );
+          (item) => item['id']?.toString() == id,
+          orElse: () => const {},
+        );
         botNames[feature] = bot['name']?.toString() ?? id;
       }
     }
@@ -84,10 +84,12 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
     final externalBotId = await db.getKV('external_api_bot_id') ?? '';
     final externalSync =
         await db.getKV('external_api_sync_messages') != 'false';
-    final urls = await ExternalApiService.instance
-        .baseUrls(port: int.tryParse(externalPort));
-    final externalUrl = await ExternalApiService.instance
-        .preferredBaseUrl(port: int.tryParse(externalPort));
+    final urls = await ExternalApiService.instance.baseUrls(
+      port: int.tryParse(externalPort),
+    );
+    final externalUrl = await ExternalApiService.instance.preferredBaseUrl(
+      port: int.tryParse(externalPort),
+    );
     if (mounted) {
       setState(() {
         _imageCompression = imageCompression;
@@ -129,19 +131,24 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
       return;
     }
     if (!mounted) return;
-    final approved = await TideDialogs.show<bool>(
+    final approved =
+        await TideDialogs.show<bool>(
           context: context,
           builder: (ctx) => TideDialogSurface(
             title: Text(title, style: const TextStyle(fontFamily: 'TideFont')),
-            content: Text(description,
-                style: const TextStyle(fontFamily: 'TideFont')),
+            content: Text(
+              description,
+              style: const TextStyle(fontFamily: 'TideFont'),
+            ),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('取消')),
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
               TextButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('配置授权')),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('配置授权'),
+              ),
             ],
           ),
         ) ??
@@ -177,7 +184,9 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
   }
 
   Future<Set<String>?> _chooseWhitelist(
-      String feature, Set<String> defaults) async {
+    String feature,
+    Set<String> defaults,
+  ) async {
     final existing = await DeviceCapabilityService.instance.whitelist(feature);
     final values = <String>{...defaults, ...existing};
     final labels = feature == DeviceCapabilityService.contextFeature
@@ -188,23 +197,21 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
             'app_usage': '应用使用时长',
           }
         : feature == DeviceCapabilityService.proactiveFeature
-            ? const {
-                'new_notification': '收到新通知',
-              }
-            : const {
-                'back': '返回',
-                'home': '回到桌面',
-                'recents': '打开最近任务',
-                'notifications': '展开通知栏',
-                'click': '按坐标点击',
-                'click_selector': '按文字、描述或资源 ID 点击',
-                'input': '向当前输入框填入文字',
-                'scroll_up': '向上滚动',
-                'scroll_down': '向下滚动',
-                'open_app': '打开应用',
-                'close_app': '关闭应用后台进程',
-                'jump_tidebot': '跳转 TideBot',
-              };
+        ? const {'new_notification': '收到新通知'}
+        : const {
+            'back': '返回',
+            'home': '回到桌面',
+            'recents': '打开最近任务',
+            'notifications': '展开通知栏',
+            'click': '按坐标点击',
+            'click_selector': '按文字、描述或资源 ID 点击',
+            'input': '向当前输入框填入文字',
+            'scroll_up': '向上滚动',
+            'scroll_down': '向下滚动',
+            'open_app': '打开应用',
+            'close_app': '关闭应用后台进程',
+            'jump_tidebot': '跳转 TideBot',
+          };
     values.removeWhere((value) => !labels.containsKey(value));
     values.addAll(defaults);
     if (!mounted) return null;
@@ -225,8 +232,10 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       value: values.contains(entry.key),
-                      title: Text(entry.value,
-                          style: const TextStyle(fontFamily: 'TideFont')),
+                      title: Text(
+                        entry.value,
+                        style: const TextStyle(fontFamily: 'TideFont'),
+                      ),
                       onChanged: (checked) => setLocal(() {
                         if (checked == true) {
                           values.add(entry.key);
@@ -241,10 +250,13 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
             TextButton(
-                onPressed: () => Navigator.pop(ctx, values),
-                child: const Text('保存')),
+              onPressed: () => Navigator.pop(ctx, values),
+              child: const Text('保存'),
+            ),
           ],
         ),
       ),
@@ -286,7 +298,9 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
   }
 
   Future<void> _requestMissingSystemPermissions(
-      String feature, Set<String> selected) async {
+    String feature,
+    Set<String> selected,
+  ) async {
     final capability = DeviceCapabilityService.instance;
     final state = await capability.capabilityState();
     Future<void> explain(String message, Future<void> Function() open) async {
@@ -303,35 +317,43 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
       }
       if (selected.contains('app_usage') && state['usageAccess'] != true) {
         await explain(
-            '请在系统页面允许 TideBot 查看使用情况访问权限', capability.openUsageAccessSettings);
+          '请在系统页面允许 TideBot 查看使用情况访问权限',
+          capability.openUsageAccessSettings,
+        );
       }
       if (selected.contains('notifications') &&
           state['notificationAccess'] != true) {
-        await explain('请在系统页面开启 TideBot 通知使用权',
-            capability.openNotificationListenerSettings);
+        await explain(
+          '请在系统页面开启 TideBot 通知使用权',
+          capability.openNotificationListenerSettings,
+        );
       }
     }
     if (feature == DeviceCapabilityService.proactiveFeature &&
         selected.contains('new_notification') &&
         state['notificationAccess'] != true) {
-      await explain('请在系统页面开启 TideBot 通知使用权',
-          capability.openNotificationListenerSettings);
+      await explain(
+        '请在系统页面开启 TideBot 通知使用权',
+        capability.openNotificationListenerSettings,
+      );
     }
   }
 
   Widget _featureFooter(String feature, Set<String> defaults) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('启用的机器人：${_boundBotNames[feature] ?? '未绑定'}',
-              style: const TextStyle(fontFamily: 'TideFont', fontSize: 13)),
-          const SizedBox(height: 6),
-          OutlinedButton.icon(
-            onPressed: () => _manageFeature(feature, defaults),
-            icon: const Icon(Icons.admin_panel_settings_outlined),
-            label: const Text('管理权限'),
-          ),
-        ],
-      );
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(
+        '启用的机器人：${_boundBotNames[feature] ?? '未绑定'}',
+        style: const TextStyle(fontFamily: 'TideFont', fontSize: 13),
+      ),
+      const SizedBox(height: 6),
+      OutlinedButton.icon(
+        onPressed: () => _manageFeature(feature, defaults),
+        icon: const Icon(Icons.admin_panel_settings_outlined),
+        label: const Text('管理权限'),
+      ),
+    ],
+  );
   Future<void> _waitForExternalApi({bool restart = false}) async {
     final db = DBManager();
     final port = await db.getKV('external_api_port') ?? '6666';
@@ -340,15 +362,18 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
     final client = http.Client();
     try {
       for (var attempt = 0; attempt < 12; attempt++) {
-        service
-            .invoke(restart ? 'restart_external_api' : 'ensure_external_api');
+        service.invoke(
+          restart ? 'restart_external_api' : 'ensure_external_api',
+        );
         restart = false;
         await Future<void>.delayed(const Duration(milliseconds: 500));
         try {
-          final response = await client.get(
-            Uri.parse('http://127.0.0.1:$port/v1/models'),
-            headers: {'Authorization': 'Bearer $key'},
-          ).timeout(const Duration(seconds: 1));
+          final response = await client
+              .get(
+                Uri.parse('http://127.0.0.1:$port/v1/models'),
+                headers: {'Authorization': 'Bearer $key'},
+              )
+              .timeout(const Duration(seconds: 1));
           if (response.statusCode == 200) return;
         } catch (_) {}
       }
@@ -360,8 +385,9 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
 
   Future<void> _toggleExternalApi(bool value) async {
     final db = DBManager();
-    final usableBots =
-        _bots.where((bot) => !isBotDisabled(bot['is_disabled'])).toList();
+    final usableBots = _bots
+        .where((bot) => !isBotDisabled(bot['is_disabled']))
+        .toList();
     if (value && usableBots.isEmpty) {
       GlobalNotice.show('请先创建并启用一个机器人');
       return;
@@ -370,9 +396,9 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
     final boundBot = botId.isEmpty
         ? null
         : _bots.cast<Map<String, dynamic>>().firstWhere(
-              (bot) => bot['id']?.toString() == botId,
-              orElse: () => const {},
-            );
+            (bot) => bot['id']?.toString() == botId,
+            orElse: () => const {},
+          );
     if (value &&
         (boundBot == null ||
             boundBot.isEmpty ||
@@ -425,15 +451,20 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
             shrinkWrap: true,
             children: [
               ListTile(
-                  title: Text(title,
-                      style: const TextStyle(fontFamily: 'TideFont'))),
+                title: Text(
+                  title,
+                  style: const TextStyle(fontFamily: 'TideFont'),
+                ),
+              ),
               for (final bot in _bots.where(
                 (item) => !isBotDisabled(item['is_disabled']),
               ))
                 ListTile(
                   selected: bot['id']?.toString() == selectedId,
-                  title: Text(bot['name']?.toString() ?? '未命名机器人',
-                      style: const TextStyle(fontFamily: 'TideFont')),
+                  title: Text(
+                    bot['name']?.toString() ?? '未命名机器人',
+                    style: const TextStyle(fontFamily: 'TideFont'),
+                  ),
                   subtitle: Text(bot['id']?.toString() ?? ''),
                   onTap: () => Navigator.pop(context, bot['id']?.toString()),
                 ),
@@ -453,55 +484,70 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
         builder: (_, setLocal) => TideDialogSurface(
           title: const Text('外部访问服务', style: TextStyle(fontFamily: 'TideFont')),
           content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(
-                contextMenuBuilder: androidTextContextMenu,
-                controller: portController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '端口',
-                  helperText: '默认 6666；端口占用时启动失败，请更换端口。',
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  contextMenuBuilder: androidTextContextMenu,
+                  controller: portController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: '端口',
+                    helperText: '默认 6666；端口占用时启动失败，请更换端口。',
+                  ),
                 ),
-              ),
-              TextField(
-                contextMenuBuilder: androidTextContextMenu,
-                controller: keyController,
-                decoration: const InputDecoration(labelText: 'API Key'),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('服务机器人',
-                    style: TextStyle(fontFamily: 'TideFont')),
-                subtitle: Text(_bots
-                        .where((bot) => bot['id']?.toString() == botId)
-                        .map((bot) => bot['name']?.toString())
-                        .firstOrNull ??
-                    '请选择'),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () async {
-                  final chosen =
-                      await _chooseBot('选择对外服务机器人', selectedId: botId);
-                  if (chosen != null) setLocal(() => botId = chosen);
-                },
-              ),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('同步到 TideBot 聊天记录',
-                    style: TextStyle(fontFamily: 'TideFont')),
-                subtitle: const Text('默认开启；关闭后外部请求不写入本地聊天记录。',
-                    style: TextStyle(fontFamily: 'TideFont', fontSize: 12)),
-                value: syncMessages,
-                onChanged: (value) => setLocal(() => syncMessages = value),
-              ),
-            ]),
+                TextField(
+                  contextMenuBuilder: androidTextContextMenu,
+                  controller: keyController,
+                  decoration: const InputDecoration(labelText: 'API Key'),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    '服务机器人',
+                    style: TextStyle(fontFamily: 'TideFont'),
+                  ),
+                  subtitle: Text(
+                    _bots
+                            .where((bot) => bot['id']?.toString() == botId)
+                            .map((bot) => bot['name']?.toString())
+                            .firstOrNull ??
+                        '请选择',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final chosen = await _chooseBot(
+                      '选择对外服务机器人',
+                      selectedId: botId,
+                    );
+                    if (chosen != null) setLocal(() => botId = chosen);
+                  },
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    '同步到 TideBot 聊天记录',
+                    style: TextStyle(fontFamily: 'TideFont'),
+                  ),
+                  subtitle: const Text(
+                    '默认开启；关闭后外部请求不写入本地聊天记录。',
+                    style: TextStyle(fontFamily: 'TideFont', fontSize: 12),
+                  ),
+                  value: syncMessages,
+                  onChanged: (value) => setLocal(() => syncMessages = value),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('取消')),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
             TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('保存并重启')),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('保存并重启'),
+            ),
           ],
         ),
       ),
@@ -543,8 +589,10 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
             for (final url in _externalApiUrls)
               ListTile(
                 selected: url == _externalApiUrl,
-                title:
-                    Text(url, style: const TextStyle(fontFamily: 'TideFont')),
+                title: Text(
+                  url,
+                  style: const TextStyle(fontFamily: 'TideFont'),
+                ),
                 trailing: url == _externalApiUrl
                     ? const Icon(Icons.check_rounded)
                     : null,
@@ -571,33 +619,51 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
         builder: (ctx) => TideDialogSurface(
           backgroundColor: Colors.transparent,
           contentPadding: EdgeInsets.zero,
-          content: TideDialogs.glassContent(context: ctx, children: [
-            Text('关闭实时日志',
+          content: TideDialogs.glassContent(
+            context: ctx,
+            children: [
+              Text(
+                '关闭实时日志',
                 textAlign: TextAlign.start,
                 style: TextStyle(
-                    fontFamily: 'TideFont',
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: TideTheme.of(ctx).textStrong)),
-            const SizedBox(height: 8),
-            Text('是否保存本次日志到历史记录？',
+                  fontFamily: 'TideFont',
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: TideTheme.of(ctx).textStrong,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '是否保存本次日志到历史记录？',
                 textAlign: TextAlign.start,
                 style: TextStyle(
-                    fontFamily: 'TideFont', color: TideTheme.of(ctx).textWeak)),
-            const SizedBox(height: 18),
-            Row(children: [
-              Expanded(
-                  child: TideDialogs.glassButton('不保存',
+                  fontFamily: 'TideFont',
+                  color: TideTheme.of(ctx).textWeak,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: TideDialogs.glassButton(
+                      '不保存',
                       onTap: () => Navigator.pop(ctx, false),
                       color: TideTheme.of(ctx).surfaceVariant,
-                      textColor: TideTheme.of(ctx).textStrong)),
-              const SizedBox(width: 10),
-              Expanded(
-                  child: TideDialogs.glassButton('保存',
+                      textColor: TideTheme.of(ctx).textStrong,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TideDialogs.glassButton(
+                      '保存',
                       onTap: () => Navigator.pop(ctx, true),
-                      color: TideTheme.of(ctx).primary)),
-            ]),
-          ]),
+                      color: TideTheme.of(ctx).primary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       );
       if (save == true) await AppLogService.instance.saveCurrent();
@@ -606,7 +672,7 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
     if (mounted) setState(() => _logging = false);
   }
 
-  Widget _mediaCompressionToggle({
+  Widget _settingToggle({
     required String title,
     required String description,
     required bool value,
@@ -618,11 +684,18 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
       padding: const EdgeInsets.all(16),
       child: SwitchListTile.adaptive(
         contentPadding: EdgeInsets.zero,
-        title: Text(title,
-            style: TextStyle(fontFamily: 'TideFont', color: theme.textStrong)),
-        subtitle: Text(description,
-            style: TextStyle(
-                fontFamily: 'TideFont', color: theme.textWeak, fontSize: 12)),
+        title: Text(
+          title,
+          style: TextStyle(fontFamily: 'TideFont', color: theme.textStrong),
+        ),
+        subtitle: Text(
+          description,
+          style: TextStyle(
+            fontFamily: 'TideFont',
+            color: theme.textWeak,
+            fontSize: 12,
+          ),
+        ),
         value: value,
         activeThumbColor: theme.primary,
         onChanged: (enabled) async {
@@ -642,11 +715,14 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          title: Text('高级设置',
-              style: TextStyle(
-                  fontFamily: 'TideFont',
-                  color: theme.textStrong,
-                  fontWeight: FontWeight.w700)),
+          title: Text(
+            '高级设置',
+            style: TextStyle(
+              fontFamily: 'TideFont',
+              color: theme.textStrong,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           iconTheme: IconThemeData(color: theme.iconMuted),
         ),
         body: ListView(
@@ -656,26 +732,34 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
               padding: const EdgeInsets.all(16),
               child: SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
-                title: Text('自动压缩画质',
-                    style: TextStyle(
-                        fontFamily: 'TideFont', color: theme.textStrong)),
+                title: Text(
+                  '自动压缩画质',
+                  style: TextStyle(
+                    fontFamily: 'TideFont',
+                    color: theme.textStrong,
+                  ),
+                ),
                 subtitle: Text(
-                    '默认开启，收发图片保存后自动压缩为最高 1080p 的 JPEG，节省本地空间；小图不放大，动图保留。关闭后保留原图。',
-                    style: TextStyle(
-                        fontFamily: 'TideFont',
-                        color: theme.textWeak,
-                        fontSize: 12)),
+                  '默认开启，收发图片保存后自动压缩为最高 1080p 的 JPEG，节省本地空间；小图不放大，动图保留。关闭后保留原图。',
+                  style: TextStyle(
+                    fontFamily: 'TideFont',
+                    color: theme.textWeak,
+                    fontSize: 12,
+                  ),
+                ),
                 value: _imageCompression,
                 activeThumbColor: theme.primary,
                 onChanged: (value) async {
-                  await DBManager()
-                      .setKV('image_compression_enabled', '$value');
+                  await DBManager().setKV(
+                    'image_compression_enabled',
+                    '$value',
+                  );
                   if (mounted) setState(() => _imageCompression = value);
                 },
               ),
             ),
             const SizedBox(height: 12),
-            _mediaCompressionToggle(
+            _settingToggle(
               title: '音频自动压缩',
               description:
                   '默认开启，语音和音频先发送，再后台转为 M4A / AAC 保存；单声道最高 64 kbps，双声道最高 96 kbps。机器人音频同样处理。',
@@ -684,7 +768,7 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
               update: (value) => setState(() => _audioCompression = value),
             ),
             const SizedBox(height: 12),
-            _mediaCompressionToggle(
+            _settingToggle(
               title: '视频自动压缩',
               description:
                   '默认开启，视频先发送，再后台转为 MP4 保存；最高 1080p、30 帧，保持比例，小视频不放大。机器人视频同样处理。',
@@ -696,199 +780,244 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
             FrostCard(
               padding: const EdgeInsets.all(16),
               child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('触感反馈',
-                        style: TextStyle(
-                            fontFamily: 'TideFont',
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: theme.textStrong)),
-                    const SizedBox(height: 4),
-                    Text('开启后，使用 TideBot 的按钮和卡片时会有轻微震动。',
-                        style: TextStyle(
-                            fontFamily: 'TideFont',
-                            color: theme.textWeak,
-                            fontSize: 13)),
-                    Switch.adaptive(
-                      value: _haptics,
-                      activeThumbColor: theme.primary,
-                      onChanged: (value) async {
-                        await TideHaptics.setEnabled(value);
-                        if (mounted) setState(() => _haptics = value);
-                        if (value) TideHaptics.tap();
-                      },
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '触感反馈',
+                    style: TextStyle(
+                      fontFamily: 'TideFont',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: theme.textStrong,
                     ),
-                  ]),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '开启后，使用 TideBot 的按钮和卡片时会有轻微震动。',
+                    style: TextStyle(
+                      fontFamily: 'TideFont',
+                      color: theme.textWeak,
+                      fontSize: 13,
+                    ),
+                  ),
+                  Switch.adaptive(
+                    value: _haptics,
+                    activeThumbColor: theme.primary,
+                    onChanged: (value) async {
+                      await TideHaptics.setEnabled(value);
+                      if (mounted) setState(() => _haptics = value);
+                      if (value) TideHaptics.tap();
+                    },
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             FrostCard(
               padding: const EdgeInsets.all(16),
-              child: Column(children: [
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('额外信息感知',
-                      style: TextStyle(fontFamily: 'TideFont')),
-                  subtitle: const Text('仅在你绑定机器人并授予所需权限后，按需提供设备状态。',
-                      style: TextStyle(fontFamily: 'TideFont')),
-                  value: _extraContext,
-                  onChanged: (value) => _setProtectedToggle(
+              child: Column(
+                children: [
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      '额外信息感知',
+                      style: TextStyle(fontFamily: 'TideFont'),
+                    ),
+                    subtitle: const Text(
+                      '仅在你绑定机器人并授予所需权限后，按需提供设备状态。',
+                      style: TextStyle(fontFamily: 'TideFont'),
+                    ),
+                    value: _extraContext,
+                    onChanged: (value) => _setProtectedToggle(
                       key: 'extra_context_enabled',
                       feature: DeviceCapabilityService.contextFeature,
                       value: value,
                       title: '授权额外信息感知',
                       description: '启用后仍需逐项选择允许的信息；信息只在与当前问题有关时注入上下文。',
                       defaultWhitelist: const {'battery'},
-                      update: (v) => _extraContext = v),
-                ),
-                _featureFooter(
-                    DeviceCapabilityService.contextFeature, const {'battery'}),
-                const Divider(),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('操作触发主动回复',
-                      style: TextStyle(fontFamily: 'TideFont')),
-                  subtitle: const Text('收到已授权的通知时，可低概率触发已绑定机器人的主动消息。',
-                      style: TextStyle(fontFamily: 'TideFont')),
-                  value: _operationProactive,
-                  onChanged: (value) => _setProtectedToggle(
+                      update: (v) => _extraContext = v,
+                    ),
+                  ),
+                  _featureFooter(DeviceCapabilityService.contextFeature, const {
+                    'battery',
+                  }),
+                  const Divider(),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      '操作触发主动回复',
+                      style: TextStyle(fontFamily: 'TideFont'),
+                    ),
+                    subtitle: const Text(
+                      '收到已授权的通知时，可低概率触发已绑定机器人的主动消息。',
+                      style: TextStyle(fontFamily: 'TideFont'),
+                    ),
+                    value: _operationProactive,
+                    onChanged: (value) => _setProtectedToggle(
                       key: 'operation_proactive_enabled',
                       feature: DeviceCapabilityService.proactiveFeature,
                       value: value,
                       title: '授权操作触发主动回复',
                       description: '机器人只会收到你允许的触发类型。消息发送仍受主动回复设置、频率限制和绑定机器人约束。',
                       defaultWhitelist: const {'new_notification'},
-                      update: (v) => _operationProactive = v),
-                ),
-                _featureFooter(DeviceCapabilityService.proactiveFeature,
-                    const {'new_notification'}),
-                // 机器人操控手机与悬浮窗功能已移除。
-              ]),
-            ),
-            const SizedBox(height: 12),
-            FrostCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('外部访问服务',
-                          style: TextStyle(fontFamily: 'TideFont')),
-                      subtitle: const Text(
-                          '将选定机器人作为本机 OpenAI 兼容 API 服务提供给同一局域网设备。',
-                          style:
-                              TextStyle(fontFamily: 'TideFont', fontSize: 12)),
-                      value: _externalApiEnabled,
-                      activeThumbColor: theme.primary,
-                      onChanged: _toggleExternalApi,
+                      update: (v) => _operationProactive = v,
                     ),
-                    if (_externalApiEnabled) ...[
-                      const Divider(),
-                      const Text('API Base URL',
-                          style:
-                              TextStyle(fontFamily: 'TideFont', fontSize: 12)),
-                      const SizedBox(height: 4),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        title: Text(
-                          _externalApiUrl.isEmpty
-                              ? 'http://127.0.0.1:$_externalApiPort/v1'
-                              : _externalApiUrl,
-                          style: TextStyle(
-                              fontFamily: 'TideFont',
-                              fontSize: 13,
-                              color: theme.primary),
-                        ),
-                        trailing: const Icon(Icons.copy_rounded, size: 18),
-                        onTap: () {
-                          final url = _externalApiUrl.isEmpty
-                              ? 'http://127.0.0.1:$_externalApiPort/v1'
-                              : _externalApiUrl;
-                          Clipboard.setData(ClipboardData(text: url));
-                          GlobalNotice.show('API Base URL 已复制');
-                        },
-                      ),
-                      if (_externalApiUrls.length > 1)
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                            onPressed: _chooseExternalApiUrl,
-                            icon:
-                                const Icon(Icons.swap_horiz_rounded, size: 17),
-                            label: const Text('切换地址'),
-                          ),
-                        ),
-                      Text(
-                          '模型可留空；填写时使用机器人名称。API Key：$_externalApiKey；机器人：${_bots.where((bot) => bot['id']?.toString() == _externalApiBotId).map((bot) => bot['name']?.toString()).firstOrNull ?? '未选择'}',
-                          style: TextStyle(
-                              fontFamily: 'TideFont',
-                              color: theme.textWeak,
-                              fontSize: 12)),
-                      Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                              onPressed: _editExternalApi,
-                              icon:
-                                  const Icon(Icons.settings_outlined, size: 17),
-                              label: const Text('配置'))),
-                    ] else
-                      TextButton.icon(
-                          onPressed: _editExternalApi,
-                          icon: const Icon(Icons.settings_outlined),
-                          label: const Text('配置端口、API Key 和机器人')),
-                  ]),
+                  ),
+                  _featureFooter(
+                    DeviceCapabilityService.proactiveFeature,
+                    const {'new_notification'},
+                  ),
+                  // 机器人操控手机与悬浮窗功能已移除。
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             FrostCard(
               padding: const EdgeInsets.all(16),
               child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      '外部访问服务',
+                      style: TextStyle(fontFamily: 'TideFont'),
+                    ),
+                    subtitle: const Text(
+                      '将选定机器人作为本机 OpenAI 兼容 API 服务提供给同一局域网设备。',
+                      style: TextStyle(fontFamily: 'TideFont', fontSize: 12),
+                    ),
+                    value: _externalApiEnabled,
+                    activeThumbColor: theme.primary,
+                    onChanged: _toggleExternalApi,
+                  ),
+                  if (_externalApiEnabled) ...[
+                    const Divider(),
+                    const Text(
+                      'API Base URL',
+                      style: TextStyle(fontFamily: 'TideFont', fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(
+                        _externalApiUrl.isEmpty
+                            ? 'http://127.0.0.1:$_externalApiPort/v1'
+                            : _externalApiUrl,
+                        style: TextStyle(
+                          fontFamily: 'TideFont',
+                          fontSize: 13,
+                          color: theme.primary,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.copy_rounded, size: 18),
+                      onTap: () {
+                        final url = _externalApiUrl.isEmpty
+                            ? 'http://127.0.0.1:$_externalApiPort/v1'
+                            : _externalApiUrl;
+                        Clipboard.setData(ClipboardData(text: url));
+                        GlobalNotice.show('API Base URL 已复制');
+                      },
+                    ),
+                    if (_externalApiUrls.length > 1)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: _chooseExternalApiUrl,
+                          icon: const Icon(Icons.swap_horiz_rounded, size: 17),
+                          label: const Text('切换地址'),
+                        ),
+                      ),
+                    Text(
+                      '模型可留空；填写时使用机器人名称。API Key：$_externalApiKey；机器人：${_bots.where((bot) => bot['id']?.toString() == _externalApiBotId).map((bot) => bot['name']?.toString()).firstOrNull ?? '未选择'}',
+                      style: TextStyle(
+                        fontFamily: 'TideFont',
+                        color: theme.textWeak,
+                        fontSize: 12,
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _editExternalApi,
+                        icon: const Icon(Icons.settings_outlined, size: 17),
+                        label: const Text('配置'),
+                      ),
+                    ),
+                  ] else
+                    TextButton.icon(
+                      onPressed: _editExternalApi,
+                      icon: const Icon(Icons.settings_outlined),
+                      label: const Text('配置端口、API Key 和机器人'),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            FrostCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
                       Expanded(
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                            Text('开发日志',
-                                style: TextStyle(
-                                    fontFamily: 'TideFont',
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    color: theme.textStrong)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '开发日志',
+                              style: TextStyle(
+                                fontFamily: 'TideFont',
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: theme.textStrong,
+                              ),
+                            ),
                             const SizedBox(height: 4),
-                            Text('仅本次运行有效；退出或重启 App 后自动关闭。',
-                                style: TextStyle(
-                                    fontFamily: 'TideFont',
-                                    color: theme.textWeak,
-                                    fontSize: 13)),
-                          ])),
+                            Text(
+                              '仅本次运行有效；退出或重启 App 后自动关闭。',
+                              style: TextStyle(
+                                fontFamily: 'TideFont',
+                                color: theme.textWeak,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       Switch.adaptive(
-                          value: _logging,
-                          activeThumbColor: theme.primary,
-                          onChanged: _toggleLog),
-                    ]),
-                    if (_logging) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        height: 220,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                            color: theme.surfaceVariant,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: theme.border)),
-                        child: LiveLogView(color: theme.textStrong),
+                        value: _logging,
+                        activeThumbColor: theme.primary,
+                        onChanged: _toggleLog,
                       ),
                     ],
+                  ),
+                  if (_logging) ...[
                     const SizedBox(height: 12),
-                    TideDialogs.glassButton('查看历史日志',
-                        onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const LogHistoryPage())),
-                        color: theme.primary),
-                  ]),
+                    Container(
+                      height: 220,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: theme.surfaceVariant,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: theme.border),
+                      ),
+                      child: LiveLogView(color: theme.textStrong),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  TideDialogs.glassButton(
+                    '查看历史日志',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LogHistoryPage()),
+                    ),
+                    color: theme.primary,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -907,25 +1036,35 @@ class LogHistoryPage extends StatelessWidget {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            title: Text('历史日志',
-                style: TextStyle(
-                    fontFamily: 'TideFont',
-                    color: theme.textStrong,
-                    fontWeight: FontWeight.w700))),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          title: Text(
+            '历史日志',
+            style: TextStyle(
+              fontFamily: 'TideFont',
+              color: theme.textStrong,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
         body: FutureBuilder<List<AppLogSession>>(
           future: AppLogService.instance.history(),
           builder: (_, snapshot) {
             final logs = snapshot.data ?? const <AppLogSession>[];
             if (snapshot.connectionState != ConnectionState.done)
               return Center(
-                  child: CircularProgressIndicator(color: theme.primary));
+                child: CircularProgressIndicator(color: theme.primary),
+              );
             if (logs.isEmpty)
               return Center(
-                  child: Text('暂无已保存日志',
-                      style: TextStyle(
-                          fontFamily: 'TideFont', color: theme.textFaint)));
+                child: Text(
+                  '暂无已保存日志',
+                  style: TextStyle(
+                    fontFamily: 'TideFont',
+                    color: theme.textFaint,
+                  ),
+                ),
+              );
             return ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: logs.length,
@@ -934,49 +1073,63 @@ class LogHistoryPage extends StatelessWidget {
                 final session = logs[i];
                 return FrostCard(
                   padding: const EdgeInsets.all(14),
-                  child: Row(children: [
-                    Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(
                         child: InkWell(
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
                               builder: (_) =>
-                                  LogSessionDetailPage(session: session))),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
+                                  LogSessionDetailPage(session: session),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
                                 '${session.startedAt.toLocal()} · ${session.entries.length} 条${session.hasError ? ' · 含错误' : ''}',
                                 style: TextStyle(
-                                    fontFamily: 'TideFont',
-                                    color: session.hasError
-                                        ? Colors.redAccent
-                                        : theme.primary,
-                                    fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 6),
-                            Text(
+                                  fontFamily: 'TideFont',
+                                  color: session.hasError
+                                      ? Colors.redAccent
+                                      : theme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
                                 session.entries.isEmpty
                                     ? '空日志'
                                     : session.entries.first.message,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                    fontFamily: 'TideFont',
-                                    color: theme.textStrong)),
-                          ]),
-                    )),
-                    IconButton(
+                                  fontFamily: 'TideFont',
+                                  color: theme.textStrong,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      IconButton(
                         icon: const Icon(Icons.delete_outline_rounded),
                         onPressed: () async {
-                          await AppLogService.instance
-                              .deleteSession(session.id);
+                          await AppLogService.instance.deleteSession(
+                            session.id,
+                          );
                           if (context.mounted)
                             Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) => const LogHistoryPage()));
-                        }),
-                  ]),
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const LogHistoryPage(),
+                              ),
+                            );
+                        },
+                      ),
+                    ],
+                  ),
                 );
               },
             );

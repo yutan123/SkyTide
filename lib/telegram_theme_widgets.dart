@@ -239,7 +239,13 @@ class TelegramNavigationBar extends StatelessWidget {
 }
 
 class TelegramBubble extends StatelessWidget {
-  const TelegramBubble({super.key, required this.isUser, required this.child});
+  final bool showTail;
+  const TelegramBubble({
+    super.key,
+    required this.isUser,
+    required this.child,
+    this.showTail = true,
+  });
   final bool isUser;
   final Widget child;
   @override
@@ -249,7 +255,7 @@ class TelegramBubble extends StatelessWidget {
         ? (theme.isDark ? const Color(0xFF315B45) : const Color(0xFFE2F6CD))
         : theme.surface;
     return CustomPaint(
-      painter: _TelegramBubblePainter(color, isUser),
+      painter: _TelegramBubblePainter(color, isUser, showTail),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 7),
         child: child,
@@ -259,7 +265,8 @@ class TelegramBubble extends StatelessWidget {
 }
 
 class _TelegramBubblePainter extends CustomPainter {
-  const _TelegramBubblePainter(this.color, this.isUser);
+  const _TelegramBubblePainter(this.color, this.isUser, this.showTail);
+  final bool showTail;
   final Color color;
   final bool isUser;
   @override
@@ -270,8 +277,8 @@ class _TelegramBubblePainter extends CustomPainter {
           Offset.zero & size,
           topLeft: const Radius.circular(19),
           topRight: const Radius.circular(19),
-          bottomLeft: Radius.circular(isUser ? 19 : 5),
-          bottomRight: Radius.circular(isUser ? 5 : 19),
+          bottomLeft: Radius.circular(isUser || !showTail ? 19 : 5),
+          bottomRight: Radius.circular(isUser && showTail ? 5 : 19),
         ),
       );
     final x = isUser ? size.width : 0.0;
@@ -281,14 +288,16 @@ class _TelegramBubblePainter extends CustomPainter {
       ..quadraticBezierTo(x, size.height - 1, x + d * 5, size.height)
       ..lineTo(x - d * 9, size.height)
       ..close();
-    final path = Path.combine(PathOperation.union, body, tail);
+    final path = showTail
+        ? Path.combine(PathOperation.union, body, tail)
+        : body;
     canvas.drawShadow(path, Colors.black.withValues(alpha: .12), 1, false);
     canvas.drawPath(path, Paint()..color = color);
   }
 
   @override
   bool shouldRepaint(covariant _TelegramBubblePainter old) =>
-      old.color != color || old.isUser != isUser;
+      old.color != color || old.isUser != isUser || old.showTail != showTail;
 }
 
 /// Decorative fallback wallpaper; user backgrounds continue to take precedence.

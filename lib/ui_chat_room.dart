@@ -1,3 +1,5 @@
+import 'telegram_stamped_text.dart';
+import 'messaging_voice_message.dart';
 import 'chat_media_groups.dart';
 import 'chat_media_stack.dart';
 import 'telegram_message_metadata.dart';
@@ -3816,64 +3818,21 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         : 0.0;
     final theme = TideTheme.of(context);
     if (theme.usesMessagingLayout) {
-      final foreground = isUser
-          ? (theme.isQq ? Colors.white : const Color(0xFF111111))
-          : theme.textStrong;
-      final seconds = knownDuration
-          ? (duration.inMilliseconds / 1000).ceil()
-          : 0;
-      final playing = active && _audioPlaying;
-      final voiceIcon = WechatVoiceIcon(
-        isUser: isUser,
-        color: foreground,
-        playing: playing,
-      );
-      final durationLabel = Text(
-        knownDuration ? '$seconds″' : '语音',
-        style: TextStyle(color: foreground, fontSize: 16, height: 1.35),
-      );
       return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: isUser
             ? CrossAxisAlignment.end
             : CrossAxisAlignment.start,
         children: [
-          Semantics(
-            button: true,
-            label:
-                '${playing ? '暂停' : '播放'}语音${knownDuration ? '，$seconds 秒' : ''}',
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => _toggleAudio(path),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final preferredWidth = (72.0 + seconds.clamp(0, 60) * 3)
-                      .clamp(80.0, 210.0);
-                  return SizedBox(
-                    width: constraints.constrainWidth(preferredWidth),
-                    child: _messageVoiceBubble(
-                      isUser: isUser,
-                      child: Row(
-                        mainAxisAlignment: isUser
-                            ? MainAxisAlignment.end
-                            : MainAxisAlignment.start,
-                        children: isUser
-                            ? [
-                                Flexible(child: durationLabel),
-                                const SizedBox(width: 8),
-                                voiceIcon,
-                              ]
-                            : [
-                                voiceIcon,
-                                const SizedBox(width: 8),
-                                Flexible(child: durationLabel),
-                              ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+          MessagingVoiceMessage(
+            isUser: isUser,
+            duration: duration,
+            position: position,
+            playing: active && _audioPlaying,
+            onToggle: () => _toggleAudio(path),
+            onSeek: !active || !knownDuration
+                ? null
+                : (target) => _player.seek(target),
           ),
           if (transcript.trim().isNotEmpty)
             Padding(
@@ -4551,13 +4510,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     );
   }
 
-  Widget _messageVoiceBubble({required bool isUser, required Widget child}) =>
-      TideTheme.of(context).isTelegram
-      ? child
-      : TideTheme.of(context).isQq
-      ? QqBubble(isUser: isUser, child: child)
-      : WechatBubble(isUser: isUser, child: child);
-
   Widget _qqHeader() {
     final theme = TideTheme.of(context);
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -5079,9 +5031,49 @@ class _ChatRoomPageState extends State<ChatRoomPage>
           _previewImg(items[index].path);
         }
       },
-      onLongPress: (index) => _msgLongPress(
-        messages[index],
-        anchorMessageId: messages.first['id'].toString(),
+      onLongPress: (index) => _mediaStackLongPress(messages, index),
+    );
+  }
+
+  void _mediaStackLongPress(List<Map<String, dynamic>> messages, int index) {
+    final ids = messages.map((message) => message['id'].toString()).toSet();
+    showTideSheet(
+      context: context,
+      height: 220,
+      child: Builder(
+        builder: (sheetContext) => ListView(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          children: [
+            Center(child: Text('媒体消息 · ${ids.length} 条',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+            ListTile(
+              leading: const Icon(Icons.more_horiz_rounded),
+              title: const Text('当前消息操作'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _msgLongPress(messages[index],
+                  anchorMessageId: messages.first['id'].toString());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFE74C3C)),
+              title: Text('删除全部 ${ids.length} 条',
+                style: const TextStyle(color: Color(0xFFE74C3C))),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                _messagesRevision++;
+                for (final id in ids) {
+                  await DBManager().deleteMessage(id);
+                  if (!mounted) continue;
+                  setState(() {
+                    _msgs.removeWhere((message) => message['id'].toString() == id);
+                    _deferredPersistedMessageIds.remove(id);
+                  });
+                }
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -5233,6 +5225,14 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final txt = (isSticker || isEmoji) ? '' : ((m['content'] as String?) ?? '');
     final sharedPost = _sharedPostPayload(m);
     final replyId = m['reply_to_id']?.toString();
+    final telegramInlineStamp =
+        theme.isTelegram &&
+        !hasAudio &&
+        !hasSummary &&
+        !hasDocument &&
+        txt.isNotEmpty &&
+        !txt.contains('```') &&
+        !m['id'].toString().startsWith('stream_');
     final sources = _decodeSources(m['sources_json']);
     final ts = m['timestamp'] as int? ?? 0;
     // 流式占位气泡（id 以 stream_ 开头）会先用空内容上屏，之后才填充真实文字。
@@ -5438,22 +5438,29 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                     },
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: isUser
-                                            ? TideTheme.of(context).primary
-                                            : TideTheme.of(
-                                                context,
-                                              ).buttonSecondary,
-                                        borderRadius: BorderRadius.circular(14),
-                                        border: Border.all(
-                                          color: isUser
-                                              ? Colors.white.withValues(
-                                                  alpha: .28,
-                                                )
-                                              : TideTheme.of(context).border,
-                                        ),
-                                      ),
+                                      padding: theme.isTelegram
+                                          ? const EdgeInsets.symmetric(
+                                              vertical: 8,
+                                              horizontal: 4,
+                                            )
+                                          : const EdgeInsets.all(12),
+                                      decoration: theme.isTelegram
+                                          ? null
+                                          : BoxDecoration(
+                                              color: isUser && !theme.isTelegram
+                                                  ? theme.primary
+                                                  : theme.buttonSecondary,
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              border: Border.all(
+                                                color:
+                                                    isUser && !theme.isTelegram
+                                                    ? Colors.white.withValues(
+                                                        alpha: .28,
+                                                      )
+                                                    : theme.border,
+                                              ),
+                                            ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
@@ -5462,7 +5469,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                             height: 42,
                                             alignment: Alignment.center,
                                             decoration: BoxDecoration(
-                                              color: isUser
+                                              color: isUser && !theme.isTelegram
                                                   ? Colors.white.withValues(
                                                       alpha: .18,
                                                     )
@@ -5480,7 +5487,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                                   Icons
                                                       .insert_drive_file_rounded,
                                                   size: 20,
-                                                  color: isUser
+                                                  color:
+                                                      isUser &&
+                                                          !theme.isTelegram
                                                       ? Colors.white
                                                       : TideTheme.of(
                                                           context,
@@ -5491,7 +5500,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                                   style: TextStyle(
                                                     fontSize: 8,
                                                     fontWeight: FontWeight.w700,
-                                                    color: isUser
+                                                    color:
+                                                        isUser &&
+                                                            !theme.isTelegram
                                                         ? Colors.white
                                                         : TideTheme.of(
                                                             context,
@@ -5516,7 +5527,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                                       TextOverflow.ellipsis,
                                                   style: TextStyle(
                                                     fontWeight: FontWeight.w600,
-                                                    color: isUser
+                                                    color:
+                                                        isUser &&
+                                                            !theme.isTelegram
                                                         ? Colors.white
                                                         : TideTheme.of(
                                                             context,
@@ -5529,7 +5542,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                                   '文件附件 · 点击选择应用打开',
                                                   style: TextStyle(
                                                     fontSize: 11,
-                                                    color: isUser
+                                                    color:
+                                                        isUser &&
+                                                            !theme.isTelegram
                                                         ? Colors.white70
                                                         : TideTheme.of(
                                                             context,
@@ -5617,7 +5632,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                     !hasAudio &&
                                     !hasSummary &&
                                     txt.isNotEmpty)
-                                  _buildTextWithLinkPreviews(txt, isUser),
+                                  _buildTextWithLinkPreviews(
+                                    txt,
+                                    isUser,
+                                    stamp: telegramInlineStamp
+                                        ? _telegramMessageStamp(m)
+                                        : null,
+                                  ),
                                 if (!theme.isTelegram &&
                                     ((isUser &&
                                             (m['send_status'] == 'sending' ||
@@ -5674,6 +5695,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                   ),
                               ],
                             ),
+                            index: i,
+                            document: hasDocument,
+                            inlineStamp: telegramInlineStamp,
                           ),
                         ),
                         if (theme.usesMessagingLayout &&
@@ -5762,12 +5786,12 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   // 音频时长由播放器进度组件统一显示.
 
   // 富文本解析：旁白括号灰化
-  Widget _parseText(String text, bool isUser) {
+  Widget _parseText(String text, bool isUser, {Widget? stamp}) {
     final codeBlockRegex = RegExp(r'```(\w*)\n([\s\S]*?)```', multiLine: true);
 
     final matches = codeBlockRegex.allMatches(text);
     if (matches.isEmpty) {
-      return _renderPlainText(text, isUser);
+      return _renderPlainText(text, isUser, stamp: stamp);
     }
 
     final widgets = <Widget>[];
@@ -5812,7 +5836,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     );
   }
 
-  Widget _renderPlainText(String text, bool isUser) {
+  Widget _renderPlainText(String text, bool isUser, {Widget? stamp}) {
     final theme = TideTheme.of(context);
     final baseStyle = TextStyle(
       color: theme.isTelegram
@@ -5858,6 +5882,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       spans.add(TextSpan(text: text.substring(last), style: baseStyle));
     }
     if (theme.isTelegram) {
+      if (stamp != null) {
+        return TelegramStampedText(
+          text: TextSpan(style: baseStyle, children: spans),
+          stamp: stamp,
+          stampWidth: isUser ? 66 : 44,
+        );
+      }
       return RichText(
         textScaler: MediaQuery.textScalerOf(context),
         text: TextSpan(style: baseStyle, children: spans),
@@ -5906,13 +5937,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   /// 构建包含链接预览的文本（新增方法）
-  Widget _buildTextWithLinkPreviews(String text, bool isUser) {
+  Widget _buildTextWithLinkPreviews(String text, bool isUser, {Widget? stamp}) {
     // 检测文本中的链接
     final urls = LinkPreviewService.extractUrls(text);
 
     if (urls.isEmpty) {
       // 没有链接，直接渲染普通文本
-      return _parseText(text, isUser);
+      return _parseText(text, isUser, stamp: stamp);
     }
 
     // 卡片补充预览，消息气泡完整保留分享原文和链接。
@@ -5923,7 +5954,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       children: [
         // 显示所有链接预览卡片
         for (final url in urls) _buildLinkPreviewCard(url, isUser),
-        _parseText(text, isUser),
+        _parseText(text, isUser, stamp: stamp),
       ],
     );
   }
