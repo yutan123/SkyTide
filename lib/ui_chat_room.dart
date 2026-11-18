@@ -5388,6 +5388,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final isSticker = m['type'] == 'sticker';
     final isEmoji = m['type'] == 'emoji';
     // 表情包和固定 emoji 的 content 都是模型语义，绝不能作为正文显示。
+    final pluginCard = m['type'] == 'card';
     final hasSummary = m['type'] == 'call_summary';
     final txt = (isSticker || isEmoji) ? '' : ((m['content'] as String?) ?? '');
     final sharedPost = _sharedPostPayload(m);
@@ -5464,7 +5465,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: hasSummary
+        child: pluginCard
+            ? _pluginCard(txt)
+            : hasSummary
             ? _callSummaryCard(
                 content: txt,
                 duration: m['duration'] as int? ?? 0,
@@ -5895,7 +5898,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                           _wechatMessageAvatar(true),
                       ],
                     ),
-                    for (final url in sourceUrls)
+                    for (final url in sourceUrls.take(1))
                       _StableLinkPreviewCard(
                         key: ValueKey(url),
                         url: url,
@@ -5905,6 +5908,76 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   ],
                 ),
               ),
+      ),
+    );
+  }
+
+  Widget _pluginCard(String encoded) {
+    Map card;
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! Map || decoded['title'] is! String) {
+        return const Text('卡片暂不可用');
+      }
+      card = decoded;
+    } catch (_) {
+      return const Text('卡片暂不可用');
+    }
+    final theme = TideTheme.of(context);
+    final hex = card['color']?.toString() ?? '';
+    final rgb = RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(hex)
+        ? int.parse(hex.substring(1), radix: 16)
+        : null;
+    final accent = rgb == null ? theme.primary : Color(0xff000000 | rgb);
+    final icon = switch (card['icon']) {
+      'task' => Icons.task_alt_rounded,
+      'calendar' => Icons.calendar_today_rounded,
+      'star' => Icons.star_rounded,
+      'info' => Icons.info_outline_rounded,
+      _ => Icons.notes_rounded,
+    };
+    final width = switch (card['size']) {
+      'compact' => 235.0,
+      'wide' => 520.0,
+      _ => 315.0,
+    };
+    final prompt = card['prompt']?.toString() ?? '';
+    final body = card['body']?.toString() ?? '';
+    final label = card['actionLabel']?.toString() ?? '';
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        width: width,
+        child: FrostCard(
+          liquid: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Icon(icon, color: accent),
+                const SizedBox(width: 10),
+                Expanded(child: Text(card['title'] as String,
+                  style: TextStyle(color: theme.textStrong, fontWeight: FontWeight.bold))),
+              ]),
+              if (body.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(body, style: TextStyle(color: theme.textStrong)),
+              ],
+              if (prompt.isNotEmpty)
+                TextButton(
+                  style: TextButton.styleFrom(foregroundColor: theme.textStrong),
+                  onPressed: () {
+                    final draft = _msgC.text;
+                    final text = draft.isEmpty ? prompt : '$draft\n$prompt';
+                    _msgC.value = TextEditingValue(text: text,
+                      selection: TextSelection.collapsed(offset: text.length));
+                    _inputFocus.requestFocus();
+                  },
+                  child: Text(label.isEmpty ? '填入提示词' : label),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

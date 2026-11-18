@@ -63,6 +63,7 @@ class PluginSystem {
       );
       if (await files.exists()) await files.delete(recursive: true);
       await _secureStorage.delete(key: 'plugin_data_$id');
+      await _secureStorage.delete(key: 'plugin_bot_data_$id');
       await _secureStorage.delete(key: 'plugin_credentials_$id');
       await _secureStorage.delete(key: _configKey(id));
       final db = await DBManager().database;

@@ -479,21 +479,13 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   }
 
   Future<void> _update(Map<String, dynamic> row) async {
-    final path = await _pickZip();
-    if (path == null) return;
     try {
+      final path = await _pickZip();
+      if (path == null || !mounted) return;
       _operation?.check();
-      final reviewedPath = await _reviewPackage(
-        path,
-        updatingId: row['id'] as String,
-      );
-      if (reviewedPath == null) return;
-      await PluginService.instance.updateZip(
-        row['id'] as String,
-        reviewedPath,
-        operation: _operation,
-      );
-      await PluginMarket.instance.clearSource(row['id'] as String);
+      final id = row['id'] as String;
+      await PluginService.instance.updateZip(id, path, operation: _operation);
+      await PluginMarket.instance.clearSource(id);
       if (mounted) _notice('插件已更新');
     } finally {
       await _cleanTemp();

@@ -1286,7 +1286,13 @@ class PluginService {
       );
       return null;
     }
-    if (method.startsWith('storage.')) {
+    final scopedStorage = method.startsWith('botStorage.');
+    if (scopedStorage || method.startsWith('storage.')) {
+      final session = scopedStorage ? _chatSessions[args['contextToken']] : null;
+      if (scopedStorage && (session == null || session.pluginId != pack.id)) {
+        throw StateError('机器人存储需要有效的会话上下文');
+      }
+      final verb = method.split('.').last;
       if (!permissions.contains('storage')) throw StateError('未声明 storage 权限');
       final key = args['key'];
       if (key is! String || key.isEmpty || key.length > 128)
@@ -1300,28 +1306,41 @@ class PluginService {
               epoch != await PluginCoordinator.epoch(pack.id)) {
             throw StateError('插件实例已失效');
           }
-          final storageKey = 'plugin_data_${pack.id}';
+          await session?.check();
+          final storageKey = scopedStorage
+              ? 'plugin_bot_data_${pack.id}'
+              : 'plugin_data_${pack.id}';
           final raw = await _secure.read(key: storageKey);
           final data = raw == null
               ? <String, dynamic>{}
               : Map<String, dynamic>.from(jsonDecode(raw) as Map);
-          if (method == 'storage.get') return data[key];
-          if (method == 'storage.compareAndSet') {
-            if (jsonEncode(data[key]) != jsonEncode(args['expected']))
+          final target = session == null ? data :
+              Map<String, dynamic>.from(data[session.botId] as Map? ?? const {});
+          if (verb == 'get') return target[key];
+          if (verb == 'compareAndSet') {
+            if (jsonEncode(target[key]) != jsonEncode(args['expected']))
               return false;
-            data[key] = args['value'];
-          } else if (method == 'storage.set') {
-            data[key] = args['value'];
-          } else if (method == 'storage.delete') {
-            data.remove(key);
+            target[key] = args['value'];
+          } else if (verb == 'set') {
+            target[key] = args['value'];
+          } else if (verb == 'delete') {
+            target.remove(key);
           } else {
             throw StateError('未知存储 API');
+          }
+          if (session != null) {
+            if (target.isEmpty) {
+              data.remove(session.botId);
+            } else {
+              data[session.botId] = target;
+            }
           }
           final encoded = jsonEncode(data);
           if (utf8.encode(encoded).length > 8 * 1024 * 1024)
             throw StateError('插件存储超过 8 MiB');
+          await session?.check();
           await _secure.write(key: storageKey, value: encoded);
-          return method == 'storage.compareAndSet' ? true : null;
+          return verb == 'compareAndSet' ? true : null;
         }),
       );
       _storageQueues[pack.id] = operation.then<void>(

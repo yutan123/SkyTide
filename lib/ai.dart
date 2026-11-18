@@ -63,6 +63,7 @@ import 'world_book_service.dart';
 import 'tool_call_accumulator.dart';
 import 'tool_completion.dart';
 import 'chat_request_context.dart';
+import 'chat_provider_cache.dart';
 import 'chat_cache_diagnostics.dart';
 import 'voice_call_state_service.dart';
 
@@ -174,11 +175,12 @@ class AIManager {
 
   void _logCacheUsage(
     Map usage, {
+    required ChatProviderCache cachePolicy,
     required String stage,
     required String requestId,
     Map<String, dynamic> responseMetadata = const {},
   }) {
-    final cached = cachedPromptTokens(usage);
+    final cache = cachePolicy.usage(usage);
     final prompt = usage['prompt_tokens'] ?? usage['input_tokens'];
     AppLogService.instance.addJson('CACHE', '分请求缓存统计', {
       'request_id': requestId,
@@ -186,11 +188,11 @@ class AIManager {
       ...responseMetadata,
       'usage': usage,
       'prompt_tokens': prompt,
-      'cached_tokens': cached,
-      'cache_creation_input_tokens':
-          usage['cache_creation_input_tokens'] ??
-          usage['cache_creation_tokens'],
-      'cache_reported': cached != null,
+      'cache_policy': cachePolicy.name,
+      'cached_tokens': cache.hit,
+      'cache_miss_tokens': cache.miss,
+      'cache_creation_input_tokens': cache.written,
+      'cache_reported': cache.hit != null,
     });
   }
 
@@ -1572,7 +1574,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       );
       final toolCallingEnabled = allowTools && tools.isNotEmpty;
 
+      final cacheScope = '$baseUrl|$botId|$providerId|$modelName|${task.name}';
+      final cachePolicy = ChatProviderCache.resolve(provider);
+      final cacheOptions = cachePolicy.requestOptions(cacheScope, stream: onDelta != null);
       final payload = prepareChatCompletionPayload({
+        ...cacheOptions,
         'model': modelName,
         'messages': prepareOpenAIChatCompletionMessages(messages),
         'max_tokens': maxContext,
@@ -1588,7 +1594,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               : 'auto',
         if (onDelta != null) 'stream': true,
       });
-      final cacheScope = '$baseUrl|$botId|$providerId|$modelName|${task.name}';
       _logRequestPrefix(
         '$cacheScope|initial',
         requestId,
@@ -1791,6 +1796,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           if (!hadToolCalls)
             _logCacheUsage(
               usage,
+              cachePolicy: cachePolicy,
               stage: 'initial',
               requestId: requestId,
               responseMetadata: responseMetadata,
@@ -1818,6 +1824,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             calls: streamedToolCalls,
             messages: messages,
             baseUrl: baseUrl,
+            cachePolicy: cachePolicy,
             cacheScope: cacheScope,
             requestId: requestId,
             modelName: modelName,
@@ -1918,6 +1925,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             if (!hadToolCalls)
               _logCacheUsage(
                 usage,
+                cachePolicy: cachePolicy,
                 stage: 'initial',
                 requestId: requestId,
                 responseMetadata: responseMetadata,
@@ -1937,6 +1945,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               calls: toolCalls,
               messages: messages,
               baseUrl: baseUrl,
+              cachePolicy: cachePolicy,
               cacheScope: cacheScope,
               requestId: requestId,
               modelName: modelName,
@@ -2003,6 +2012,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         if (!hadToolCalls)
           _logCacheUsage(
             usage,
+            cachePolicy: cachePolicy,
             stage: 'initial',
             requestId: requestId,
             responseMetadata: responseMetadata,
@@ -3968,6 +3978,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     required List<Map<String, dynamic>> calls,
     required List<Map<String, dynamic>> messages,
     required String baseUrl,
+    required ChatProviderCache cachePolicy,
     required String cacheScope,
     required String requestId,
     required String modelName,
@@ -4112,6 +4123,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     for (var round = 0; round < 12; round++) {
       final followUpId = '${requestId}_tool_${round + 1}';
       final followUpPayload = prepareChatCompletionPayload({
+        ...cachePolicy.requestOptions(cacheScope, stream: onDelta != null),
         'model': modelName,
         'messages': prepareOpenAIChatCompletionMessages(messages),
         'max_tokens': maxTokens,
@@ -4157,6 +4169,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         );
         _logCacheUsage(
           fu,
+          cachePolicy: cachePolicy,
           stage: 'tool_follow_up',
           requestId: followUpId,
           responseMetadata: {

@@ -47,6 +47,26 @@ class PluginChatSession {
   bool _active = true;
   int _sent = 0;
 
+  String _encodeCard(Map<String, dynamic> args) {
+    final size = args['size'] ?? 'regular';
+    final icon = args['icon'] ?? 'note';
+    final color = args['color'];
+    if (!const {'compact', 'regular', 'wide'}.contains(size) ||
+        !const {'note', 'task', 'calendar', 'star', 'info'}.contains(icon) ||
+        (color != null && (color is! String || !RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(color)))) {
+      throw const FormatException('卡片尺寸、图标或颜色无效');
+    }
+    return jsonEncode({
+      'title': PluginMediaContract.text(args['title'], 'title', 100, required: true),
+      'body': PluginMediaContract.text(args['body'], 'body', 2000),
+      'prompt': PluginMediaContract.text(args['prompt'], 'prompt', 2000),
+      'actionLabel': PluginMediaContract.text(args['actionLabel'], 'actionLabel', 40),
+      'size': size,
+      'icon': icon,
+      'color': color,
+    });
+  }
+
   Future<void> check() async {
     if (!_active) throw StateError('调用上下文已结束');
     await assertCurrent();
@@ -104,6 +124,7 @@ class PluginChatSession {
       }
       if (!{
         'chat.sendText',
+        'chat.sendCard',
         'chat.sendImage',
         'chat.sendVideo',
         'chat.sendAudio',
@@ -125,14 +146,16 @@ class PluginChatSession {
         if (_sent >= 10) throw StateError('单次工具调用最多发送 10 条消息');
         if (!await host.hasBot(botId)) throw StateError('会话已不存在');
         final kind = method.substring('chat.send'.length).toLowerCase();
-        final content = PluginMediaContract.text(
+        final content = kind == 'card'
+            ? _encodeCard(args)
+            : PluginMediaContract.text(
           kind == 'text' ? args['text'] : args['caption'],
           kind == 'text' ? 'text' : 'caption',
           kind == 'text' ? 16000 : 2000,
           required: kind == 'text',
         );
         Map<String, dynamic>? resource;
-        if (kind != 'text') {
+        if (kind != 'text' && kind != 'card') {
           if (args['resourceId'] != null && args['url'] != null)
             throw const FormatException('url 与 resourceId 不能同时提供');
           if (args['resourceId'] == null) {
