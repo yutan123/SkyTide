@@ -531,11 +531,25 @@ class DBManager {
         }
         await _ensureColumns(db, 'skills', const {'bot_scope': 'TEXT'});
         await _ensureColumns(db, 'mcp_servers', const {'bot_scope': 'TEXT'});
-        await db.update(
-          'memories',
-          {'category': '记忆'},
-          where: "category = 'fact' OR category IS NULL OR category = ''",
+        final normalized = await db.query(
+          'kv_store',
+          columns: ['key'],
+          where: 'key = ?',
+          whereArgs: ['memory_category_normalized_v1'],
         );
+        if (normalized.isEmpty) {
+          await db.transaction((txn) async {
+            await txn.update(
+              'memories',
+              {'category': '记忆'},
+              where: "category = 'fact' OR category IS NULL OR category = ''",
+            );
+            await txn.insert('kv_store', {
+              'key': 'memory_category_normalized_v1',
+              'value': 'done',
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+          });
+        }
       },
       onCreate: (db, version) async {
         await db.execute('''
@@ -1100,64 +1114,85 @@ class DBManager {
         );
       },
     );
-    // Legacy summaries are optional cleanup. Schedule it after the database
-    // future completes so it cannot queue ahead of the caller's first query.
-    unawaited(
-      Future<void>.delayed(Duration.zero, () async {
-        await _migrateLegacyCallSummaries(database);
-      }).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          print('[db] call summary migration deferred: timed out');
-        },
-      ),
+    final credentialCleanup = await database.query(
+      'kv_store',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['credential_cleanup_v1'],
+      limit: 1,
     );
-    var migratedSecrets = await database
-        .query(
-          'kv_store',
-          where: 'key = ? AND value = ?',
-          whereArgs: ['credential_cleanup_v1', 'done'],
-        )
-        .then((rows) => rows.isEmpty);
+    if (credentialCleanup.firstOrNull?['value'] != 'done') {
+      try {
+        await _migrateLegacyCredentials(
+          database,
+          needsCleanup: credentialCleanup.firstOrNull?['value'] == 'pending',
+        );
+      } catch (_) {
+        // Credential maintenance can be retried on the next open. Keep the
+        // already opened database usable for chats and non-secret settings.
+      }
+    }
+    // Let callers start their reads before scheduling optional legacy cleanup.
+    unawaited(Future<void>(() => _migrateLegacyCallSummaries(database)));
+    return database;
+  }
+
+  Future<void> _migrateLegacyCredentials(
+    Database database, {
+    required bool needsCleanup,
+  }) async {
+    var malformed = false;
     await database.transaction((txn) async {
-      for (final row in await txn.query('kv_store')) {
+      final rows = await txn.query(
+        'kv_store',
+        where:
+            "key IN ('provider_list', 'stt_provider_list', 'tts_provider_list', 'web_search_api_key') OR key GLOB 'providers_*'",
+      );
+      for (final row in rows) {
         final key = row['key'] as String;
-        if (!ModelCredentials.handles(key)) continue;
-        final value = row['value'] as String;
-        final protected = await ModelCredentials.protectKey(key, value);
-        if (protected != value) {
-          migratedSecrets = true;
-          await txn.insert('kv_store', {
-            'key': 'credential_cleanup_v1',
-            'value': 'pending',
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-          await txn.update(
-            'kv_store',
-            {'value': protected},
-            where: 'key = ?',
-            whereArgs: [key],
-          );
+        final value = row['value'];
+        if (value is! String) {
+          malformed = true;
+          continue;
         }
+        final String protected;
+        try {
+          protected = await ModelCredentials.protectKey(
+            key,
+            value,
+          ).timeout(const Duration(seconds: 5));
+        } on FormatException {
+          malformed = true;
+          continue;
+        }
+        if (protected == value) continue;
+        needsCleanup = true;
+        await txn.insert('kv_store', {
+          'key': 'credential_cleanup_v1',
+          'value': 'pending',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.update(
+          'kv_store',
+          {'value': protected},
+          where: 'key = ?',
+          whereArgs: [key],
+        );
       }
     }, exclusive: true);
-    await database.transaction(
-      (txn) => ModelCredentials.removeUnused(txn),
-      exclusive: true,
-    );
-    if (migratedSecrets) {
+    if (needsCleanup) {
       // Rebuild free pages and truncate WAL containing pre-migration values.
       await database.execute('VACUUM');
       final checkpoint = await database.rawQuery(
         'PRAGMA wal_checkpoint(TRUNCATE)',
       );
-      if (checkpoint.isEmpty || checkpoint.first.values.first == 0) {
-        await database.insert('kv_store', {
-          'key': 'credential_cleanup_v1',
-          'value': 'done',
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
+      if (checkpoint.isNotEmpty && checkpoint.first.values.first != 0) return;
     }
-    return database;
+    if (!malformed) {
+      await database.insert('kv_store', {
+        'key': 'credential_cleanup_v1',
+        'value': 'done',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
   }
 
   Future<void> _migrateLegacyCallSummaries(Database db) async {
@@ -2143,6 +2178,8 @@ class DBManager {
               return;
           } on StateError {
             // Allow the user to replace a missing credential.
+          } on FormatException {
+            // Allow replacing a malformed legacy provider configuration.
           }
         }
         stored = await ModelCredentials.protectKey(key, value);
@@ -2175,17 +2212,22 @@ class DBManager {
 
   static const globalBackgroundSafetyKey = 'global_background_safe_v3';
 
-  /// Reads the startup appearance settings together without a write transaction.
-  Future<Map<String, String>> readStartupAppearance() async {
-    const keys = [
-      'interface_theme',
-      'theme_color',
-      'theme_mode',
-      'global_background_image',
-      globalBackgroundSafetyKey,
-      'global_background_opacity',
-      'enable_liquid_glass',
-    ];
+  Future<Map<String, String>> readStartupAppearance() =>
+      readPlainSettings(const [
+        'interface_theme',
+        'theme_color',
+        'theme_mode',
+        'global_background_image',
+        globalBackgroundSafetyKey,
+        'global_background_opacity',
+        'enable_liquid_glass',
+      ]);
+
+  Future<Map<String, String>> readPlainSettings(List<String> keys) async {
+    if (keys.isEmpty) return const {};
+    if (keys.any(ModelCredentials.handles)) {
+      throw ArgumentError('Credential settings require getKV');
+    }
     final db = await database;
     final rows = await db.query(
       'kv_store',
@@ -2201,19 +2243,32 @@ class DBManager {
   }
 
   Future<String?> getKV(String key) async {
+    if (!ModelCredentials.handles(key)) {
+      return (await readPlainSettings([key]))[key];
+    }
     final db = await database;
-    return db.transaction((txn) async {
-      final res = await txn.query(
+    Future<String?> readStoredValue() async {
+      final rows = await db.query(
         'kv_store',
+        columns: ['value'],
         where: 'key = ?',
         whereArgs: [key],
+        limit: 1,
       );
-      if (res.isEmpty) return null;
-      final value = res.first['value'] as String;
-      return ModelCredentials.handles(key)
-          ? await ModelCredentials.resolveKey(key, value)
-          : value;
-    });
+      return rows.firstOrNull?['value'] as String?;
+    }
+
+    final value = await readStoredValue();
+    if (value == null) return null;
+    try {
+      // Platform storage must not hold the SQLite queue during a model read.
+      return await ModelCredentials.resolveKey(key, value);
+    } on StateError {
+      // A simultaneous save can replace this value and collect its old keys.
+      final latest = await readStoredValue();
+      if (latest == value) rethrow;
+      return latest == null ? null : ModelCredentials.resolveKey(key, latest);
+    }
   }
 
   Future<List<Map<String, dynamic>>> exportableBots() async => queryBots();
@@ -2660,6 +2715,8 @@ class DBManager {
     bool descending = false,
     int? since,
     int? before,
+    bool throwOnError = false,
+    List<String>? columns,
   }) async {
     final db = await database;
     final orderBy = descending
@@ -2679,22 +2736,27 @@ class DBManager {
     try {
       return await db.query(
         'chat_history',
+        columns: columns,
         where: "$scope AND (type IS NULL OR type != 'call_summary')",
         whereArgs: args,
         orderBy: orderBy,
         limit: limit,
       );
     } catch (error) {
+      if (throwOnError && !error.toString().contains('no such column: type'))
+        rethrow;
       print('[db] queryMessages typed query failed: $error');
       try {
         return await db.query(
           'chat_history',
+          columns: columns?.where((name) => name != 'type').toList(),
           where: scope,
           whereArgs: args,
           orderBy: orderBy,
           limit: limit,
         );
       } catch (fallbackError) {
+        if (throwOnError) rethrow;
         print('[db] queryMessages fallback failed: $fallbackError');
         return const [];
       }
@@ -3630,12 +3692,36 @@ class DBManager {
     }
   }
 
+  Future<List<Map<String, dynamic>>> queryFeedPage({
+    required int limit,
+    required int offset,
+  }) async {
+    final db = await database;
+    return db.rawQuery(
+      '''
+      SELECT post.*,
+        (SELECT COUNT(*) FROM feed_events
+          WHERE post_id = post.id AND event_type = 'like') AS like_count,
+        (SELECT COUNT(*) FROM post_comments
+          WHERE post_id = post.id) AS comment_count,
+        EXISTS(SELECT 1 FROM feed_events
+          WHERE post_id = post.id AND actor_id = 'me' AND event_type = 'like') AS liked,
+        EXISTS(SELECT 1 FROM feed_events
+          WHERE post_id = post.id AND actor_id = 'me' AND event_type = 'collect') AS collected
+      FROM (SELECT * FROM posts ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?) AS post
+      ORDER BY post.timestamp DESC, post.id DESC
+    ''',
+      [limit, offset],
+    );
+  }
+
   /// New posts use the stable bot ID. Older releases stored the bot name, so
   /// callers can keep showing legacy posts while bots are renamed over time.
   Future<List<Map<String, dynamic>>> queryPostsForBot({
     required String botId,
     required String botName,
     int limit = 10,
+    bool throwOnError = false,
   }) async {
     final db = await database;
     try {
@@ -3647,6 +3733,9 @@ class DBManager {
         limit: limit,
       );
     } catch (error) {
+      if (throwOnError &&
+          !error.toString().contains('no such column: timestamp'))
+        rethrow;
       print('[db] queryPostsForBot failed: $error');
       try {
         return await db.query(
@@ -3656,6 +3745,7 @@ class DBManager {
           limit: limit,
         );
       } catch (fallbackError) {
+        if (throwOnError) rethrow;
         print('[db] queryPostsForBot fallback failed: $fallbackError');
         return const [];
       }

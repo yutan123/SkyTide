@@ -46,7 +46,6 @@ import 'package:heif_converter/heif_converter.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'chat_event_bus.dart';
 import 'db.dart';
 import 'ai.dart';
@@ -129,13 +128,14 @@ class _PendingExpression {
 }
 
 final _emojiCategoryIcons = <String, (IconData, String)>{
-  'people': (Icons.emoji_emotions_outlined, '表情和人物'),
+  'smileys': (Icons.emoji_emotions_outlined, '笑脸和情绪'),
+  'people': (Icons.accessibility_new_rounded, '人物和肢体'),
   'nature': (Icons.pets_outlined, '动物和自然'),
   'food': (Icons.restaurant_outlined, '食物和饮料'),
-  'activity': (Icons.sports_basketball_outlined, '活动'),
   'travel': (Icons.directions_car_outlined, '旅行和地点'),
+  'activity': (Icons.sports_basketball_outlined, '活动'),
   'objects': (Icons.lightbulb_outline_rounded, '物品'),
-  'symbols': (Icons.sentiment_satisfied_alt_outlined, '符号'),
+  'symbols': (Icons.tag_rounded, '符号'),
   // 国旗分组已移除
 };
 
@@ -144,9 +144,11 @@ class _StableLinkPreviewCard extends StatefulWidget {
     super.key,
     required this.url,
     required this.isUser,
+    this.isSearchSource = false,
   });
   final String url;
   final bool isUser;
+  final bool isSearchSource;
 
   @override
   State<_StableLinkPreviewCard> createState() => _StableLinkPreviewCardState();
@@ -178,10 +180,14 @@ class _StableLinkPreviewCardState extends State<_StableLinkPreviewCard> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _previewLoading(theme);
         }
-        if (!snapshot.hasData) return const SizedBox.shrink();
-        final data = snapshot.data!;
-        return data.type == LinkType.web
-            ? WebLinkCard(data: data, isUser: widget.isUser)
+        final data = snapshot.data;
+        if (data == null || !data.isAvailable) return const SizedBox.shrink();
+        return widget.isSearchSource || data.type == LinkType.web
+            ? WebLinkCard(
+                data: data,
+                isUser: widget.isUser,
+                originalUrl: widget.url,
+              )
             : VideoShareCard(data: data, isUser: widget.isUser);
       },
     );
@@ -229,11 +235,13 @@ class ChatRoomPage extends StatefulWidget {
   final Map<String, dynamic> botData;
   final String? initialMessageId;
   final bool openModelSettings;
+  final bool refreshBotOnOpen;
   const ChatRoomPage({
     super.key,
     required this.botData,
     this.initialMessageId,
     this.openModelSettings = false,
+    this.refreshBotOnOpen = false,
   });
   @override
   State<ChatRoomPage> createState() => _ChatRoomPageState();
@@ -261,8 +269,11 @@ class _ChatRoomPageState extends State<ChatRoomPage>
 
   Future<void> _markReadIfVisible() async {
     final botId = _bot['id']?.toString() ?? '';
-    if (AppState.isViewingChat(botId)) {
+    if (!_historyComplete || !AppState.isViewingChat(botId)) return;
+    try {
       await MessageDeliveryService.instance.markRead(botId);
+    } catch (_) {
+      // The next visible history refresh can acknowledge unread messages.
     }
   }
 
@@ -293,7 +304,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   String _telegramEmojiSearch = '';
   bool _typing = false;
   bool _msgsLoading = true;
-  late final Future<void> _initialChatAppearance;
+  static const _historyPreviewSize = 80;
+  bool _historyReading = false;
+  bool _historyFailed = false;
+  bool _historyComplete = false;
+  bool _syncingMessages = false;
+  bool _botUnavailable = false;
+  Map<String, Map<String, dynamic>>? _historyLiveUpdates;
   final AudioRecorder _rec = AudioRecorder();
   late final AudioPlayer _player;
   StreamSubscription<Duration>? _audioPositionSub;
@@ -333,7 +350,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   static const double _emojiPanelHeight = 286;
   bool _showEmojiPanel = false;
   int _emojiTab = 0;
-  String _emojiCategory = 'people';
+  String _emojiCategory = 'smileys';
   bool _emojiCatalogLoading = false;
   List<_EmojiAsset> _emojiCatalog = const <_EmojiAsset>[];
   List<Map<String, dynamic>> _stickers = const <Map<String, dynamic>>[];
@@ -455,14 +472,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       });
     });
     _chatEvents = ChatEventBus.instance.events.listen(_onChatEvent);
-    _initialChatAppearance =
-        Future.wait<void>([
-          _loadBg(),
-          _loadChatPreferences(),
-        ]).then<void>((_) {}).catchError((Object error) {
-          AppLogService.instance.add('ERROR', '读取聊天显示设置失败：$error');
-        });
-    _loadMsgs();
+    unawaited(_loadMsgs());
+    unawaited(_loadBg());
+    unawaited(_loadChatPreferences());
     ChatTypingState.instance.addListener(_refreshTypingState);
     _refreshTypingState();
     if (widget.openModelSettings) {
@@ -542,6 +554,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final index = _msgs.indexWhere(
       (message) => message['id']?.toString() == id,
     );
+    _historyLiveUpdates?[id] = row;
     if (index < 0 && event.type != ChatEventType.inserted) return;
     setState(() {
       if (index >= 0) {
@@ -575,69 +588,107 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   Future<void> _loadChatPreferences() async {
-    final db = DBManager();
-    final userAvatar = await db.getKV('user_avatar');
-    final showTime = await db.getKV('show_message_time');
-    final dimParentheticalText = await db.getKV('dim_parenthetical_text');
-    final showAvatar = await db.getKV('show_chat_avatar');
-    final showSources = await db.getKV('show_web_search_sources');
-    if (mounted) {
+    try {
+      final settings = await DBManager().readPlainSettings(const [
+        'user_avatar',
+        'show_message_time',
+        'dim_parenthetical_text',
+        'show_chat_avatar',
+        'show_web_search_sources',
+      ]);
+      if (!mounted) return;
       setState(() {
-        _userAvatar = userAvatar;
-        _showMessageTime = showTime != 'false';
-        _dimParentheticalText = dimParentheticalText != 'false';
-        _showChatAvatar = showAvatar == 'true';
-        _showSearchSources = showSources == 'true';
+        _userAvatar = settings['user_avatar'];
+        _showMessageTime = settings['show_message_time'] != 'false';
+        _dimParentheticalText = settings['dim_parenthetical_text'] != 'false';
+        _showChatAvatar = settings['show_chat_avatar'] == 'true';
+        _showSearchSources = settings['show_web_search_sources'] == 'true';
       });
+    } catch (error) {
+      AppLogService.instance.add('ERROR', '读取聊天显示设置失败：$error');
     }
   }
 
-  void _loadMsgs() async {
+  Future<void> _loadMsgs() async {
+    if (!mounted || _historyReading) return;
     final revision = _messagesRevision;
-    print('_loadMsgs called with bot ID: ${_bot['id']}');
+    setState(() {
+      _historyReading = true;
+      _historyFailed = false;
+      _historyComplete = false;
+      _msgsLoading = _msgs.isEmpty;
+    });
+    final db = DBManager();
+    final liveUpdates = <String, Map<String, dynamic>>{};
+    _historyLiveUpdates = liveUpdates;
     try {
-      final db = DBManager();
-      // 不要用 limit 截断历史：导出记录里明明存在，但前端只加载最近 100 条，
-      // 导致打开长聊天后大量消息“消失”。这里拿全量，UI 侧用 reverse 只渲染最近一段。
-      final msgs = await db.queryMessages(_bot['id'] as String);
-      // 引用功能已废弃：不再为 reply_to_id 逐条补查历史消息，避免打开长聊天时
-      // 触发大量顺序数据库查询并造成列表首帧卡顿。
-      print('_loadMsgs success: got ${msgs.length} messages');
-      // Parse long histories away from the UI isolate so route animation stays smooth.
-      final normalized = await compute(
-        normalizeChatMessages,
-        editableChatHistory(msgs),
+      final botId = _bot['id'] as String;
+      if (widget.refreshBotOnOpen) {
+        final current = await db.getBotById(botId);
+        if (!mounted || revision != _messagesRevision) return;
+        if (current == null) {
+          setState(() {
+            _botUnavailable = true;
+            _msgsLoading = false;
+          });
+          return;
+        }
+        setState(() => _bot.addAll(current));
+      }
+      final locate = _highlightedMessageId?.isNotEmpty == true;
+      var rows = await db.queryMessages(
+        botId,
+        limit: locate ? null : _historyPreviewSize + 1,
+        descending: !locate,
+        throwOnError: true,
       );
-      // Apply avatar/time preferences before laying out the first message frame.
-      await _initialChatAppearance;
-      // Preserve messages sent while the initial database query was running.
-      if (mounted && !_loading && revision == _messagesRevision) {
+      if (!mounted || revision != _messagesRevision) return;
+      if (!locate && rows.length > _historyPreviewSize) {
+        if (_msgsLoading) {
+          final preview = await compute(
+            _normalizeHistoryRows,
+            rows.take(_historyPreviewSize).toList().reversed.toList(),
+          );
+          if (!mounted || revision != _messagesRevision) return;
+          setState(() {
+            _msgs = preview;
+            _msgsLoading = false;
+          });
+          await WidgetsBinding.instance.endOfFrame;
+          if (!mounted || revision != _messagesRevision) return;
+        }
+        rows = await db.queryMessages(botId, throwOnError: true);
+      } else if (!locate) {
+        rows = rows.reversed.toList();
+      }
+      final history = await compute(_normalizeHistoryRows, rows);
+      if (!mounted || revision != _messagesRevision) return;
+      setState(() {
+        _msgs = liveUpdates.isEmpty
+            ? history
+            : normalizeChatMessages([...history, ...liveUpdates.values]);
+        _msgsLoading = false;
+        _historyComplete = true;
+      });
+      unawaited(_markReadIfVisible());
+      _locateInitialMessage();
+    } catch (_) {
+      if (mounted && revision == _messagesRevision) {
         setState(() {
-          final hadLocalMessages = _msgs.isNotEmpty;
-          final byId = <String, Map<String, dynamic>>{
-            for (final m in normalized)
-              m['id']?.toString() ?? 'db_${m['timestamp']}': m,
-          };
-          for (final m in _msgs) {
-            byId.putIfAbsent(
-              m['id']?.toString() ?? 'local_${m['timestamp']}',
-              () => m,
-            );
-          }
-          _msgs = hadLocalMessages
-              ? normalizeChatMessages(byId.values)
-              : normalized;
+          _historyFailed = true;
           _msgsLoading = false;
         });
-        _locateInitialMessage();
       }
-    } catch (e) {
-      print('_loadMsgs error: $e');
-      if (mounted) setState(() => _msgsLoading = false);
+    } finally {
+      _historyLiveUpdates = null;
+      _historyReading = false;
+      if (mounted && revision != _messagesRevision) unawaited(_loadMsgs());
     }
-    // The list uses reverse layout, so its initial scroll position is already at
-    // the newest message. Do not schedule a visible post-frame jump here.
   }
+
+  static List<Map<String, dynamic>> _normalizeHistoryRows(
+    List<Map<String, dynamic>> rows,
+  ) => normalizeChatMessages(editableChatHistory(rows));
 
   void _locateInitialMessage() {
     final id = _highlightedMessageId;
@@ -765,12 +816,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   final Set<String> _deferredPersistedMessageIds = <String>{};
 
   Future<void> _syncLatestMessages() async {
-    if (!mounted || _loading) return;
+    if (!mounted || _loading || !_historyComplete || _syncingMessages) return;
+    _syncingMessages = true;
     try {
       final botId = _bot['id']?.toString() ?? '';
       if (botId.isEmpty) return;
       final revision = _messagesRevision;
-      final fresh = editableChatHistory(await DBManager().queryMessages(botId));
+      final fresh = editableChatHistory(
+        await DBManager().queryMessages(botId, throwOnError: true),
+      );
       if (!mounted || _loading || revision != _messagesRevision) return;
       final freshById = <String, Map<String, dynamic>>{
         for (final message in fresh) message['id']?.toString() ?? '': message,
@@ -803,7 +857,11 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       });
       if (changed) _scrollDown(animated: false);
       await _markReadIfVisible();
-    } catch (_) {}
+    } catch (_) {
+      // Retain the current messages when refreshing fails.
+    } finally {
+      _syncingMessages = false;
+    }
   }
 
   /// 分段回复的句间自然等待。
@@ -924,10 +982,17 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 await rootBundle.loadString('assets/emojitwo/zh_names.json'),
               )
               as Map<String, dynamic>;
+      final categories = Map<String, String>.from(
+        jsonDecode(
+              await rootBundle.loadString('assets/emojitwo/categories.json'),
+            )
+            as Map,
+      );
       final catalog = <_EmojiAsset>[];
       data.forEach((code, value) {
         final entry = value as Map<String, dynamic>;
-        final category = entry['category']?.toString() ?? '';
+        final category =
+            categories[code] ?? entry['category']?.toString() ?? '';
         if (!_emojiCategoryIcons.containsKey(category)) return;
         final asset = 'assets/emojitwo/$code.png';
         final codePoints = (entry['code_points'] as Map?)
@@ -1084,6 +1149,19 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       text: value.text.replaceRange(cut, end, ''),
       selection: TextSelection.collapsed(offset: cut),
     );
+  }
+
+  Iterable<(String, List<_EmojiAsset>)> _emojiSections(
+    List<_EmojiAsset> items,
+  ) sync* {
+    final groups = <String, List<_EmojiAsset>>{};
+    for (final item in items) {
+      (groups[item.category] ??= []).add(item);
+    }
+    for (final entry in _emojiCategoryIcons.entries) {
+      final group = groups[entry.key];
+      if (group != null) yield (entry.value.$2, group);
+    }
   }
 
   Widget _wechatEmojiPicker(TideTheme theme) {
@@ -1286,23 +1364,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                   ),
                                   sliver: grid(_recentWechatEmoji),
                                 ),
-                              SliverPadding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  12,
-                                  0,
-                                  12,
-                                  10,
-                                ),
-                                sliver: SliverToBoxAdapter(
-                                  child: Text(
-                                    _wechatEmojiQuery.isEmpty ? '所有表情' : '搜索结果',
-                                    style: TextStyle(
-                                      color: theme.textWeak,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ),
-                              ),
                               if (items.isEmpty)
                                 const SliverToBoxAdapter(
                                   child: Padding(
@@ -1311,15 +1372,40 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                   ),
                                 )
                               else
-                                SliverPadding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    0,
-                                    12,
-                                    56,
+                                for (final section
+                                    in _wechatEmojiQuery.isEmpty
+                                        ? _emojiSections(items)
+                                        : [('搜索结果', items)]) ...[
+                                  SliverToBoxAdapter(
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        4,
+                                        12,
+                                        10,
+                                      ),
+                                      child: Text(
+                                        section.$1,
+                                        style: TextStyle(
+                                          color: theme.textWeak,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                  sliver: grid(items),
-                                ),
+                                  SliverPadding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      0,
+                                      12,
+                                      12,
+                                    ),
+                                    sliver: grid(section.$2),
+                                  ),
+                                ],
+                              const SliverToBoxAdapter(
+                                child: SizedBox(height: 44),
+                              ),
                             ],
                           ),
                           Positioned(
@@ -1401,12 +1487,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         ),
       ),
     );
-    final people = items
-        .where((e) => e.category == 'people')
-        .toList(growable: false);
-    final other = items
-        .where((e) => e.category != 'people')
-        .toList(growable: false);
     return Material(
       color: theme.isDark ? const Color(0xFF202126) : const Color(0xFFF7F7F8),
       child: SafeArea(
@@ -1459,14 +1539,14 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                           heading('最近使用'),
                           grid(_recentWechatEmoji),
                         ],
-                        if (people.isNotEmpty) ...[
-                          heading('小黄脸表情'),
-                          grid(people),
-                        ],
-                        if (other.isNotEmpty) ...[
-                          heading(query.isEmpty ? '更多表情' : '搜索结果'),
-                          grid(other),
-                        ],
+                        if (query.isNotEmpty && items.isNotEmpty) ...[
+                          heading('搜索结果'),
+                          grid(items),
+                        ] else if (query.isEmpty)
+                          for (final section in _emojiSections(items)) ...[
+                            heading(section.$1),
+                            grid(section.$2),
+                          ],
                         if (items.isEmpty)
                           const SliverFillRemaining(
                             hasScrollBody: false,
@@ -1699,6 +1779,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     Map<String, dynamic>? retryTarget,
     List<Map<String, dynamic>>? batchedMessages,
   }) async {
+    if (!_historyComplete) return;
     final inputImages = images;
     final inputDocuments = documents;
     final inputAudioPath = audioPath;
@@ -4391,7 +4472,16 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 ),
               ],
             ),
-          Positioned(left: 0, right: 0, bottom: 0, child: _composer()),
+          if (!_botUnavailable)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                ignoring: !_historyComplete,
+                child: _composer(),
+              ),
+            ),
         ],
       ),
     );
@@ -4860,6 +4950,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   );
 
   Future<void> _openCallPreparation() async {
+    if (!_historyComplete) return;
     final botId = _bot['id']?.toString() ?? '';
     if (botId.isEmpty) return;
 
@@ -5131,9 +5222,19 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   Widget _chatBody() {
+    if (_botUnavailable) {
+      return const Center(child: Text('该会话已不存在'));
+    }
     if (_msgsLoading) {
-      // Keep the background stable instead of flashing a spinner before history.
-      return const SizedBox.expand();
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_historyFailed && _msgs.isEmpty) {
+      return Center(
+        child: TextButton(
+          onPressed: _loadMsgs,
+          child: const Text('聊天记录加载失败，点击重试'),
+        ),
+      );
     }
     final rows = _visibleChatRows().reversed.toList(growable: false);
     final rowIndexes = <String, int>{
@@ -5161,10 +5262,20 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             ? _wechatComposerHeight + 8
             : _inputBarHeight + (_emojiPanelHeight * _emojiPanelCtrl.value) + 8,
       ),
-      itemCount: rows.length,
+      itemCount: rows.length + (_historyComplete ? 0 : 1),
       findChildIndexCallback: (key) =>
           key is ValueKey<String> ? rowIndexes[key.value] : null,
       itemBuilder: (ctx, i) {
+        if (i >= rows.length) {
+          return Center(
+            child: _historyFailed
+                ? TextButton(
+                    onPressed: _loadMsgs,
+                    child: const Text('完整聊天记录加载失败，点击重试'),
+                  )
+                : const Text('正在加载完整聊天记录…'),
+          );
+        }
         final row = rows[i];
         final messageIndex = row.firstIndex;
         final messageId =
@@ -5177,7 +5288,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         if (TideTheme.of(context).isTelegram) {
           child = _telegramMessageRow(messageIndex, child);
         }
-        return KeyedSubtree(key: ValueKey(messageId), child: child);
+        return KeyedSubtree(
+          key: ValueKey(messageId),
+          child: IgnorePointer(ignoring: !_historyComplete, child: child),
+        );
       },
     );
   }
@@ -5286,7 +5400,19 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         txt.isNotEmpty &&
         !txt.contains('```') &&
         !m['id'].toString().startsWith('stream_');
-    final sources = _decodeSources(m['sources_json']);
+    final showText =
+        sharedPost == null && !hasAudio && !hasSummary && txt.isNotEmpty;
+    // A photo and its accompanying text use separate visual surfaces.
+    final separateTelegramPhotoText = theme.isTelegram && hasImg && showText;
+    final sourceUrls = _showSearchSources && _isFinalReplyMessage(m, i)
+        ? _decodeSourceUrls(m['sources_json'])
+        : const <String>{};
+    Widget buildMessageText() => _buildTextWithLinkPreviews(
+      txt,
+      isUser,
+      stamp: telegramInlineStamp ? _telegramMessageStamp(m) : null,
+      excludedUrls: sourceUrls,
+    );
     final ts = m['timestamp'] as int? ?? 0;
     // 流式占位气泡（id 以 stream_ 开头）会先用空内容上屏，之后才填充真实文字。
     // 它的时间不应展示，否则会出现“先出时间、后出内容”“一条消息两个时间”的观感。
@@ -5616,7 +5742,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                 ],
                                 if (mediaGroup == null && hasImg && imageExists)
                                   Padding(
-                                    padding: txt.isNotEmpty
+                                    padding:
+                                        txt.isNotEmpty &&
+                                            !separateTelegramPhotoText
                                         ? const EdgeInsets.only(bottom: 8)
                                         : EdgeInsets.zero,
                                     child: GestureDetector(
@@ -5687,18 +5815,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                 // 动态分享使用独立卡片，JSON 负载不会直接暴露为聊天正文。
                                 if (sharedPost != null)
                                   _sharedPostCard(sharedPost, isUser),
-                                // 链接预览卡片
-                                if (sharedPost == null &&
-                                    !hasAudio &&
-                                    !hasSummary &&
-                                    txt.isNotEmpty)
-                                  _buildTextWithLinkPreviews(
-                                    txt,
-                                    isUser,
-                                    stamp: telegramInlineStamp
-                                        ? _telegramMessageStamp(m)
-                                        : null,
-                                  ),
+                                if (showText && !separateTelegramPhotoText)
+                                  buildMessageText(),
                                 if (!theme.isTelegram &&
                                     ((isUser &&
                                             (m['send_status'] == 'sending' ||
@@ -5765,6 +5883,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                 isEmoji ||
                                 mediaGroup != null,
                             inlineStamp: telegramInlineStamp,
+                            photoText: separateTelegramPhotoText
+                                ? buildMessageText()
+                                : null,
                           ),
                         ),
                         if (theme.usesMessagingLayout &&
@@ -5774,10 +5895,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                           _wechatMessageAvatar(true),
                       ],
                     ),
-                    if (_showSearchSources &&
-                        sources.isNotEmpty &&
-                        _isFinalReplyMessage(m, i))
-                      _sourceButton(sources.last),
+                    for (final url in sourceUrls)
+                      _StableLinkPreviewCard(
+                        key: ValueKey(url),
+                        url: url,
+                        isUser: isUser,
+                        isSearchSource: true,
+                      ),
                   ],
                 ),
               ),
@@ -5785,31 +5909,21 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     );
   }
 
-  List<Map<String, String>> _decodeSources(dynamic raw) {
-    if (raw == null || raw.toString().isEmpty) return [];
+  Set<String> _decodeSourceUrls(dynamic raw) {
+    if (raw == null || raw.toString().isEmpty) return {};
     try {
       final values = jsonDecode(raw.toString());
-      if (values is! List) return [];
-      final seenUrls = <String>{};
-      return values
-          .whereType<Map>()
-          .map((item) {
-            final title = item['title']?.toString().trim() ?? '';
-            final url = item['url']?.toString().trim() ?? '';
-            return <String, String>{
-              'title': title.isEmpty ? '网页来源' : title,
-              'url': url,
-            };
-          })
-          .where((item) {
-            final uri = Uri.tryParse(item['url']!);
-            return uri != null &&
-                (uri.scheme == 'http' || uri.scheme == 'https') &&
-                seenUrls.add(uri.toString());
-          })
-          .toList();
-    } catch (_) {
-      return [];
+      if (values is! List) return {};
+      return {
+        for (final item in values.whereType<Map>())
+          if (Uri.tryParse(item['url']?.toString().trim() ?? '')
+              case final uri?)
+            if ((uri.scheme == 'http' || uri.scheme == 'https') &&
+                uri.host.isNotEmpty)
+              uri.toString(),
+      };
+    } on FormatException {
+      return {};
     }
   }
 
@@ -5827,29 +5941,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     return true;
   }
 
-  Widget _sourceButton(Map<String, String> source) {
-    final theme = TideTheme.of(context);
-    final uri = Uri.tryParse(source['url'] ?? '');
-    return Padding(
-      padding: const EdgeInsets.only(top: 2, left: 2),
-      child: OutlinedButton.icon(
-        onPressed: uri == null
-            ? null
-            : () => launchUrl(uri, mode: LaunchMode.externalApplication),
-        icon: const Icon(Icons.public_rounded, size: 16),
-        label: const Text('数据来源', style: TextStyle(fontFamily: 'TideFont')),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: theme.primary,
-          minimumSize: const Size(0, 34),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          side: BorderSide(color: theme.primary.withValues(alpha: .45)),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      ),
-    );
-  }
   // 音频时长由播放器进度组件统一显示.
 
   // 富文本解析：旁白括号灰化
@@ -6004,9 +6095,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   /// 构建包含链接预览的文本（新增方法）
-  Widget _buildTextWithLinkPreviews(String text, bool isUser, {Widget? stamp}) {
-    // 检测文本中的链接
-    final urls = LinkPreviewService.extractUrls(text);
+  Widget _buildTextWithLinkPreviews(
+    String text,
+    bool isUser, {
+    Widget? stamp,
+    Set<String> excludedUrls = const {},
+  }) {
+    final urls = LinkPreviewService.extractUrls(
+      text,
+    ).where((url) => !excludedUrls.contains(Uri.parse(url).toString()));
 
     if (urls.isEmpty) {
       // 没有链接，直接渲染普通文本

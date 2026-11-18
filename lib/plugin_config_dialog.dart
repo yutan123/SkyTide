@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
@@ -158,30 +157,49 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
             ),
           ),
           actions: [
-            if (widget.onTest != null)
-              TextButton(
-                onPressed: _testing || _saving || _picking ? null : _test,
-                child: Text(
-                  _testing
-                      ? '测试中…'
-                      : PluginConfigUi.ui(widget.schema)['testLabel']
-                                as String? ??
-                            '测试连接',
-                ),
+            Flexible(
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (widget.onTest != null)
+                    TextButton(
+                      onPressed: _testing || _saving || _picking ? null : _test,
+                      child: Text(
+                        _testing
+                            ? '测试中…'
+                            : PluginConfigUi.ui(widget.schema)['testLabel']
+                                      as String? ??
+                                  '测试连接',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('取消'),
+                      ),
+                      FilledButton(
+                        onPressed: _testing || _saving || _picking
+                            ? null
+                            : _save,
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Text('保存'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: _testing || _saving || _picking ? null : _save,
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: const Text('保存'),
             ),
           ],
         ),
@@ -614,6 +632,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
       (groups[group] ??= []).add(key);
     }
     Widget item(String key) => Padding(
+      key: ValueKey(key),
       padding: const EdgeInsets.only(top: 8, bottom: 12),
       child: _field(key, properties[key] as Map),
     );
@@ -622,25 +641,15 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
         if (group.key.isEmpty)
           ...group.value.map(item)
         else
-          Theme(
-            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-            child: ExpansionTile(
-              key: PageStorageKey(group.key),
-              initiallyExpanded: !group.value.any(
-                (key) =>
-                    PluginConfigUi.ui(properties[key] as Map)['collapsed'] ==
-                    true,
-              ),
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(top: 8),
-              iconColor: TideTheme.of(context).primary,
-              textColor: TideTheme.of(context).textStrong,
-              title: Text(
-                group.key,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              children: group.value.map(item).toList(),
+          _PluginConfigSection(
+            key: ValueKey((group.key,)),
+            title: group.key,
+            initiallyExpanded: !group.value.any(
+              (key) =>
+                  PluginConfigUi.ui(properties[key] as Map)['collapsed'] ==
+                  true,
             ),
+            children: group.value.map(item).toList(),
           ),
     ];
   }
@@ -706,26 +715,13 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
                           final active = selected.contains(option.id);
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
-                            leading: option.avatar == null
-                                ? null
-                                : CircleAvatar(
-                                    backgroundColor: theme.primary.withValues(
-                                      alpha: .1,
-                                    ),
-                                    backgroundImage:
-                                        option.avatar!.isNotEmpty &&
-                                            File(option.avatar!).existsSync()
-                                        ? FileImage(File(option.avatar!))
-                                        : null,
-                                    child:
-                                        option.avatar!.isEmpty ||
-                                            !File(option.avatar!).existsSync()
-                                        ? Icon(
-                                            Icons.person_rounded,
-                                            color: theme.primary,
-                                          )
-                                        : null,
-                                  ),
+                            leading: option.isBot
+                                ? TideBotAvatar(
+                                    name: option.label,
+                                    path: option.avatar,
+                                    size: 40,
+                                  )
+                                : null,
                             title: Text(option.label),
                             subtitle: option.detail.isEmpty
                                 ? null
@@ -1054,5 +1050,76 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
     } finally {
       if (mounted) setState(() => _picking = false);
     }
+  }
+}
+
+class _PluginConfigSection extends StatefulWidget {
+  final String title;
+  final bool initiallyExpanded;
+  final List<Widget> children;
+
+  const _PluginConfigSection({
+    super.key,
+    required this.title,
+    required this.initiallyExpanded,
+    required this.children,
+  });
+
+  @override
+  State<_PluginConfigSection> createState() => _PluginConfigSectionState();
+}
+
+class _PluginConfigSectionState extends State<_PluginConfigSection> {
+  late bool _expanded = widget.initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = TideTheme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          expanded: _expanded,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: TextStyle(
+                        color: theme.textStrong,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    color: theme.primary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // Keep editors mounted and give the open section its natural height.
+        Visibility(
+          visible: _expanded,
+          maintainState: true,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: widget.children,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

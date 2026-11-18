@@ -1890,7 +1890,7 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                                 theme: theme,
                                 title: '显示联网搜索消息来源',
                                 help:
-                                    '默认隐藏。开启后，仅在使用搜索的消息底部显示一个来源图标；点击图标会在浏览器打开最终使用的网页。',
+                                    '默认隐藏。开启后，联网搜索的来源会在回复底部显示为网页预览卡片。点击卡片可在浏览器打开网页。',
                                 value: _showSearchSources,
                                 onChanged: (v) {
                                   setState(() => _showSearchSources = v);

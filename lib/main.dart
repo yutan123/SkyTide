@@ -10,6 +10,8 @@ import 'native_background_coordinator.dart';
 import 'bot_vital_signs_service.dart';
 import 'built_in_skill_loader.dart';
 import 'dart:async';
+import 'package:path_provider/path_provider.dart';
+import 'link_preview_service.dart';
 import 'dart:ui';
 import 'dart:math';
 import 'dart:convert';
@@ -65,30 +67,21 @@ void proactiveReplyMain() => startProactiveReplyEngine();
 @pragma('vm:entry-point')
 void autoBackupMain() => startAutoBackupEngine();
 final TideTheme tideTheme = TideTheme();
+final _startupElapsed = Stopwatch();
 // 悬浮窗功能已移除。
-void main() async {
+void main() {
+  _startupElapsed.start();
   ChatEventBus.instance.foregroundOwner = true;
   WidgetsFlutterBinding.ensureInitialized();
+  LinkPreviewService.instance.cacheDirectory = getApplicationSupportDirectory;
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-
-  // Keep the native launch surface visible until the last successful global
-  // background selection has been restored. This prevents a default Flutter
-  // surface from flashing before the selected image.
-  try {
-    await tideTheme.loadFromDB().timeout(const Duration(seconds: 4));
-  } catch (error) {
-    debugPrint('[startup] theme bootstrap skipped: $error');
-  }
   runApp(const TideBotApp());
 }
 
-Future<void> _startBackgroundServices({bool loadTheme = true}) async {
+Future<void> _startBackgroundServices() async {
   // Delay all nonessential work until Flutter has had an opportunity to paint.
   await Future<void>.delayed(Duration.zero);
-  if (loadTheme) {
-    unawaited(_runStartupTask('theme', tideTheme.loadFromDB));
-  }
   unawaited(
     _runStartupTask(
       'liquid glass',
@@ -852,14 +845,28 @@ class _TideBotAppState extends State<TideBotApp> with WidgetsBindingObserver {
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(tideTheme.precacheGlobalBackground(context));
+      debugPrint(
+        '[startup] first Flutter frame built at '
+        '${_startupElapsed.elapsedMilliseconds}ms',
+      );
+      if (mounted) unawaited(_restoreStartupAppearance());
     });
   }
+
+  Future<void> _restoreStartupAppearance() =>
+      _runStartupTask('theme', () async {
+        await tideTheme.loadFromDB();
+        if (mounted) await tideTheme.precacheGlobalBackground(context);
+      });
 
   void _activateServices() {
     if (_servicesReady) return;
     _servicesReady = true;
-    unawaited(_startBackgroundServices(loadTheme: false));
+    debugPrint(
+      '[startup] first home frame built at '
+      '${_startupElapsed.elapsedMilliseconds}ms',
+    );
+    unawaited(_startBackgroundServices());
     unawaited(DiaryService.instance.catchUp());
   }
 
@@ -1339,11 +1346,16 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
     _pages = [
       ChatListPage(key: _chatListKey, sidebar: _sidebar),
       null,
-      // Mount the feed at launch to preserve its automatic post catch-up.
-      SquarePage(key: _squareKey),
+      null,
       null,
     ];
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Keep automatic feed catch-up without laying out the hidden feed on the
+      // same frame as the chat list.
+      if (_pages[2] == null) {
+        setState(() => _pages[2] = SquarePage(key: _squareKey));
+      }
       _refreshUnread();
       _maybePromptNotificationPermission();
     });

@@ -2,6 +2,7 @@ import 'platform_share_cover.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'link_preview_models.dart';
+import 'link_preview_service.dart';
 import 'platform_link_launcher.dart';
 import 'theme.dart';
 import 'global_notice.dart';
@@ -10,11 +11,13 @@ import 'global_notice.dart';
 class WebLinkCard extends StatelessWidget {
   final LinkPreviewData data;
   final bool isUser;
+  final String? originalUrl;
 
   const WebLinkCard({
     super.key,
     required this.data,
     required this.isUser,
+    this.originalUrl,
   });
 
   @override
@@ -26,17 +29,14 @@ class WebLinkCard extends StatelessWidget {
     final maxWidth = isPortrait ? screenWidth * 0.75 : screenWidth * 0.5;
 
     return GestureDetector(
-      onTap: () => _launchUrl(data.url),
+      onTap: _openInBrowser,
       child: Container(
         constraints: BoxConstraints(maxWidth: maxWidth),
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           color: theme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: theme.border,
-            width: 1,
-          ),
+          border: Border.all(color: theme.border, width: 1),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: theme.isDark ? 0.3 : 0.08),
@@ -119,30 +119,10 @@ class WebLinkCard extends StatelessWidget {
                 child: data.imageUrl != null && data.imageUrl!.isNotEmpty
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(14),
-                        child: Image.network(
-                          data.imageUrl!,
-                          headers: data.imageHeaders,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                          loadingBuilder: (context, child, progress) =>
-                              progress == null
-                                  ? child
-                                  : Center(
-                                      child: SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: theme.primary,
-                                          value: progress.expectedTotalBytes ==
-                                                  null
-                                              ? null
-                                              : progress.cumulativeBytesLoaded /
-                                                  progress.expectedTotalBytes!,
-                                        ),
-                                      ),
-                                    ),
-                          errorBuilder: (_, __, ___) => _defaultIcon(theme),
+                        child: _WebPreviewThumbnail(
+                          key: ValueKey(data.imageUrl),
+                          data: data,
+                          placeholder: _defaultIcon(theme),
                         ),
                       )
                     : _defaultIcon(theme),
@@ -156,11 +136,7 @@ class WebLinkCard extends StatelessWidget {
 
   Widget _defaultIcon(TideTheme theme) {
     return Center(
-      child: Icon(
-        Icons.public_rounded,
-        size: 32,
-        color: theme.primary,
-      ),
+      child: Icon(Icons.public_rounded, size: 32, color: theme.primary),
     );
   }
 
@@ -170,12 +146,59 @@ class WebLinkCard extends StatelessWidget {
     return uri.host.replaceFirst('www.', '');
   }
 
-  Future<void> _launchUrl(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri != null && await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+  Future<void> _openInBrowser() async {
+    for (final url in {data.url, if (originalUrl != null) originalUrl!}) {
+      final uri = Uri.tryParse(url);
+      if (uri == null ||
+          !const {'http', 'https'}.contains(uri.scheme) ||
+          uri.host.isEmpty) {
+        continue;
+      }
+      try {
+        // Android package visibility can make canLaunchUrl return false even
+        // when the browser can handle the intent.
+        if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+      } catch (_) {
+        // Try the original URL if the redirect destination could not open.
+      }
     }
+    GlobalNotice.show('无法打开网页');
   }
+}
+
+class _WebPreviewThumbnail extends StatefulWidget {
+  const _WebPreviewThumbnail({
+    super.key,
+    required this.data,
+    required this.placeholder,
+  });
+
+  final LinkPreviewData data;
+  final Widget placeholder;
+
+  @override
+  State<_WebPreviewThumbnail> createState() => _WebPreviewThumbnailState();
+}
+
+class _WebPreviewThumbnailState extends State<_WebPreviewThumbnail> {
+  late final _thumbnail = LinkPreviewService.instance.fetchThumbnail(
+    widget.data,
+  );
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder(
+    future: _thumbnail,
+    builder: (context, snapshot) {
+      final bytes = snapshot.data;
+      if (bytes == null) return widget.placeholder;
+      return Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        cacheWidth: (68 * MediaQuery.devicePixelRatioOf(context)).round(),
+        errorBuilder: (_, _, _) => widget.placeholder,
+      );
+    },
+  );
 }
 
 /// 视频分享卡片（抖音/小红书/B站，参考图二设计）
@@ -183,11 +206,7 @@ class VideoShareCard extends StatelessWidget {
   final LinkPreviewData data;
   final bool isUser;
 
-  const VideoShareCard({
-    super.key,
-    required this.data,
-    required this.isUser,
-  });
+  const VideoShareCard({super.key, required this.data, required this.isUser});
 
   @override
   Widget build(BuildContext context) {
@@ -214,51 +233,70 @@ class VideoShareCard extends StatelessWidget {
             children: [
               AspectRatio(
                 aspectRatio: 16 / 9,
-                child: Stack(fit: StackFit.expand, children: [
-                  PlatformShareCover(
-                      data: data, placeholder: _placeholderCover(theme, info)),
-                  Center(
-                      child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.36),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white54),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    PlatformShareCover(
+                      data: data,
+                      placeholder: _placeholderCover(theme, info),
                     ),
-                    child: const Icon(Icons.open_in_new_rounded,
-                        size: 20, color: Colors.white),
-                  )),
-                ]),
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.36),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white54),
+                        ),
+                        child: const Icon(
+                          Icons.open_in_new_rounded,
+                          size: 20,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.all(12),
                 child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(data.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: theme.textStrong,
-                              fontFamily: 'TideFont',
-                              height: 1.3)),
-                      const SizedBox(height: 6),
-                      Row(children: [
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      data.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: theme.textStrong,
+                        fontFamily: 'TideFont',
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
                         _getPlatformIcon(info, size: 14),
                         const SizedBox(width: 5),
                         Expanded(
-                            child: Text(info.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: theme.textWeak,
-                                    fontFamily: 'TideFont'))),
-                      ]),
-                    ]),
+                          child: Text(
+                            info.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: theme.textWeak,
+                              fontFamily: 'TideFont',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

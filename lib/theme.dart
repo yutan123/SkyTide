@@ -89,11 +89,6 @@ class _TideBackgroundState extends State<TideBackground> {
         theme.isGlobalBackgroundReady &&
         (path.isEmpty || File(path).existsSync());
 
-    // 无背景图时直接用纯色底，避免 Stack 切换时的闪烁
-    if (!hasImage) {
-      return ColoredBox(color: theme.pageBackground, child: widget.child);
-    }
-
     final scrimOpacity = widget.opacity ?? theme.effectiveBackgroundOpacity;
     final scrim = theme.isWechat
         ? theme.pageBackground.withValues(
@@ -104,23 +99,28 @@ class _TideBackgroundState extends State<TideBackground> {
     // Use a single RepaintBoundary for the background stack to ensure
     // BackdropFilter in child widgets can reference it correctly during animations
     return Stack(
-      fit: StackFit.expand,
+      fit: StackFit.passthrough,
       children: [
-        RepaintBoundary(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Image(
-                image: image,
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-                errorBuilder: (_, __, ___) =>
-                    ColoredBox(color: theme.pageBackground),
-              ),
-              IgnorePointer(child: ColoredBox(color: scrim)),
-            ],
-          ),
+        Positioned.fill(
+          child: hasImage
+              ? RepaintBoundary(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image(
+                        image: image,
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        errorBuilder: (_, __, ___) =>
+                            ColoredBox(color: theme.pageBackground),
+                      ),
+                      IgnorePointer(child: ColoredBox(color: scrim)),
+                    ],
+                  ),
+                )
+              : ColoredBox(color: theme.pageBackground),
         ),
+        // Keep the foreground mounted while the background is restored.
         widget.child,
       ],
     );

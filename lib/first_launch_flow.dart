@@ -1,11 +1,66 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_android/shared_preferences_android.dart';
 
 import 'daily_launch_animation.dart';
 import 'legal_pages.dart';
 import 'main.dart' show TideMainScaffold;
 
-/// Owns the launch sequence so preference loading never replaces a running splash.
+const _agreementKey = 'legal_agreement_accepted';
+const _ageKey = 'legal_age_confirmed';
+const _animationDateKey = 'launch_animation_moon_v1_date';
+
+typedef _StartupSettings = ({
+  bool accepted,
+  String? animationDate,
+  Future<void> Function(String) saveAnimationDate,
+});
+
+Future<_StartupSettings> _readStartupSettings() async {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    // Use the file and key prefix already used by consent writes and cold restore.
+    const prefix = 'flutter.';
+    final prefs = SharedPreferencesAsync(
+      options: const SharedPreferencesAsyncAndroidOptions(
+        backend: SharedPreferencesAndroidBackendLibrary.SharedPreferences,
+        originalSharedPreferencesOptions: AndroidSharedPreferencesStoreOptions(
+          fileName: 'FlutterSharedPreferences',
+        ),
+      ),
+    );
+    final values = await prefs.getAll(
+      allowList: const {
+        '$prefix$_agreementKey',
+        '$prefix$_ageKey',
+        '$prefix$_animationDateKey',
+      },
+    );
+    final date = values['$prefix$_animationDateKey'];
+    return (
+      accepted:
+          values['$prefix$_agreementKey'] == true &&
+          values['$prefix$_ageKey'] == true,
+      animationDate: date is String ? date : null,
+      saveAnimationDate: (date) =>
+          prefs.setString('$prefix$_animationDateKey', date),
+    );
+  }
+
+  final prefs = await SharedPreferences.getInstance();
+  return (
+    accepted: prefs.get(_agreementKey) == true && prefs.get(_ageKey) == true,
+    animationDate: switch (prefs.get(_animationDateKey)) {
+      final String date => date,
+      _ => null,
+    },
+    saveAnimationDate: (date) async {
+      await prefs.setString(_animationDateKey, date);
+    },
+  );
+}
+
+/// Reads consent before mounting the destination and its launch decoration.
 class FirstLaunchFlow extends StatefulWidget {
   const FirstLaunchFlow({super.key, required this.onReady});
   final VoidCallback onReady;
@@ -14,7 +69,7 @@ class FirstLaunchFlow extends StatefulWidget {
 }
 
 class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
-  SharedPreferences? _prefs;
+  _StartupSettings? _settings;
   Object? _error;
   bool _accepted = false;
   @override
@@ -24,23 +79,31 @@ class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
   }
 
   Future<void> _load() async {
+    if (_error != null) setState(() => _error = null);
+    final elapsed = Stopwatch()..start();
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final settings = await _readStartupSettings().timeout(
+        const Duration(seconds: 3),
+      );
+      debugPrint('[startup] settings read in ${elapsed.elapsedMilliseconds}ms');
       if (!mounted) return;
       setState(() {
-        _prefs = prefs;
-        _error = null;
-        _accepted = prefs.getBool('legal_agreement_accepted') == true &&
-            prefs.getBool('legal_age_confirmed') == true;
+        _settings = settings;
+        _accepted = settings.accepted;
       });
     } catch (error) {
+      debugPrint(
+        '[startup] settings read failed after '
+        '${elapsed.elapsedMilliseconds}ms (${error.runtimeType})',
+      );
       if (mounted) setState(() => _error = error);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_prefs == null) {
+    final settings = _settings;
+    if (settings == null) {
       return Scaffold(
         body: Center(
           child: _error == null
@@ -50,6 +113,8 @@ class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
       );
     }
     return DailyLaunchAnimation(
+      lastPlayedDate: settings.animationDate,
+      savePlayedDate: settings.saveAnimationDate,
       force: !_accepted,
       child: _accepted
           ? _ReadyHome(onReady: widget.onReady)
@@ -69,6 +134,7 @@ class _ReadyHome extends StatefulWidget {
 }
 
 class _ReadyHomeState extends State<_ReadyHome> {
+  final _elapsed = Stopwatch()..start();
   @override
   void initState() {
     super.initState();
@@ -78,5 +144,14 @@ class _ReadyHomeState extends State<_ReadyHome> {
   }
 
   @override
-  Widget build(BuildContext context) => const TideMainScaffold();
+  Widget build(BuildContext context) => Listener(
+    onPointerDown: (_) {
+      if (!_elapsed.isRunning) return;
+      _elapsed.stop();
+      debugPrint(
+        '[startup] first home pointer at ${_elapsed.elapsedMilliseconds}ms after mount',
+      );
+    },
+    child: const TideMainScaffold(),
+  );
 }

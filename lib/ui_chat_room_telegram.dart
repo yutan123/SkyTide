@@ -381,14 +381,14 @@ extension _TelegramChat on _ChatRoomPageState {
   }
 
   Widget _telegramEmojiPicker(TideTheme theme) {
+    final query = _telegramEmojiSearch;
     final entries = _emojiCatalog
         .where(
-          (emoji) =>
-              _telegramEmojiSearch.isEmpty ||
-              emoji.name.contains(_telegramEmojiSearch) ||
-              emoji.glyph.contains(_telegramEmojiSearch),
+          (emoji) => query.isEmpty
+              ? emoji.category == _emojiCategory
+              : emoji.name.contains(query) || emoji.glyph.contains(query),
         )
-        .toList();
+        .toList(growable: false);
     return TelegramGlass(
       radius: 26,
       child: SizedBox(
@@ -495,21 +495,10 @@ extension _TelegramChat on _ChatRoomPageState {
                           const SliverGridDelegateWithMaxCrossAxisExtent(
                             maxCrossAxisExtent: 45,
                           ),
-                      itemCount: entries
-                          .where(
-                            (e) =>
-                                _telegramEmojiSearch.isNotEmpty ||
-                                e.category == _emojiCategory,
-                          )
-                          .length,
+                      key: ValueKey((_emojiCategory, query.isNotEmpty)),
+                      itemCount: entries.length,
                       itemBuilder: (_, i) {
-                        final emoji = entries
-                            .where(
-                              (e) =>
-                                  _telegramEmojiSearch.isNotEmpty ||
-                                  e.category == _emojiCategory,
-                            )
-                            .elementAt(i);
+                        final emoji = entries[i];
                         return InkWell(
                           onTap: () => _insertWechatEmoji(emoji),
                           child: Padding(
@@ -598,16 +587,38 @@ extension _TelegramChat on _ChatRoomPageState {
     bool attachment = false,
     bool voice = false,
     bool inlineStamp = false,
+    Widget? photoText,
   }) {
     if (!TideTheme.of(context).isTelegram || !visible) return child;
     final streaming = message['id'].toString().startsWith('stream_');
+    final stamp = !streaming && !inlineStamp
+        ? _telegramMessageStamp(message)
+        : null;
+    if (photoText != null) {
+      final isUser = message['role'] == 'user';
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: isUser
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          child,
+          const SizedBox(height: 8),
+          TelegramBubble(
+            isUser: isUser,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [photoText, if (stamp != null) stamp],
+            ),
+          ),
+        ],
+      );
+    }
     final content = Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        child,
-        if (!streaming && !inlineStamp) _telegramMessageStamp(message),
-      ],
+      children: [child, if (stamp != null) stamp],
     );
     if (voice) {
       bool joinsVoice(Map<String, dynamic>? other) =>

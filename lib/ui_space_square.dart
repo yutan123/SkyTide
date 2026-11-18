@@ -50,6 +50,8 @@ class _SpacePageState extends State<SpacePage> {
   int _diaryScrollIndex = 0;
   int _diaryVisibleStart = 0;
   bool _loading = true;
+  bool _spaceLoadFailed = false;
+  int _spaceLoadGeneration = 0;
 
   @override
   void initState() {
@@ -126,26 +128,33 @@ class _SpacePageState extends State<SpacePage> {
   }
 
   Future<void> _loadData() async {
+    final generation = ++_spaceLoadGeneration;
+    bool isCurrent() => mounted && generation == _spaceLoadGeneration;
+    if (_spaceLoadFailed) setState(() => _spaceLoadFailed = false);
     final db = DBManager();
-    final bots = await db.queryBots();
-    if (bots.isNotEmpty) {
-      // 选择跨页面/重启持久化；当机器人被删除时再安全回退到首个。
-      final savedBotId = await db.getKV('space_selected_bot_id') ?? '';
-      Map<String, dynamic>? b;
-      final preferredId = _botId.isNotEmpty ? _botId : savedBotId;
-      if (preferredId.isNotEmpty) {
-        try {
-          b = bots.firstWhere((x) => x['id'] == preferredId);
-        } catch (_) {
-          b = null;
-        }
+    try {
+      final bots = await db.queryBots(throwOnError: true);
+      if (!isCurrent()) return;
+      if (bots.isEmpty) {
+        setState(() {
+          _daysSince = 0;
+          _dailyQuote = '';
+          _memories = [];
+          _vitalSigns = null;
+          _botId = '';
+          _botName = '';
+          _loading = false;
+        });
+        return;
       }
-      b ??= bots.first;
-      _botId = b['id'] as String? ?? '';
-      await db.setKV('space_selected_bot_id', _botId);
-      _botName = b['name'] as String? ?? '';
-      _dailyQuote = b['daily_quote'] as String? ?? '';
-      final created = b['created_at'];
+
+      final savedBotId = await db.getKV('space_selected_bot_id');
+      if (!isCurrent()) return;
+      final preferredId = _botId.isNotEmpty ? _botId : savedBotId;
+      final bot =
+          bots.where((b) => b['id'] == preferredId).firstOrNull ?? bots.first;
+      final botId = bot['id'] as String? ?? '';
+      final created = bot['created_at'];
       final createdMillis = created is num
           ? created.toInt()
           : int.tryParse(created?.toString() ?? '');
@@ -155,53 +164,47 @@ class _SpacePageState extends State<SpacePage> {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final metDate = DateTime(metAt.year, metAt.month, metAt.day);
-      _daysSince = (today.difference(metDate).inDays + 1).clamp(1, 1 << 30);
-      final shortMemories = await db.queryMemories(
-        _botId,
-        type: 'short',
-        limit: 50,
-      );
-      final longMemories = await db.queryMemories(
-        _botId,
-        type: 'long',
-        limit: 50,
-      );
-      final mem = [...shortMemories, ...longMemories];
-
-      _vitalSigns = await BotVitalSignsService.instance.snapshot(_botId);
-      // The space card reflects the same state injected into chat prompts,
-      // including safe time-based fluctuations between messages.
-      _memories = mem;
-      if (_diaryVisibleStart >= _memories.length) _diaryVisibleStart = 0;
-      if (_diaryScrollIndex >= _memories.length) _diaryScrollIndex = 0;
-      final quoteBotId = _botId;
+      setState(() {
+        if (_botId != botId) {
+          _memories = [];
+          _vitalSigns = null;
+        }
+        _botId = botId;
+        _botName = bot['name'] as String? ?? '';
+        _dailyQuote = bot['daily_quote'] as String? ?? '';
+        _daysSince = (today.difference(metDate).inDays + 1).clamp(1, 1 << 30);
+        _loading = false;
+      });
+      if (botId.isEmpty) return;
+      _startVitalCarousel();
+      unawaited(_refreshVitals());
       unawaited(
         DailyQuoteService.instance
-            .get(quoteBotId)
+            .get(botId)
             .then((quote) {
-              if (!mounted || quoteBotId != _botId || quote.trim().isEmpty)
-                return;
+              if (!isCurrent() || quote.trim().isEmpty) return;
               setState(() => _dailyQuote = quote);
             })
             .catchError((_) {}),
       );
-      if (mounted) {
+      final memories = await Future.wait([
+        db.queryMemories(botId, type: 'short', limit: 50),
+        db.queryMemories(botId, type: 'long', limit: 50),
+      ]);
+      if (!isCurrent()) return;
+      setState(() {
+        _memories = [...memories[0], ...memories[1]];
+        if (_diaryVisibleStart >= _memories.length) _diaryVisibleStart = 0;
+        if (_diaryScrollIndex >= _memories.length) _diaryScrollIndex = 0;
+      });
+      _startDiaryAutoScroll();
+    } catch (_) {
+      if (isCurrent()) {
         setState(() {
           _loading = false;
+          _spaceLoadFailed = true;
         });
-        // 打开空间页面即自动开始记忆循环滚动。
-        _startDiaryAutoScroll();
-        // Five-second character data carousel
-        _startVitalCarousel();
       }
-    } else {
-      _daysSince = 0;
-      _dailyQuote = '';
-      _memories = [];
-      _vitalSigns = null;
-      _botId = '';
-      _botName = '';
-      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -281,6 +284,11 @@ class _SpacePageState extends State<SpacePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildHeader(timeStr, dateStr, theme),
+                    if (_spaceLoadFailed)
+                      TextButton(
+                        onPressed: _loadData,
+                        child: const Text('空间数据加载失败，点击重试'),
+                      ),
                     const SizedBox(height: 20),
                     if (_botId.isNotEmpty) ...[
                       _buildQuoteCard(theme),
@@ -449,6 +457,9 @@ class _SpacePageState extends State<SpacePage> {
                             setState(() {
                               _botId = selectedId;
                               _botName = b['name'] as String? ?? '';
+                              _dailyQuote = b['daily_quote'] as String? ?? '';
+                              _memories = [];
+                              _vitalSigns = null;
                             });
                             Navigator.pop(context);
                             _loadData();
@@ -629,6 +640,7 @@ class SquarePageState extends State<SquarePage>
   int _feedPage = 0;
   static const _pageSize = 10;
   bool _loadingMore = false;
+  bool _feedLoadFailed = false;
   bool _hasMore = true;
   bool _showParticles = false;
   int _particleRun = 0;
@@ -663,7 +675,17 @@ class SquarePageState extends State<SquarePage>
     ).animate(CurvedAnimation(parent: _switchCtrl, curve: Curves.easeOutCubic));
     _switchCtrl.forward();
     _scrollCtrl.addListener(_onScroll);
-    _prepareBotPosts().whenComplete(_loadFeeds);
+    final initialFeed = _loadFeeds();
+    unawaited(
+      _prepareBotPosts()
+          .then((changed) async {
+            await initialFeed;
+            if (changed && mounted && _feedPage <= 1 && !_feedLoadFailed) {
+              await _loadFeeds(replace: true);
+            }
+          })
+          .catchError((_) {}),
+    );
   }
 
   @override
@@ -678,6 +700,7 @@ class SquarePageState extends State<SquarePage>
     if (_scrollCtrl.position.pixels >=
             _scrollCtrl.position.maxScrollExtent - 200 &&
         !_loadingMore &&
+        !_feedLoadFailed &&
         _hasMore) {
       _loadFeeds();
     }
@@ -691,9 +714,10 @@ class SquarePageState extends State<SquarePage>
     });
   }
 
-  Future<void> _prepareBotPosts() async {
+  Future<bool> _prepareBotPosts() async {
     final db = DBManager();
-    if (await db.getKV('bot_posts_enabled') != 'true') return;
+    if (await db.getKV('bot_posts_enabled') != 'true') return false;
+    var changed = false;
     final day = DateTime.now();
     final dayKey = '${day.year}-${day.month}-${day.day}';
     final perDay =
@@ -822,6 +846,7 @@ class SquarePageState extends State<SquarePage>
           'user_collected': 0,
           'timestamp': scheduledAt,
         });
+        changed = true;
         // 真实互动：让其他机器人真实地查看这条由 ${bot['name']} 发布的动态，
         // 每个互动机器人都调用它自己的模型产出一条第一人称评论（非模板/非随机），
         // 并把"点赞"与"评论"作为持久化事件写入 feed_events / post_comments。
@@ -896,78 +921,87 @@ class SquarePageState extends State<SquarePage>
         await db.setKV(marker, dayKey);
       }
     }
+    return changed;
   }
 
-  Future<void> _loadFeeds() async {
-    if (_loadingMore || !_hasMore) return;
-    setState(() => _loadingMore = true);
-    final db = DBManager();
-    final rows = await db.queryPosts(
-      offset: _feedPage * _pageSize,
-      limit: _pageSize,
-    );
-    if (rows.isEmpty || rows.length < _pageSize) _hasMore = false;
-    // New posts use a stable bot ID. Older releases stored the bot name, so
-    // resolve both representations before rendering the current name and avatar.
-    final bots = await db.queryBots();
-    Map<String, dynamic> botByAuthor(String? authorId) {
-      if (authorId == null || authorId.isEmpty) return const {};
-      for (final bot in bots) {
-        if (bot['id']?.toString() == authorId ||
-            bot['name']?.toString() == authorId) {
-          return bot;
+  Future<void> _loadFeeds({bool replace = false}) async {
+    if (!mounted || _loadingMore || (!replace && !_hasMore)) return;
+    setState(() {
+      _loadingMore = true;
+      _feedLoadFailed = false;
+    });
+    try {
+      final db = DBManager();
+      final rows = await db.queryFeedPage(
+        offset: replace ? 0 : _feedPage * _pageSize,
+        limit: _pageSize,
+      );
+      // New posts use a stable bot ID. Older releases stored the bot name, so
+      // resolve both representations before rendering the current name and avatar.
+      final bots = rows.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : await db.queryBots(throwOnError: true);
+      Map<String, dynamic> botByAuthor(String? authorId) {
+        if (authorId == null || authorId.isEmpty) return const {};
+        for (final bot in bots) {
+          if (bot['id']?.toString() == authorId ||
+              bot['name']?.toString() == authorId) {
+            return bot;
+          }
         }
+        return const {};
       }
-      return const {};
-    }
 
-    // 点赞数与评论数不再读取 posts 上的伪造整数字段，改为从
-    // feed_events / post_comments 真实聚合计数。
-    final feeds = <Map<String, dynamic>>[];
-    for (final r in rows) {
-      final postId = r['id']?.toString() ?? '';
-      final likes = postId.isEmpty ? 0 : await db.countPostLikes(postId);
-      final comments = postId.isEmpty ? 0 : await db.countPostComments(postId);
-      final author = r['author_id']?.toString().trim() ?? '匿名';
-      final bot = botByAuthor(author);
-      final displayAuthor = bot.isNotEmpty
-          ? bot['name']?.toString() ?? author
-          : author;
-      feeds.add({
-        'user': displayAuthor == '我' ? '我' : displayAuthor,
-        'author_id': author,
-        'is_bot': bot.isNotEmpty,
-        'bot_avatar': bot['avatar']?.toString(),
-        'content': r['content'] ?? '',
-        'image': r['image_path'] ?? '',
-        'likes': likes,
-        'comments': comments,
-        'favorited': postId.isNotEmpty
-            ? await db.hasFeedEvent(
-                postId: postId,
-                actorId: 'me',
-                eventType: 'like',
-              )
-            : false,
-        'collected': postId.isNotEmpty
-            ? await db.hasFeedEvent(
-                postId: postId,
-                actorId: 'me',
-                eventType: 'collect',
-              )
-            : false,
-        'time': r['timestamp'] != null ? formatTime(r['timestamp']) : '',
-        'id': r['id'],
-      });
-    }
-    if (mounted) {
+      // 点赞数与评论数不再读取 posts 上的伪造整数字段，改为从
+      // feed_events / post_comments 真实聚合计数。
+      final feeds = <Map<String, dynamic>>[];
+      for (final r in rows) {
+        final author = r['author_id']?.toString().trim() ?? '匿名';
+        final bot = botByAuthor(author);
+        final displayAuthor = bot.isNotEmpty
+            ? bot['name']?.toString() ?? author
+            : author;
+        feeds.add({
+          'user': displayAuthor == '我' ? '我' : displayAuthor,
+          'author_id': author,
+          'is_bot': bot.isNotEmpty,
+          'bot_avatar': bot['avatar']?.toString(),
+          'content': r['content'] ?? '',
+          'image': r['image_path'] ?? '',
+          'likes': r['like_count'],
+          'comments': r['comment_count'],
+          'favorited': r['liked'] == 1,
+          'collected': r['collected'] == 1,
+          'time': r['timestamp'] != null ? formatTime(r['timestamp']) : '',
+          'id': r['id'],
+        });
+      }
+      if (!mounted) return;
       setState(() {
-        _feeds.addAll(feeds);
-        _feedPage++;
-        _loadingMore = false;
+        if (replace) _feeds.clear();
+        final existing = _feeds.map((feed) => feed['id']).toSet();
+        _feeds.addAll(feeds.where((feed) => existing.add(feed['id'])));
+        _feedPage = replace ? 1 : _feedPage + 1;
+        _hasMore = rows.length == _pageSize;
       });
+    } catch (_) {
+      if (mounted) setState(() => _feedLoadFailed = true);
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
+
+  Widget _feedStatus(String emptyText) => Padding(
+    padding: const EdgeInsets.all(32),
+    child: Center(
+      child: _feedLoadFailed
+          ? TextButton(
+              onPressed: () => _loadFeeds(replace: !_hasMore),
+              child: const Text('动态加载失败，点击重试'),
+            )
+          : Text(_loadingMore ? '正在加载动态…' : emptyText),
+    ),
+  );
 
   Future<void> _shareFeed(Map<String, dynamic> f) async {
     final db = DBManager();
@@ -1305,15 +1339,11 @@ class SquarePageState extends State<SquarePage>
   Widget _qqFeeds(TideTheme theme) => ListView.builder(
     controller: _scrollCtrl,
     padding: EdgeInsets.only(bottom: 90 + MediaQuery.paddingOf(context).bottom),
-    itemCount: _feeds.isEmpty ? 1 : _feeds.length,
+    itemCount: _feeds.isEmpty || _feedLoadFailed
+        ? _feeds.length + 1
+        : _feeds.length,
     itemBuilder: (context, index) {
-      if (_feeds.isEmpty)
-        return Padding(
-          padding: const EdgeInsets.all(32),
-          child: Center(
-            child: Text(_loadingMore ? '正在加载动态…' : '还没有动态，点击右上角发布第一条'),
-          ),
-        );
+      if (index == _feeds.length) return _feedStatus('还没有动态，点击右上角发布第一条');
       final feed = _feeds[index];
       final id = feed['id']?.toString() ?? '';
       final isSelf = feed['user'] == '我' || feed['author_id'] == 'me';
@@ -1529,13 +1559,11 @@ class SquarePageState extends State<SquarePage>
   Widget _wechatFeeds(TideTheme theme) => ListView.builder(
     controller: _scrollCtrl,
     padding: const EdgeInsets.only(bottom: 32),
-    itemCount: _feeds.isEmpty ? 1 : _feeds.length,
+    itemCount: _feeds.isEmpty || _feedLoadFailed
+        ? _feeds.length + 1
+        : _feeds.length,
     itemBuilder: (context, index) {
-      if (_feeds.isEmpty)
-        return const Padding(
-          padding: EdgeInsets.all(32),
-          child: Center(child: Text('还没有动态，点击 + 发布第一条')),
-        );
+      if (index == _feeds.length) return _feedStatus('还没有动态，点击 + 发布第一条');
       final feed = _feeds[index];
       final key = GlobalKey();
       final image = feed['image']?.toString() ?? '';
@@ -1656,31 +1684,16 @@ class SquarePageState extends State<SquarePage>
       ? ListView(
           key: const ValueKey('feeds_empty'),
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
-          children: const [
-            FrostCard(
-              padding: EdgeInsets.all(24),
-              child: Center(
-                child: Text(
-                  '还没有动态\n点击右下角 + 发布第一条',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: Color(0xFF8E8E93),
-                    fontFamily: 'TideFont',
-                    height: 1.6,
-                  ),
-                ),
-              ),
-            ),
-          ],
+          children: [_feedStatus('还没有动态，点击右下角 + 发布第一条')],
         )
       : ListView.builder(
           key: const ValueKey('feeds'),
           controller: _scrollCtrl,
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
           physics: const BouncingScrollPhysics(),
-          itemCount: _feeds.length,
+          itemCount: _feedLoadFailed ? _feeds.length + 1 : _feeds.length,
           itemBuilder: (ctx, i) {
+            if (i == _feeds.length) return _feedStatus('');
             final f = _feeds[i];
             final cardKey = GlobalKey();
             return FrostCard(

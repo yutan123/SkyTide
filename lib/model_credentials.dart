@@ -33,9 +33,14 @@ class ModelCredentials {
     for (final row in await db.query('kv_store')) {
       final key = row['key'] as String;
       if (handles(key)) {
-        used.addAll(
-          ModelCredentialCodec.references(key, row['value'] as String),
-        );
+        try {
+          used.addAll(
+            ModelCredentialCodec.references(key, row['value'] as String),
+          );
+        } on FormatException {
+          // Keep secrets when a damaged configuration cannot be inspected.
+          return;
+        }
       }
     }
     for (final key in (await storage.readAll()).keys) {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -7,12 +8,15 @@ import 'package:tide_bot/link_preview_models.dart';
 import 'package:tide_bot/link_preview_service.dart';
 import 'package:tide_bot/platform_video_resolver.dart';
 
-http.Response _response(String body, int status,
-        {Map<String, String>? headers}) =>
-    http.Response.bytes(utf8.encode(body), status, headers: {
-      'content-type': 'text/html; charset=utf-8',
-      ...?headers,
-    });
+http.Response _response(
+  String body,
+  int status, {
+  Map<String, String>? headers,
+}) => http.Response.bytes(
+  utf8.encode(body),
+  status,
+  headers: {'content-type': 'text/html; charset=utf-8', ...?headers},
+);
 
 void main() {
   test('自动视频解析仅接受作品与短链，不处理主页或个人空间', () {
@@ -33,20 +37,27 @@ void main() {
       requests.add(request.url);
       expect(request.method, 'GET');
       if (request.url.host == 'b23.tv') {
-        return _response('', 302,
-            headers: {'location': 'https://www.bilibili.com/go'});
+        return _response(
+          '',
+          302,
+          headers: {'location': 'https://www.bilibili.com/go'},
+        );
       }
       if (request.url.path == '/go') {
-        return _response('', 307,
-            headers: {'location': '/video/BV1xx411c7mD?p=2'});
+        return _response(
+          '',
+          307,
+          headers: {'location': '/video/BV1xx411c7mD?p=2'},
+        );
       }
       if (request.url.host == 'api.bilibili.com') {
         return _response(
-            jsonEncode({
-              'code': 0,
-              'data': {'title': '目标视频', 'pic': '//i.example.com/cover.jpg'}
-            }),
-            200);
+          jsonEncode({
+            'code': 0,
+            'data': {'title': '目标视频', 'pic': '//i.example.com/cover.jpg'},
+          }),
+          200,
+        );
       }
       return _response('<title>页面</title>', 200);
     });
@@ -72,47 +83,62 @@ void main() {
                 'author': {'nickname': '作者'},
                 'video': {
                   'cover': {
-                    'url_list': ['https://img.example.com/a.jpg']
-                  }
-                }
-              }
-            ]
-          }
-        }
-      }
+                    'url_list': ['https://img.example.com/a.jpg'],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
     };
     final client = MockClient((r) async {
       if (r.url.host == 'v.douyin.com') {
-        return _response('', 302, headers: {
-          'location':
-              'https://www.iesdouyin.com/share/video/1234567890123456789/'
-        });
+        return _response(
+          '',
+          302,
+          headers: {
+            'location':
+                'https://www.iesdouyin.com/share/video/1234567890123456789/',
+          },
+        );
       }
       return _response(
-          '<script>window._ROUTER_DATA=${jsonEncode(state)};</script>', 200);
+        '<script>window._ROUTER_DATA=${jsonEncode(state)};</script>',
+        200,
+      );
     });
-    final data = await LinkPreviewService.withClient(client)
-        .fetchPreview('https://v.douyin.com/abc/');
+    final data = await LinkPreviewService.withClient(
+      client,
+    ).fetchPreview('https://v.douyin.com/abc/');
     expect(data.title, '标题包含 } 和 undefined');
     expect(data.imageUrl, 'https://img.example.com/a.jpg');
-    expect(data.appUri.toString(),
-        'snssdk1128://aweme/detail/1234567890123456789');
+    expect(
+      data.appUri.toString(),
+      'snssdk1128://aweme/detail/1234567890123456789',
+    );
   });
 
   test('小红书 cn 短链保留安全参数并提取笔记封面', () async {
     final client = MockClient((r) async {
       if (r.url.host == 'xhslink.cn') {
-        return _response('', 302, headers: {
-          'location':
-              'https://www.xiaohongshu.com/explore/abcdef123?xsec_token=a%2Bb'
-        });
+        return _response(
+          '',
+          302,
+          headers: {
+            'location':
+                'https://www.xiaohongshu.com/explore/abcdef123?xsec_token=a%2Bb',
+          },
+        );
       }
       return _response(
-          '''<script>window.__INITIAL_STATE__={"note":{"noteDetailMap":{"abcdef123":{"note":{"title":"笔记标题","imageList":[{"urlDefault":"//img.example.com/x.jpg"}],"unused":undefined}}}}};</script>''',
-          200);
+        '''<script>window.__INITIAL_STATE__={"note":{"noteDetailMap":{"abcdef123":{"note":{"title":"笔记标题","imageList":[{"urlDefault":"//img.example.com/x.jpg"}],"unused":undefined}}}}};</script>''',
+        200,
+      );
     });
-    final data = await LinkPreviewService.withClient(client)
-        .fetchPreview('https://xhslink.cn/abc');
+    final data = await LinkPreviewService.withClient(
+      client,
+    ).fetchPreview('https://xhslink.cn/abc');
     expect(data.type, LinkType.xiaohongshu);
     expect(data.title, '笔记标题');
     expect(data.imageUrl, 'https://img.example.com/x.jpg');
@@ -121,24 +147,30 @@ void main() {
   });
 
   test('普通网页相对封面根据重定向后的页面解析', () async {
-    final client = MockClient((r) async => r.url.path == '/short'
-        ? _response('', 302, headers: {'location': '/posts/1'})
-        : _response(
-            '<meta name="twitter:image" content="../cover.jpg"><meta property="og:title" content="标题">',
-            200));
-    final data = await LinkPreviewService.withClient(client)
-        .fetchPreview('https://example.com/short');
+    final client = MockClient(
+      (r) async => r.url.path == '/short'
+          ? _response('', 302, headers: {'location': '/posts/1'})
+          : _response(
+              '<meta name="twitter:image" content="../cover.jpg"><meta property="og:title" content="标题">',
+              200,
+            ),
+    );
+    final data = await LinkPreviewService.withClient(
+      client,
+    ).fetchPreview('https://example.com/short');
     expect(data.imageUrl, 'https://example.com/cover.jpg');
   });
 
   test('失败不污染平台类型或永久缓存，下一次可以恢复', () async {
     var calls = 0;
-    final service = LinkPreviewService.withClient(MockClient((r) async {
-      calls++;
-      return calls == 1
-          ? _response('', 403)
-          : _response('<meta property="og:image" content="/a.jpg">', 200);
-    }));
+    final service = LinkPreviewService.withClient(
+      MockClient((r) async {
+        calls++;
+        return calls == 1
+            ? _response('', 403)
+            : _response('<meta property="og:image" content="/a.jpg">', 200);
+      }),
+    );
     final failed = await service.fetchPreview('https://xhslink.cn/abc');
     expect(failed.type, LinkType.xiaohongshu);
     expect(failed.imageUrl, isNull);
@@ -146,44 +178,114 @@ void main() {
     expect((await service.fetchPreview(failed.url)).imageUrl, isNotNull);
   });
 
+  test('空白和失败的网页不作为成功预览保存', () async {
+    var calls = 0;
+    final service = LinkPreviewService.withClient(
+      MockClient((_) async {
+        calls++;
+        return calls == 1
+            ? _response('', 403)
+            : _response('<link rel="icon" href="/favicon.ico">', 200);
+      }),
+    );
+    const url = 'https://example.com/empty';
+    expect((await service.fetchPreview(url)).isAvailable, isFalse);
+    expect((await service.fetchPreview(url)).isAvailable, isFalse);
+    expect(calls, 2);
+  });
+
+  test('重开后从磁盘复用网页预览和缩略图', () async {
+    final directory = await Directory.systemTemp.createTemp('link-preview-');
+    addTearDown(() => directory.delete(recursive: true));
+    const url = 'https://example.com/post';
+    final service = LinkPreviewService.withClient(
+      MockClient(
+        (request) async => request.url.path == '/cover.png'
+            ? http.Response.bytes(
+                [1, 2, 3],
+                200,
+                headers: {'content-type': 'image/png'},
+              )
+            : _response(
+                '<title>文章标题</title>'
+                '<meta name="description" content="摘要">'
+                '<meta property="og:image" content="/cover.png">',
+                200,
+              ),
+      ),
+      cacheDirectory: () async => directory,
+    );
+    final preview = await service.fetchPreview(url);
+    expect(preview.isAvailable, isTrue);
+    expect(await service.fetchThumbnail(preview), [1, 2, 3]);
+
+    var calls = 0;
+    final reopened = LinkPreviewService.withClient(
+      MockClient((_) async {
+        calls++;
+        return _response('', 503);
+      }),
+      cacheDirectory: () async => directory,
+    );
+    final restored = await reopened.fetchPreview(url);
+    expect(restored.isAvailable, isTrue);
+    expect(restored.title, '文章标题');
+    expect(restored.description, '摘要');
+    expect(await reopened.fetchThumbnail(restored), [1, 2, 3]);
+    expect(calls, 0);
+  });
+
   test('同一短链并发请求合并', () async {
     var calls = 0;
-    final service = LinkPreviewService.withClient(MockClient((r) async {
-      calls++;
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-      return _response('<meta property="og:image" content="/a.jpg">', 200);
-    }));
+    final service = LinkPreviewService.withClient(
+      MockClient((r) async {
+        calls++;
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        return _response('<meta property="og:image" content="/a.jpg">', 200);
+      }),
+    );
     await Future.wait([
       service.fetchPreview('https://example.com/a'),
-      service.fetchPreview('https://example.com/a')
+      service.fetchPreview('https://example.com/a'),
     ]);
     expect(calls, 1);
   });
 
   test('循环重定向有界结束', () async {
     final client = MockClient(
-        (r) async => _response('', 302, headers: {'location': '/loop'}));
+      (r) async => _response('', 302, headers: {'location': '/loop'}),
+    );
     await expectLater(
-        fetchLinkPage(client, Uri.parse('https://example.com/loop'), {}),
-        throwsFormatException);
+      fetchLinkPage(client, Uri.parse('https://example.com/loop'), {}),
+      throwsFormatException,
+    );
   });
 
   test('URL 提取删除中文标点、去重，不把仿冒域名识别为平台', () {
     expect(
-        LinkPreviewService.extractUrls(
-            '看看 https://v.douyin.com/abc/。 https://v.douyin.com/abc/'),
-        ['https://v.douyin.com/abc/']);
+      LinkPreviewService.extractUrls(
+        '看看 https://v.douyin.com/abc/。 https://v.douyin.com/abc/',
+      ),
+      ['https://v.douyin.com/abc/'],
+    );
     expect(
-        LinkPreviewService.identifyLinkType(
-            'https://douyin.com.evil.example/video/1'),
-        LinkType.web);
-    expect(LinkPreviewService.identifyLinkType('https://xhslink.cn/a'),
-        LinkType.xiaohongshu);
+      LinkPreviewService.identifyLinkType(
+        'https://douyin.com.evil.example/video/1',
+      ),
+      LinkType.web,
+    );
+    expect(
+      LinkPreviewService.identifyLinkType('https://xhslink.cn/a'),
+      LinkType.xiaohongshu,
+    );
   });
 
   test('未解析出作品 ID 的短链不拼接无效 scheme', () {
     const data = LinkPreviewData(
-        url: 'https://v.douyin.com/abc/', title: '抖音视频', type: LinkType.douyin);
+      url: 'https://v.douyin.com/abc/',
+      title: '抖音视频',
+      type: LinkType.douyin,
+    );
     expect(data.appUri, isNull);
   });
 
@@ -200,14 +302,20 @@ void main() {
     final client = MockClient((request) async {
       calls++;
       if (calls == 1) {
-        return _response('<title>shell</title>', 200,
-            headers: {'set-cookie': '_ac_nonce=abc; Path=/; HttpOnly'});
+        return _response(
+          '<title>shell</title>',
+          200,
+          headers: {'set-cookie': '_ac_nonce=abc; Path=/; HttpOnly'},
+        );
       }
       expect(request.headers['Cookie'], '_ac_nonce=abc');
       return _response('<title>video</title>', 200);
     });
     final result = await fetchLinkPage(
-        client, Uri.parse('https://www.douyin.com/share/video/123/'), {});
+      client,
+      Uri.parse('https://www.douyin.com/share/video/123/'),
+      {},
+    );
     expect(calls, 2);
     expect(result.response.body, contains('video'));
   });
@@ -216,12 +324,18 @@ void main() {
     final client = MockClient((request) async {
       calls++;
       if (calls == 1)
-        return _response('', 302,
-            headers: {'location': '/step2', 'set-cookie': 'share=abc; Path=/'});
+        return _response(
+          '',
+          302,
+          headers: {'location': '/step2', 'set-cookie': 'share=abc; Path=/'},
+        );
       if (calls == 2) {
         expect(request.headers['Cookie'], 'share=abc');
-        return _response('', 302,
-            headers: {'location': 'https://cdn.example.com/video'});
+        return _response(
+          '',
+          302,
+          headers: {'location': 'https://cdn.example.com/video'},
+        );
       }
       expect(request.headers['Cookie'], isNull);
       return _response('done', 200);

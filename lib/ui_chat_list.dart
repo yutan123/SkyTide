@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'chat_event_bus.dart';
 import 'chat_protocol.dart';
-import 'message_delivery_service.dart';
 import 'db.dart';
 import 'global_notice.dart';
 import 'ui_components.dart';
@@ -263,34 +262,39 @@ class ChatListPageState extends State<ChatListPage> {
       return;
     }
 
-    // Show known bots before waiting for their message previews on first load.
-    // Refreshes keep the existing cards until the complete replacement is ready.
-    if (!_hasLoaded || _bots.isEmpty) {
-      final initial = bots
-          .map(
-            (bot) => <String, dynamic>{
-              ...bot,
-              'preview': '',
-              'lastTime':
-                  (bot['last_msg_time'] as int?) ??
-                  (bot['created_at'] as int?) ??
-                  0,
-              'unread': false,
-            },
-          )
-          .toList();
-      _applyBots(initial, persist: false);
+    final previous = {for (final bot in _bots) bot['id']: bot};
+    int compareBots(Map<String, dynamic> a, Map<String, dynamic> b) {
+      final aPin = (a['is_pinned'] as num?)?.toInt() ?? 0;
+      final bPin = (b['is_pinned'] as num?)?.toInt() ?? 0;
+      if (aPin != bPin) return bPin.compareTo(aPin);
+      return (b['lastTime'] as int).compareTo(a['lastTime'] as int);
     }
 
-    final previous = {for (final bot in _bots) bot['id']: bot};
-    // 并发查询所有机器人的消息预览
-    final previewFutures = bots.map((b) async {
+    // Publish additions and deletions before querying message previews.
+    final initial = [
+      for (final bot in bots)
+        <String, dynamic>{
+          ...bot,
+          'preview': previous[bot['id']]?['preview'] ?? '',
+          'lastTime':
+              (previous[bot['id']]?['lastTime'] as num?)?.toInt() ??
+              (bot['last_msg_time'] as num?)?.toInt() ??
+              (bot['created_at'] as num?)?.toInt() ??
+              0,
+          'unread': previous[bot['id']]?['unread'] ?? false,
+        },
+    ]..sort(compareBots);
+    _applyBots(initial, persist: false);
+
+    Future<Map<String, dynamic>> loadPreview(Map<String, dynamic> b) async {
       List<Map<String, dynamic>> msgs = const [];
       try {
         msgs = await DBManager().queryMessages(
           b['id'] as String,
           limit: 30,
           descending: true,
+          columns: const ['type', 'content', 'timestamp', 'role'],
+          throwOnError: true,
         );
       } catch (error) {
         print('[chat_list] queryMessages failed: $error');
@@ -318,7 +322,7 @@ class ChatListPageState extends State<ChatListPage> {
           rawContent: chosen['content']?.toString() ?? '',
         );
         if (preview.length > 25) preview = '${preview.substring(0, 25)}...';
-        lastTime = msgs.first['timestamp'] as int? ?? lastTime;
+        lastTime = (msgs.first['timestamp'] as num?)?.toInt() ?? lastTime;
       }
       final latestAssistant = msgs
           .where((message) => message['role']?.toString() == 'assistant')
@@ -333,15 +337,18 @@ class ChatListPageState extends State<ChatListPage> {
         'lastTime': lastTime,
         'unread': latestAssistant > lastRead,
       };
-    }).toList();
+    }
 
-    final enriched = await Future.wait(previewFutures);
-    enriched.sort((a, b) {
-      final aPin = (a['is_pinned'] as int?) ?? 0;
-      final bPin = (b['is_pinned'] as int?) ?? 0;
-      if (aPin != bPin) return bPin.compareTo(aPin);
-      return (b['lastTime'] as int).compareTo(a['lastTime'] as int);
-    });
+    // Bound the number of queued reads so other screens can access SQLite.
+    const batchSize = 4;
+    final enriched = <Map<String, dynamic>>[];
+    for (var start = 0; start < initial.length; start += batchSize) {
+      if (!mounted || generation != _loadGeneration) return;
+      enriched.addAll(
+        await Future.wait(initial.skip(start).take(batchSize).map(loadPreview)),
+      );
+    }
+    enriched.sort(compareBots);
     if (mounted && generation == _loadGeneration) {
       _applyBots(enriched);
     }
@@ -439,16 +446,11 @@ class ChatListPageState extends State<ChatListPage> {
     if (id.isEmpty || !_openingBots.add(id)) return;
     if (mounted) setState(() {});
     try {
-      final current = await DBManager().getBotById(id);
-      if (!mounted) return;
-      if (current == null) {
-        await load();
-        return;
-      }
       await Navigator.push(
         context,
         PageRouteBuilder(
-          pageBuilder: (c, a, s) => ChatRoomPage(botData: current),
+          pageBuilder: (c, a, s) =>
+              ChatRoomPage(botData: bot, refreshBotOnOpen: true),
           transitionDuration: const Duration(milliseconds: 380),
           reverseTransitionDuration: const Duration(milliseconds: 240),
           transitionsBuilder: (c, a, s, child) {
@@ -470,8 +472,7 @@ class ChatListPageState extends State<ChatListPage> {
           },
         ),
       );
-      await MessageDeliveryService.instance.markRead(id);
-      if (mounted) load();
+      if (mounted) unawaited(load());
     } catch (error) {
       debugPrint('[chat_list] open chat failed: $error');
       if (mounted) GlobalNotice.show('暂时无法打开聊天，请重试');

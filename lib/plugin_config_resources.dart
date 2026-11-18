@@ -8,16 +8,19 @@ import 'plugin_file_store.dart';
 import 'plugin_system.dart';
 
 class PluginConfigOption {
-  const PluginConfigOption(
-    this.id,
-    this.label, [
-    this.detail = '',
-    this.avatar,
-  ]);
+  const PluginConfigOption(this.id, this.label, [this.detail = ''])
+    : avatar = null,
+      isBot = false;
+
+  const PluginConfigOption.bot(this.id, this.label, this.avatar)
+    : detail = '',
+      isBot = true;
+
   final String id;
   final String label;
   final String detail;
   final String? avatar;
+  final bool isBot;
 }
 
 /// Only public display information and opaque IDs leave this host-side catalog.
@@ -30,10 +33,9 @@ class PluginConfigResources {
     if (kind == 'bot') {
       return [
         for (final bot in await db.queryBots())
-          PluginConfigOption(
+          PluginConfigOption.bot(
             bot['id'].toString(),
             bot['name']?.toString() ?? '机器人',
-            '',
             bot['avatar']?.toString(),
           ),
       ];

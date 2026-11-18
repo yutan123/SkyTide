@@ -216,6 +216,9 @@ class TideDialogSurface extends StatelessWidget {
   final Color? backgroundColor;
   final AlignmentGeometry alignment;
 
+  /// Fraction of the available height after the safe area and margin.
+  final double? maxHeightFactor;
+
   const TideDialogSurface({
     super.key,
     this.child,
@@ -226,7 +229,11 @@ class TideDialogSurface extends StatelessWidget {
     this.contentPadding,
     this.backgroundColor,
     this.alignment = Alignment.center,
-  });
+    this.maxHeightFactor,
+  }) : assert(
+         maxHeightFactor == null ||
+             (maxHeightFactor > 0 && maxHeightFactor <= 1),
+       );
 
   @override
   Widget build(BuildContext context) {
@@ -255,12 +262,23 @@ class TideDialogSurface extends StatelessWidget {
             ],
           ),
         );
+    final material = Material(type: MaterialType.transparency, child: body);
+    final heightFactor = maxHeightFactor;
     return SafeArea(
       child: Align(
         alignment: alignment,
         child: Padding(
           padding: margin,
-          child: Material(type: MaterialType.transparency, child: body),
+          child: heightFactor == null
+              ? material
+              : LayoutBuilder(
+                  builder: (_, constraints) => ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: constraints.maxHeight * heightFactor,
+                    ),
+                    child: material,
+                  ),
+                ),
         ),
       ),
     );

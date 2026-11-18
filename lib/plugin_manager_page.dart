@@ -468,16 +468,10 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   }
 
   Future<void> _install() async {
-    final path = await _pickZip();
-    if (path == null) return;
     try {
-      _operation?.check();
-      final reviewedPath = await _reviewPackage(path);
-      if (reviewedPath == null) return;
-      await PluginSystem.instance.installZip(
-        reviewedPath,
-        operation: _operation,
-      );
+      final path = await _pickZip();
+      if (path == null || !mounted) return;
+      await PluginSystem.instance.installZip(path, operation: _operation);
       if (mounted) _notice('插件已安装，默认关闭；配置完成后可启用');
     } finally {
       await _cleanTemp();
@@ -795,50 +789,56 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     }
   }
 
+  static const _detailDialogMaxHeightFactor = 0.78;
+
   Future<void> _details(Map<String, dynamic> row) => TideDialogs.show<void>(
     context: context,
     builder: (dialogContext) {
       final theme = TideTheme.of(dialogContext);
       final pack = _packages[row['id']];
       final error = PluginService.instance.errors[row['id']];
-      return Center(
-        child: Material(
-          color: Colors.transparent,
-          child: TideDialogs.glassContent(
-            context: dialogContext,
-            children: [
-              Row(
+      return TideDialogSurface(
+        maxHeightFactor: _detailDialogMaxHeightFactor,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        title: Row(
+          children: [
+            _pluginIcon(pack, size: 52),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _pluginIcon(pack, size: 52),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          row['name']?.toString() ?? row['id'].toString(),
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w700,
-                            color: theme.textStrong,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          '${_author(row)} · v${row['version']}',
-                          style: TextStyle(fontSize: 12, color: theme.textWeak),
-                        ),
-                      ],
+                  Text(
+                    row['name']?.toString() ?? row['id'].toString(),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: theme.textStrong,
                     ),
                   ),
-                  IconButton(
-                    tooltip: '关闭详情',
-                    onPressed: () => Navigator.pop(dialogContext),
-                    icon: const Icon(Icons.close_rounded),
+                  const SizedBox(height: 5),
+                  Text(
+                    '${_author(row)} · v${row['version']}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: theme.textWeak),
                   ),
                 ],
               ),
-              const SizedBox(height: 22),
+            ),
+            IconButton(
+              tooltip: '关闭详情',
+              onPressed: () => Navigator.pop(dialogContext),
+              icon: const Icon(Icons.close_rounded),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
                 '插件介绍',
                 style: TextStyle(
@@ -945,10 +945,17 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     }
   }
 
-  Future<void> _textDialog(String title, String text) => TideDialogs.show<void>(
+  Future<void> _textDialog(
+    String title,
+    String text, {
+    double? maxHeightFactor,
+  }) => TideDialogs.show<void>(
     context: context,
     builder: (ctx) => TideDialogSurface(
-      title: Align(alignment: Alignment.centerLeft, child: Text(title)),
+      maxHeightFactor: maxHeightFactor,
+      title: maxHeightFactor == null
+          ? Align(alignment: Alignment.centerLeft, child: Text(title))
+          : Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
       content: SizedBox(
         width: double.maxFinite,
         child: SingleChildScrollView(
@@ -978,6 +985,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       if (showChangelog && plugin.changelog.trim().isNotEmpty)
         '更新说明\n${plugin.changelog}',
     ].join('\n\n'),
+    maxHeightFactor: _detailDialogMaxHeightFactor,
   );
 
   Widget _action(

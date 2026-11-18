@@ -40,6 +40,17 @@ import java.io.File
 import java.io.FileOutputStream
 
 class MainActivity: FlutterActivity() {
+    private val activityStartedAt = android.os.SystemClock.uptimeMillis()
+    private var loggedFirstFlutterFrame = false
+
+    override fun onFlutterUiDisplayed() {
+        super.onFlutterUiDisplayed()
+        if (loggedFirstFlutterFrame) return
+        loggedFirstFlutterFrame = true
+        val elapsed = android.os.SystemClock.uptimeMillis() - activityStartedAt
+        android.util.Log.i("TideStartup", "First Flutter frame displayed ${elapsed}ms after Activity creation")
+    }
+
     private var dataTransfer: DataTransfer? = null
     override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
         selectionMenu?.beforeTouchEvent(event)

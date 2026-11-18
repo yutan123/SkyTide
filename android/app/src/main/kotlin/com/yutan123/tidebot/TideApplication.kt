@@ -40,7 +40,12 @@ class TideApplication : Application() {
         val name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) Application.getProcessName()
         else (base.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
             .runningAppProcesses?.firstOrNull { it.pid == android.os.Process.myPid() }?.processName
-        if (name == base.packageName) TideColdRestore.applyBeforeProviders(base)
+        if (name == base.packageName) {
+            val startedAt = android.os.SystemClock.uptimeMillis()
+            TideColdRestore.applyBeforeProviders(base)
+            val elapsed = android.os.SystemClock.uptimeMillis() - startedAt
+            Log.i("TideStartup", "Pre-provider restore check finished in ${elapsed}ms")
+        }
     }
     override fun onCreate() {
         super.onCreate()

@@ -13,7 +13,7 @@ dependencies:
 
   # 本地存储与极密底座
   sqflite: ^2.3.0
-  shared_preferences: ^2.2.3
+  shared_preferences: ^2.3.0
   # Keep the pre-migration Android bridge: newer Kotlin/JNI getAll bindings
   # can fail at runtime before any saved preferences can be read.
   shared_preferences_android: 2.4.25

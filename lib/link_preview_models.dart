@@ -7,6 +7,7 @@ class LinkPreviewData {
   final LinkType type;
   final Map<String, String> imageHeaders;
   final String? videoUrl;
+  final bool isAvailable;
 
   const LinkPreviewData({
     required this.url,
@@ -15,6 +16,7 @@ class LinkPreviewData {
     this.imageUrl,
     this.videoUrl,
     this.imageHeaders = const {},
+    this.isAvailable = true,
     required this.type,
   });
 
@@ -25,50 +27,56 @@ class LinkPreviewData {
     final path = uri.path;
     switch (type) {
       case LinkType.douyin:
-        final id = RegExp(r'/(?:video|note|slides)/(\d+)')
-                .firstMatch(path)
-                ?.group(1) ??
+        final id =
+            RegExp(
+              r'/(?:video|note|slides)/(\d+)',
+            ).firstMatch(path)?.group(1) ??
             uri.queryParameters['modal_id'] ??
             uri.queryParameters['aweme_id'];
         return id != null && RegExp(r'^\d+$').hasMatch(id)
             ? Uri.parse('snssdk1128://aweme/detail/$id')
             : null;
       case LinkType.xiaohongshu:
-        final id = RegExp(r'/(?:explore|discovery/item)/([a-zA-Z0-9]+)')
-            .firstMatch(path)
-            ?.group(1);
+        final id = RegExp(
+          r'/(?:explore|discovery/item)/([a-zA-Z0-9]+)',
+        ).firstMatch(path)?.group(1);
         return id == null
             ? null
             : Uri(
                 scheme: 'xhsdiscover',
                 host: 'item',
                 path: '/$id',
-                queryParameters:
-                    uri.queryParameters.isEmpty ? null : uri.queryParameters);
+                queryParameters: uri.queryParameters.isEmpty
+                    ? null
+                    : uri.queryParameters,
+              );
       case LinkType.bilibili:
-        final id = RegExp(r'/video/((?:BV[0-9A-Za-z]{10})|(?:av\d+))',
-                caseSensitive: false)
-            .firstMatch(path)
-            ?.group(1);
+        final id = RegExp(
+          r'/video/((?:BV[0-9A-Za-z]{10})|(?:av\d+))',
+          caseSensitive: false,
+        ).firstMatch(path)?.group(1);
         return id == null
             ? null
             : Uri(
                 scheme: 'bilibili',
                 host: 'video',
                 path: '/${id.startsWith('av') ? id.substring(2) : id}',
-                queryParameters:
-                    uri.queryParameters.isEmpty ? null : uri.queryParameters);
+                queryParameters: uri.queryParameters.isEmpty
+                    ? null
+                    : uri.queryParameters,
+              );
       case LinkType.web:
         return null;
     }
   }
 
   factory LinkPreviewData.error(String url) => LinkPreviewData(
-        url: url,
-        title: '链接预览失败',
-        description: url,
-        type: LinkType.web,
-      );
+    url: url,
+    title: '链接预览失败',
+    isAvailable: false,
+    description: url,
+    type: LinkType.web,
+  );
 }
 
 /// 链接类型枚举
