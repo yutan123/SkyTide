@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'plugin_config_ui.dart';
 
 /// The supported, deliberately small JSON Schema subset shared by settings and SDK.
 class PluginContract {
@@ -33,6 +34,7 @@ class PluginContract {
     'network.files',
     'media.process',
     'schema.nested',
+    'config.ui',
     'storage.large',
     'tasks.recurring',
     'workers',
@@ -224,6 +226,7 @@ class PluginContract {
             throw const FormatException('enum 不允许重复值');
         }
       }
+      PluginConfigUi.validate(field);
       if (field.containsKey('default'))
         _field('default', field['default'], field, depth);
     }
@@ -254,6 +257,7 @@ class PluginContract {
     if (field['enum'] is List &&
         !(field['enum'] as List).any((v) => jsonEncode(v) == jsonEncode(value)))
       throw FormatException('$key 必须选择声明的枚举值');
+    PluginConfigUi.validateValue(key, value, field);
     if (value is num) {
       if (field['minimum'] is num && value < field['minimum'])
         throw FormatException('$key 小于最小值');
@@ -284,6 +288,12 @@ class PluginContract {
             (!props.containsKey(k) && field['additionalProperties'] != true),
       ))
         throw FormatException('$key 包含未声明的配置/参数');
+      final effective = <String, dynamic>{
+        for (final entry in props.entries)
+          entry.key as String: value.containsKey(entry.key)
+              ? value[entry.key]
+              : (entry.value as Map)['default'],
+      };
       final result = <String, dynamic>{};
       if (field['additionalProperties'] == true)
         result.addAll(
@@ -294,7 +304,8 @@ class PluginContract {
         final present = value.containsKey(entry.key);
         final next = present ? value[entry.key] : child['default'];
         if (next == null) {
-          if ((field['required'] as List? ?? []).contains(entry.key))
+          if ((field['required'] as List? ?? []).contains(entry.key) &&
+              PluginConfigUi.visible(child, effective))
             throw FormatException('${entry.key} 为必填项');
           continue;
         }

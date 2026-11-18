@@ -90,13 +90,7 @@ extension _TelegramChat on _ChatRoomPageState {
               ),
             ),
             const SizedBox(width: 7),
-            Builder(
-              builder: (anchor) => button(
-                Icons.more_vert,
-                '聊天菜单',
-                () => _telegramChatMenu(anchor),
-              ),
-            ),
+            TelegramChatMenuIsland(onPressed: _telegramChatMenu),
           ],
         ),
       ),
@@ -154,10 +148,14 @@ extension _TelegramChat on _ChatRoomPageState {
     );
   }
 
-  Future<void> _telegramChatMenu(BuildContext anchor) async {
+  Future<void> _telegramChatMenu(
+    BuildContext anchor,
+    VoidCallback onClosed,
+  ) async {
     _inputFocus.unfocus();
     final action = await showTelegramMenu<int>(
       context: anchor,
+      duration: const Duration(milliseconds: 180),
       builder: (ctx) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -176,6 +174,7 @@ extension _TelegramChat on _ChatRoomPageState {
       ),
     );
     if (!mounted) return;
+    onClosed();
     if (action == 0) await _openCallPreparation();
     if (action == 1) _showDeleteOptions();
     if (action == 2) _showModelSettings();
@@ -555,12 +554,49 @@ extension _TelegramChat on _ChatRoomPageState {
     );
   }
 
+  bool _telegramJoinsMessages(
+    Map<String, dynamic>? first,
+    Map<String, dynamic>? second,
+  ) {
+    if (first == null || second == null || first['role'] != second['role'])
+      return false;
+    bool textBubble(Map<String, dynamic> message) =>
+        !{
+          'document',
+          'file',
+          'image',
+          'video',
+          'audio',
+          'voice',
+          'sticker',
+          'emoji',
+          'voice_call_card',
+          'inner_thought',
+        }.contains(message['type']) &&
+        ![
+          'image',
+          'audio',
+          'video',
+          'image_path',
+          'video_path',
+          'audio_path',
+          'file_path',
+        ].any((key) => message[key]?.toString().isNotEmpty == true);
+    return textBubble(first) &&
+        textBubble(second) &&
+        !telegramStartsNewDay(
+          (second['timestamp'] as num?)?.toInt() ?? 0,
+          (first['timestamp'] as num?)?.toInt() ?? 0,
+        );
+  }
+
   Widget _telegramContent(
     Map<String, dynamic> message,
     bool visible,
     Widget child, {
     required int index,
-    bool document = false,
+    bool attachment = false,
+    bool voice = false,
     bool inlineStamp = false,
   }) {
     if (!TideTheme.of(context).isTelegram || !visible) return child;
@@ -573,19 +609,36 @@ extension _TelegramChat on _ChatRoomPageState {
         if (!streaming && !inlineStamp) _telegramMessageStamp(message),
       ],
     );
-    if (document) return content;
+    if (voice) {
+      bool joinsVoice(Map<String, dynamic>? other) =>
+          other != null &&
+          other['role'] == message['role'] &&
+          (other['type'] == 'audio' || other['type'] == 'voice') &&
+          !telegramStartsNewDay(
+            (other['timestamp'] as num?)?.toInt() ?? 0,
+            (message['timestamp'] as num?)?.toInt() ?? 0,
+          );
+      return SizedBox(
+        width: 228,
+        child: TelegramBubble(
+          isUser: message['role'] == 'user',
+          joinsPrevious: joinsVoice(index > 0 ? _msgs[index - 1] : null),
+          showTail: !joinsVoice(
+            index + 1 < _msgs.length ? _msgs[index + 1] : null,
+          ),
+          child: content,
+        ),
+      );
+    }
+    if (attachment) return content;
+    final previous = index > 0 ? _msgs[index - 1] : null;
     final next = index + 1 < _msgs.length ? _msgs[index + 1] : null;
-    final showTail =
-        next == null ||
-        next['role'] != message['role'] ||
-        next['type'] == 'voice_call_card' ||
-        telegramStartsNewDay(
-          (next['timestamp'] as num?)?.toInt() ?? 0,
-          (message['timestamp'] as num?)?.toInt() ?? 0,
-        );
+    final joinsPrevious = _telegramJoinsMessages(previous, message);
+    final showTail = !_telegramJoinsMessages(message, next);
     return TelegramBubble(
       isUser: message['role'] == 'user',
       showTail: showTail,
+      joinsPrevious: joinsPrevious,
       child: content,
     );
   }

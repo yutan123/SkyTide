@@ -6,7 +6,7 @@ import 'qq_theme_widgets.dart';
 import 'theme.dart';
 import 'wechat_theme_widgets.dart';
 
-/// Compact voice controls. The chat row owns avatars and Telegram's outer bubble.
+/// Compact voice controls. The chat row owns avatars and the voice bubble.
 class MessagingVoiceMessage extends StatelessWidget {
   const MessagingVoiceMessage({
     super.key,
@@ -30,16 +30,16 @@ class MessagingVoiceMessage extends StatelessWidget {
     final theme = TideTheme.of(context);
     final seconds = (duration.inMilliseconds / 1000).ceil();
     final known = seconds > 0;
-    final label = known ? '$seconds″' : '语音';
+    final label = '${math.max(0, seconds)}″';
     final foreground = theme.isWechat
         ? (isUser || !theme.isDark ? const Color(0xFF111111) : theme.textStrong)
         : theme.isQq && isUser
         ? Colors.white
         : theme.textStrong;
     final width = theme.isTelegram
-        ? 216.0
+        ? 204.0
         : theme.isQq
-        ? (112.0 + seconds.clamp(0, 30) * 4).clamp(112.0, 192.0)
+        ? (116.0 + seconds.clamp(0, 30) * 4).clamp(120.0, 192.0)
         : (74.0 + seconds.clamp(0, 60) * 3).clamp(80.0, 200.0);
     return LayoutBuilder(
       builder: (context, constraints) => SizedBox(
@@ -61,11 +61,11 @@ class MessagingVoiceMessage extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: isUser ? qqBlue : theme.surface,
-                            borderRadius: BorderRadius.circular(11),
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
                             children: [
-                              _playButton(foreground, size: 26, subtle: true),
+                              _playButton(foreground, size: 28, subtle: true),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: _VoiceBars(
@@ -161,9 +161,7 @@ class MessagingVoiceMessage extends StatelessWidget {
     final muted = theme.isDark
         ? const Color(0xFFA1BDAC)
         : const Color(0xFF82A38F);
-    final elapsed = !isUser || playing || position > Duration.zero
-        ? position
-        : duration;
+    final elapsed = playing || position > Duration.zero ? position : duration;
     final seconds = elapsed.inSeconds;
     final time = duration > Duration.zero
         ? '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}'
@@ -176,7 +174,7 @@ class MessagingVoiceMessage extends StatelessWidget {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: onToggle,
-            child: _playButton(accent, size: 44),
+            child: _playButton(accent, size: 38),
           ),
         ),
         const SizedBox(width: 10),
@@ -186,7 +184,7 @@ class MessagingVoiceMessage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                height: 27,
+                height: 24,
                 child: isUser
                     ? LayoutBuilder(
                         builder: (_, constraints) => Semantics(
@@ -294,10 +292,14 @@ class _VoiceBars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: compact ? 20 : 24,
+    height: compact ? 20 : 22,
     width: double.infinity,
-    child: CustomPaint(
-      painter: _VoiceBarsPainter(color, progress, playing, compact),
+    child: TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: progress, end: progress),
+      duration: Duration(milliseconds: compact && playing ? 180 : 0),
+      builder: (_, value, _) => CustomPaint(
+        painter: _VoiceBarsPainter(color, value, playing, compact),
+      ),
     ),
   );
 }
@@ -326,11 +328,12 @@ class _VoiceBarsPainter extends CustomPainter {
           ? const [.65, 1.0, .8, .5, .9]
           : const [.15, .2, .35, .8, .95, .4, .65, .3, .5, .9, .25, .45];
       final amplitude = pattern[i % pattern.length];
-      final pulse = compact && playing
-          ? .75 + .25 * math.sin(progress * 40 + i).abs()
-          : 1.0;
-      final height = math.max(2.0, size.height * amplitude * pulse);
-      paint.color = compact || i / count < progress
+      final height = math.max(2.0, size.height * amplitude);
+      paint.color = compact
+          ? (!playing && progress == 0 || (i + .5) / count <= progress
+                ? color
+                : color.withValues(alpha: .3))
+          : i / count < progress
           ? color
           : color.withValues(alpha: .35);
       final x = spacing * (i + .5);
@@ -339,6 +342,13 @@ class _VoiceBarsPainter extends CustomPainter {
         Offset(x, (size.height + height) / 2),
         paint,
       );
+    }
+    if (compact && size.width > 1 && (playing || progress > 0)) {
+      final cursor = Paint()
+        ..color = Colors.black.withValues(alpha: .65)
+        ..strokeWidth = 1;
+      final x = (size.width * progress).clamp(.5, size.width - .5);
+      canvas.drawLine(Offset(x, -7), Offset(x, size.height + 7), cursor);
     }
   }
 

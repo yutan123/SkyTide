@@ -69,6 +69,12 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
           const SizedBox(height: 20),
           InterfaceThemeCard(
             title: 'Telegram风格主题',
+            preview: Image.asset(
+              'assets/images/theme_preview_telegram.jpg',
+              fit: BoxFit.contain,
+              semanticLabel: 'Telegram风格主题预览',
+              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+            ),
             applied: theme.isTelegram,
             busy: _saving,
             onPressed: () => _select(theme.isTelegram ? 'default' : 'telegram'),

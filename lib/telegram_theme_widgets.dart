@@ -48,6 +48,7 @@ Future<T?> showTelegramMenu<T>({
   required WidgetBuilder builder,
   bool preferAbove = false,
   double width = 196,
+  Duration duration = const Duration(milliseconds: 440),
 }) async {
   final navigator = Navigator.of(context, rootNavigator: true);
   final overlay = navigator.overlay!.context.findRenderObject()! as RenderBox;
@@ -59,7 +60,7 @@ Future<T?> showTelegramMenu<T>({
     barrierDismissible: true,
     barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
     barrierColor: Colors.black.withValues(alpha: .12),
-    transitionDuration: const Duration(milliseconds: 440),
+    transitionDuration: duration,
     transitionBuilder: (_, animation, secondary, child) => child,
     pageBuilder: (ctx, animation, secondary) => AnimatedBuilder(
       animation: animation,
@@ -105,6 +106,77 @@ Future<T?> showTelegramMenu<T>({
   final result = await navigator.push<T>(route);
   await route.completed;
   return result;
+}
+
+/// Local spring motion keeps the title and back button stationary.
+class TelegramChatMenuIsland extends StatefulWidget {
+  const TelegramChatMenuIsland({super.key, required this.onPressed});
+  final Future<void> Function(BuildContext, VoidCallback) onPressed;
+  @override
+  State<TelegramChatMenuIsland> createState() => _TelegramChatMenuIslandState();
+}
+
+class _TelegramChatMenuIslandState extends State<TelegramChatMenuIsland>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _spring = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+  bool _open = false;
+  @override
+  void dispose() {
+    _spring.dispose();
+    super.dispose();
+  }
+
+  Future<void> _press() async {
+    if (_open) return;
+    _open = true;
+    _spring.forward(from: 0);
+    try {
+      await widget.onPressed(context, () {
+        if (mounted) _spring.forward(from: 0);
+      });
+    } finally {
+      _open = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = TideTheme.of(context);
+    return AnimatedBuilder(
+      animation: _spring,
+      child: TelegramGlass(
+        fillOpacity: theme.isDark ? .48 : .52,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: IconButton(
+            tooltip: '聊天菜单',
+            onPressed: _press,
+            icon: Icon(Icons.more_vert, color: theme.textStrong),
+          ),
+        ),
+      ),
+      builder: (context, child) {
+        final t = _spring.value;
+        final wave = math.sin(t * math.pi * 4) * math.exp(-t * 4) * (1 - t);
+        return Transform.translate(
+          offset: Offset(0, -6 * wave),
+          child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(
+              1 - .09 * wave,
+              1 + .12 * wave,
+              1,
+            ),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
 }
 
 class TelegramMenuItem extends StatelessWidget {
@@ -245,8 +317,10 @@ class TelegramBubble extends StatelessWidget {
     required this.isUser,
     required this.child,
     this.showTail = true,
+    this.joinsPrevious = false,
   });
   final bool isUser;
+  final bool joinsPrevious;
   final Widget child;
   @override
   Widget build(BuildContext context) {
@@ -255,7 +329,7 @@ class TelegramBubble extends StatelessWidget {
         ? (theme.isDark ? const Color(0xFF315B45) : const Color(0xFFE2F6CD))
         : theme.surface;
     return CustomPaint(
-      painter: _TelegramBubblePainter(color, isUser, showTail),
+      painter: _TelegramBubblePainter(color, isUser, showTail, joinsPrevious),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 7),
         child: child,
@@ -265,7 +339,13 @@ class TelegramBubble extends StatelessWidget {
 }
 
 class _TelegramBubblePainter extends CustomPainter {
-  const _TelegramBubblePainter(this.color, this.isUser, this.showTail);
+  const _TelegramBubblePainter(
+    this.color,
+    this.isUser,
+    this.showTail,
+    this.joinsPrevious,
+  );
+  final bool joinsPrevious;
   final bool showTail;
   final Color color;
   final bool isUser;
@@ -275,10 +355,10 @@ class _TelegramBubblePainter extends CustomPainter {
       ..addRRect(
         RRect.fromRectAndCorners(
           Offset.zero & size,
-          topLeft: const Radius.circular(19),
-          topRight: const Radius.circular(19),
-          bottomLeft: Radius.circular(isUser || !showTail ? 19 : 5),
-          bottomRight: Radius.circular(isUser && showTail ? 5 : 19),
+          topLeft: Radius.circular(!isUser && joinsPrevious ? 5 : 19),
+          topRight: Radius.circular(isUser && joinsPrevious ? 5 : 19),
+          bottomLeft: Radius.circular(isUser ? 19 : 5),
+          bottomRight: Radius.circular(isUser ? 5 : 19),
         ),
       );
     final x = isUser ? size.width : 0.0;
@@ -297,7 +377,10 @@ class _TelegramBubblePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TelegramBubblePainter old) =>
-      old.color != color || old.isUser != isUser || old.showTail != showTail;
+      old.color != color ||
+      old.isUser != isUser ||
+      old.showTail != showTail ||
+      old.joinsPrevious != joinsPrevious;
 }
 
 /// Decorative fallback wallpaper; user backgrounds continue to take precedence.

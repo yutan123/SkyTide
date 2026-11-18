@@ -2173,6 +2173,33 @@ class DBManager {
     }
   }
 
+  static const globalBackgroundSafetyKey = 'global_background_safe_v3';
+
+  /// Reads the startup appearance settings together without a write transaction.
+  Future<Map<String, String>> readStartupAppearance() async {
+    const keys = [
+      'interface_theme',
+      'theme_color',
+      'theme_mode',
+      'global_background_image',
+      globalBackgroundSafetyKey,
+      'global_background_opacity',
+      'enable_liquid_glass',
+    ];
+    final db = await database;
+    final rows = await db.query(
+      'kv_store',
+      columns: ['key', 'value'],
+      where: 'key IN (${List.filled(keys.length, '?').join(', ')})',
+      whereArgs: keys,
+    );
+    return {
+      for (final row in rows)
+        if (row['value'] is String)
+          row['key'] as String: row['value'] as String,
+    };
+  }
+
   Future<String?> getKV(String key) async {
     final db = await database;
     return db.transaction((txn) async {
@@ -2631,16 +2658,29 @@ class DBManager {
     String botId, {
     int? limit,
     bool descending = false,
+    int? since,
+    int? before,
   }) async {
     final db = await database;
     final orderBy = descending
         ? 'timestamp DESC, id DESC'
         : 'timestamp ASC, id ASC';
+    final filters = <String>[
+      'bot_id = ?',
+      if (since != null) 'timestamp >= ?',
+      if (before != null) 'timestamp < ?',
+    ];
+    final args = <Object?>[
+      botId,
+      if (since != null) since,
+      if (before != null) before,
+    ];
+    final scope = filters.join(' AND ');
     try {
       return await db.query(
         'chat_history',
-        where: "bot_id = ? AND (type IS NULL OR type != 'call_summary')",
-        whereArgs: [botId],
+        where: "$scope AND (type IS NULL OR type != 'call_summary')",
+        whereArgs: args,
         orderBy: orderBy,
         limit: limit,
       );
@@ -2649,8 +2689,8 @@ class DBManager {
       try {
         return await db.query(
           'chat_history',
-          where: 'bot_id = ?',
-          whereArgs: [botId],
+          where: scope,
+          whereArgs: args,
           orderBy: orderBy,
           limit: limit,
         );

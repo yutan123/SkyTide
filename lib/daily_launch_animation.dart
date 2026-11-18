@@ -118,8 +118,7 @@ class _DailyLaunchAnimationState extends State<DailyLaunchAnimation>
         final background =
             dark ? const Color(0xFF101C25) : const Color(0xFFF5FAF8);
         return Stack(fit: StackFit.expand, children: [
-          if (!_visible || t >= .82)
-            AbsorbPointer(absorbing: _visible, child: widget.child),
+          if (!_visible || t >= .82) widget.child,
           if (_visible)
             IgnorePointer(
               child: Opacity(

@@ -12,7 +12,10 @@ import 'plugin_archive.dart';
 import 'plugin_package_files.dart';
 import 'package:crypto/crypto.dart';
 import 'plugin_config_dialog.dart';
+import 'plugin_config_resources.dart';
+import 'plugin_config_ui.dart';
 import 'plugin_service.dart';
+import 'plugin_device_access.dart';
 import 'plugin_operation.dart';
 import 'transfer_progress.dart';
 import 'plugin_system.dart';
@@ -604,6 +607,25 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
           title: '${pack.name} 设置',
           schema: schema,
           values: values,
+          onTest: PluginConfigUi.ui(schema)['testAction'] is String
+              ? (draft) => PluginService.instance.uiAction(
+                  pack.id,
+                  PluginConfigUi.ui(schema)['testAction'] as String,
+                  draft,
+                )
+              : null,
+          importFile:
+              (pack.manifest['permissions'] as List? ?? []).contains('files')
+              ? (source) => PluginConfigResources.importFile(pack.id, source)
+              : null,
+          loadDirectories:
+              (pack.manifest['permissions'] as List? ?? []).contains('files')
+              ? () => PluginConfigResources.directories(pack.id)
+              : null,
+          createDirectory:
+              (pack.manifest['permissions'] as List? ?? []).contains('files')
+              ? (name) => PluginConfigResources.createDirectory(pack.id, name)
+              : null,
         ),
       );
       if (result != null && mounted)
@@ -705,6 +727,72 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   String _author(Map<String, dynamic> row) {
     final author = row['author']?.toString().trim() ?? '';
     return author.isEmpty ? '未知作者' : author;
+  }
+
+  Future<void> _devicePermissions(TidePluginPackage pack) async {
+    try {
+      final keys = PluginDeviceAccess.declared(pack.manifest);
+      final current = await PluginDeviceAccess.granted(pack.id);
+      final draft = <String>{};
+      for (final key in keys) {
+        if (current.contains(key) && await PluginDeviceAccess.available(key)) {
+          draft.add(key);
+        }
+      }
+      if (!mounted) return;
+      final saved = await TideDialogs.show<bool>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, refresh) => TideDialogSurface(
+            title: const Text('系统权限'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final key in keys)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      activeThumbColor: TideTheme.of(ctx).primary,
+                      title: Text(PluginDeviceAccess.labels[key]!),
+                      value: draft.contains(key),
+                      onChanged: (value) => refresh(() {
+                        if (value) {
+                          draft.add(key);
+                        } else {
+                          draft.remove(key);
+                        }
+                      }),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (saved != true || !mounted) return;
+      await _operate(() async {
+        final grants = <String>{};
+        for (final key in draft) {
+          if (await PluginDeviceAccess.authorize(key)) grants.add(key);
+        }
+        await PluginDeviceAccess.save(pack.id, grants);
+        await PluginDeviceAccess.revoke(pack.id, grants);
+        if (mounted && grants.length != draft.length)
+          _notice('部分权限未获 Android 授权');
+      });
+    } catch (error) {
+      if (mounted) _notice('保存权限失败：$error');
+    }
   }
 
   Future<void> _details(Map<String, dynamic> row) => TideDialogs.show<void>(
@@ -1074,6 +1162,18 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                       ),
                     ),
                     const SizedBox(width: 6),
+                    if (Platform.isAndroid &&
+                        pack != null &&
+                        PluginDeviceAccess.declared(pack.manifest).isNotEmpty)
+                      SizedBox(
+                        height: 32,
+                        width: 48,
+                        child: _action(
+                          Icons.shield_outlined,
+                          '系统权限',
+                          _busy ? null : () => _devicePermissions(pack),
+                        ),
+                      ),
                     SizedBox(
                       height: 32,
                       width: 48,

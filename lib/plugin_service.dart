@@ -1,5 +1,6 @@
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
+import 'dart:math';
 import 'plugin_worker_policy.dart';
 import 'plugin_worker_runner.dart';
 import 'plugin_database.dart';
@@ -34,9 +35,14 @@ import 'plugin_coordinator.dart';
 import 'plugin_runtime.dart';
 import 'plugin_system.dart';
 import 'plugin_package_files.dart';
+import 'plugin_device_access.dart';
+import 'package:image_picker/image_picker.dart';
 
 class PluginService {
   PluginService._() {
+    if (Platform.isAndroid) {
+      PluginDeviceAccess.channel.setMethodCallHandler(_onDeviceEvent);
+    }
     PluginCoordinator.listen(_invalidateLocal);
     ChatEventBus.instance.events.listen((event) {
       if (event.type != ChatEventType.inserted ||
@@ -218,6 +224,7 @@ class PluginService {
   final _waits = <String, PluginWaits>{};
   final _ai = <String, PluginAI>{};
   void _closeExtensions(String id) {
+    _deviceActions.remove(id);
     _fileTransfers.remove(id)?.close();
     _networks.remove(id)?.close();
     for (final client in _clients.remove(id) ?? <http.Client>{}) {
@@ -240,6 +247,7 @@ class PluginService {
     if ((_epochs[id] ?? -1) >= epoch) return;
     _epochs[id] = epoch;
     _stopping.add(id);
+    unawaited(PluginDeviceAccess.close(id));
     _cancelChats(id);
     _closeExtensions(id);
     final runtime = _running.remove(id);
@@ -385,6 +393,7 @@ class PluginService {
       onClosed: () {
         if (!identical(_running[pack.id], runtime)) return;
         _stopping.add(pack.id);
+        unawaited(PluginDeviceAccess.close(pack.id));
         _closeExtensions(pack.id);
         _cancelChats(pack.id);
         _running.remove(pack.id);
@@ -482,6 +491,7 @@ class PluginService {
 
   Future<void> _stop(String id) async {
     _stopping.add(id);
+    await PluginDeviceAccess.close(id);
     _cancelChats(id);
     _closeExtensions(id);
     final runtime = _running.remove(id);
@@ -512,6 +522,7 @@ class PluginService {
     await _stop(id);
     await PluginDatabase.delete(id);
     await PluginWorkerRunner.delete(id);
+    await PluginDeviceAccess.save(id, const {});
     await PluginSystem.instance.delete(id);
     _fileTransfers.remove(id)?.close();
     _networks.remove(id)?.close();
@@ -814,6 +825,8 @@ class PluginService {
     return additions.join('\n\n');
   }
 
+  final _deviceActions = <String, String>{};
+
   Future<dynamic> uiAction(
     String id,
     String action,
@@ -823,12 +836,211 @@ class PluginService {
     final runtime = _running[id];
     if (runtime == null || runtime.closed) throw StateError('请先启用插件');
     final pack = _packages[id]!;
-    final result = await runtime.call('event', 'ui.action', {
-      'action': action,
-      'values': values,
-    });
-    await _assertCurrent(pack);
-    return result;
+    if (_deviceActions.containsKey(id)) throw StateError('插件界面操作尚未结束');
+    final random = Random.secure();
+    final token = base64UrlEncode(
+      List.generate(24, (_) => random.nextInt(256)),
+    );
+    _deviceActions[id] = token;
+    try {
+      final result = await runtime.call('event', 'ui.action', {
+        '__tideDeviceAction': token,
+        'payload': {'action': action, 'values': values},
+      });
+      await _assertCurrent(pack);
+      return result;
+    } finally {
+      if (identical(_deviceActions[id], token)) _deviceActions.remove(id);
+    }
+  }
+
+  Future<void> _onDeviceEvent(MethodCall call) async {
+    if (call.method != 'overlayMessage') return;
+    final args = call.arguments as Map;
+    final id = args['id'] as String;
+    final pack = _packages[id];
+    final runtime = _running[id];
+    if (pack == null || runtime == null || runtime.closed) return;
+    try {
+      final data = jsonDecode(args['json'] as String);
+      await PluginDeviceAccess.requireAccess(id, pack.manifest, 'overlay');
+      await _assertCurrent(pack);
+      final current = await PluginDeviceAccess.channel.invokeMethod<bool>(
+        'isCurrentOverlay',
+        {'id': id, 'session': args['session']},
+      );
+      if (current != true ||
+          !identical(runtime, _running[id]) ||
+          _stopping.contains(id))
+        return;
+      await runtime.call('event', 'overlay.message', {'data': data});
+    } catch (error) {
+      _log(id, '悬浮窗消息未处理：$error');
+    }
+  }
+
+  Future<dynamic> _device(
+    TidePluginPackage pack,
+    String method,
+    Map<String, dynamic> args,
+  ) async {
+    final action = _deviceActions[pack.id];
+    final operation = method.split('.').last;
+    final overlay = method.startsWith('overlay.');
+    final key = overlay ? 'overlay' : operation;
+    if (method == 'device.permission') {
+      final permission = args['permission'];
+      if (permission is! String ||
+          !PluginDeviceAccess.declared(pack.manifest).contains(permission))
+        return false;
+      return (await PluginDeviceAccess.granted(pack.id)).contains(permission) &&
+          await PluginDeviceAccess.available(permission);
+    }
+    Future<void> check() async {
+      await PluginDeviceAccess.requireAccess(pack.id, pack.manifest, key);
+      await _assertCurrent(pack);
+    }
+
+    await check();
+    const channel = PluginDeviceAccess.channel;
+    final payload = <String, dynamic>{'id': pack.id};
+    void requireAction() {
+      if (action == null ||
+          args['actionToken'] != action ||
+          action != _deviceActions[pack.id]) {
+        throw StateError('请通过插件界面操作使用此权限');
+      }
+    }
+
+    if (overlay) {
+      switch (operation) {
+        case 'show':
+          requireAction();
+          final files = PluginPackageFiles(pack.directory);
+          final entry = args['entry'];
+          final inline = args['html'];
+          if ((entry is String) == (inline is String)) {
+            throw const FormatException('请指定 html 或 entry 其中之一');
+          }
+          final html = entry is String
+              ? await files.text(entry, maxBytes: 512 * 1024)
+              : inline as String;
+          if (html.trim().isEmpty || utf8.encode(html).length > 512 * 1024) {
+            throw const FormatException('悬浮窗 HTML 须为 512 KiB 以内的非空文本');
+          }
+          final assets = await _overlayAssets(files, args['assetPaths']);
+          await check();
+          requireAction();
+          payload.addAll({
+            'html': html,
+            'name': pack.name,
+            'assets': jsonEncode(assets),
+            'compact': args['compact'] == true,
+            for (final size in ['width', 'height'])
+              if (args[size] is int) size: (args[size] as int).clamp(64, 320),
+          });
+          return channel.invokeMethod('show', payload);
+        case 'update':
+          final data = jsonEncode(args['data']);
+          if (utf8.encode(data).length > 32 * 1024)
+            throw const FormatException('悬浮窗数据超过 32 KiB');
+          return channel.invokeMethod('update', {...payload, 'data': data});
+        case 'close':
+          return channel.invokeMethod('close', payload);
+        default:
+          throw UnsupportedError(method);
+      }
+    }
+    if (const {'microphone', 'photos', 'videos'}.contains(operation)) {
+      requireAction();
+    }
+    switch (operation) {
+      case 'location':
+      case 'motion':
+        final sample = await channel.invokeMethod(operation, payload);
+        await check();
+        return sample;
+      case 'microphone':
+        final ms = args['durationMs'];
+        final result = await channel.invokeMethod('microphone', {
+          ...payload,
+          'durationMs': ms is int ? ms.clamp(500, 10000) : 2000,
+        });
+        await check();
+        return result;
+      case 'photos':
+      case 'videos':
+        await channel.invokeMethod('checkForeground', payload);
+        final picker = ImagePicker();
+        final file = operation == 'photos'
+            ? await picker.pickImage(source: ImageSource.gallery)
+            : await picker.pickVideo(source: ImageSource.gallery);
+        await check();
+        if (file == null) return null;
+        const limit = 700 * 1024;
+        final path = args['path'];
+        if (path != null) {
+          if (path is! String ||
+              !(pack.manifest['permissions'] as List? ?? []).contains(
+                'files',
+              )) {
+            throw StateError('保存所选媒体需要 files 权限和目标路径');
+          }
+          final saved = await (await _files(
+            pack,
+          )).writeStream(path, file.openRead(), beforeCommit: check);
+          return {...saved, 'name': file.name, 'mimeType': file.mimeType};
+        }
+        if (await file.length() > limit)
+          throw StateError('内联媒体超过 700 KiB，请指定 path');
+        final bytes = await file.readAsBytes();
+        if (bytes.length > limit) throw StateError('内联媒体超过 700 KiB，请指定 path');
+        await check();
+        return {
+          'name': file.name,
+          'mimeType': file.mimeType,
+          'base64': base64Encode(bytes),
+        };
+      default:
+        throw UnsupportedError(method);
+    }
+  }
+
+  Future<Map<String, String>> _overlayAssets(
+    PluginPackageFiles files,
+    Object? paths,
+  ) async {
+    if (paths == null) return {};
+    if (paths is! List || paths.length > 24) {
+      throw const FormatException('悬浮窗最多加载 24 个资源');
+    }
+    const types = {
+      'png': 'image/png',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'webp': 'image/webp',
+      'gif': 'image/gif',
+      'svg': 'image/svg+xml',
+      'woff2': 'font/woff2',
+      'mp3': 'audio/mpeg',
+      'ogg': 'audio/ogg',
+    };
+    final assets = <String, String>{};
+    var remaining = 512 * 1024;
+    for (final path in paths) {
+      if (path is! String ||
+          path.length > 240 ||
+          path != PluginPackageFiles.normalize(path) ||
+          assets.containsKey(path)) {
+        throw const FormatException('悬浮窗资源路径无效或重复');
+      }
+      final mime = types[path.split('.').last.toLowerCase()];
+      if (mime == null) throw const FormatException('不支持的悬浮窗资源格式');
+      final bytes = await files.read(path, maxBytes: remaining);
+      remaining -= bytes.length;
+      assets[path] = 'data:$mime;base64,${base64Encode(bytes)}';
+    }
+    return assets;
   }
 
   void _log(String id, String message) =>
@@ -851,6 +1063,9 @@ class PluginService {
     if (_stopping.contains(pack.id) || !identical(_packages[pack.id], pack))
       throw StateError('插件已停止');
     await _assertCurrent(pack);
+    if (method.startsWith('device.') || method.startsWith('overlay.')) {
+      return _device(pack, method, args);
+    }
     final permissions = pack.manifest['permissions'] as List? ?? [];
     if (method == 'runtime.sleep') {
       return (_waits[pack.id] ??= PluginWaits()).sleep(args['ms'], () async {

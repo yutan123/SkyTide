@@ -9,6 +9,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.util.Log
+import java.util.concurrent.Executors
 
 /** Runs for headless Worker/receiver starts as well as normal UI launches. */
 class TideApplication : Application() {
@@ -54,10 +55,13 @@ class TideApplication : Application() {
             processName?.startsWith("$packageName:tide_plugin_") == true) return
         // WorkManager's initializer runs before Application.onCreate. Neither
         // recovery nor the watchdog requires an Activity or a persistent FGS.
-        runCatching {
-            TideEnhancedBackgroundWork.ensureScheduled(this)
-            TideRecoveryWork.enqueue(this)
-        }.onFailure { Log.e("TideRecovery", "Cannot register recovery", it) }
+        val scheduler = Executors.newSingleThreadExecutor()
+        scheduler.execute {
+            runCatching { TideEnhancedBackgroundWork.ensureScheduled(this) }
+                .onFailure { Log.e("TideRecovery", "Cannot register periodic work", it) }
+            requestRecovery()
+        }
+        scheduler.shutdown()
         runCatching {
             val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {

@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.ComponentName
 import android.net.Uri
 
-import android.os.Bundle
 import android.os.BatteryManager
 import android.provider.Settings
 
@@ -67,21 +66,18 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL = "tidebot.native.channel"
     private var nativeChannel: MethodChannel? = null
     private var selectionMenu: NativeSelectionMenu? = null
+    private var pluginOverlay: TidePluginOverlay? = null
     private var pendingInstallApk: File? = null
     // 悬浮窗消息转发已移除。
 
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        // 使用增强版后台任务调度器
-        TideEnhancedBackgroundWork.ensureScheduled(this)
-    }
-    
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
     }
     override fun onDestroy() {
+        pluginOverlay?.dispose()
+        pluginOverlay = null
         dataTransfer?.dispose()
         selectionMenu?.dispose()
         selectionMenu = null
@@ -97,6 +93,7 @@ class MainActivity: FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+        pluginOverlay?.resume()
         TideNativeNotifications.activityVisible = true
         val apk = pendingInstallApk ?: return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
@@ -106,6 +103,7 @@ class MainActivity: FlutterActivity() {
     }
 
     override fun onPause() {
+        pluginOverlay?.pause()
         TideNativeNotifications.activityVisible = false
         // Persist deadlines natively before Flutter's UI timers can be suspended.
         backgroundCoordinator.execute {
@@ -137,6 +135,8 @@ class MainActivity: FlutterActivity() {
     private var autoBackup: TideAutoBackup? = null
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        pluginOverlay?.dispose()
+        pluginOverlay = TidePluginOverlay(this, flutterEngine.dartExecutor.binaryMessenger)
         TideMemoryEmbedding.register(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         dataTransfer?.dispose()
         autoBackup?.dispose()

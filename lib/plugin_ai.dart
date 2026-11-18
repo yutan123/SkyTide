@@ -16,7 +16,7 @@ class PluginAI {
   final http.Client Function() clientFactory;
   final Duration timeout;
   final _cancelled = <String>{};
-  static String _publicId(Map provider) =>
+  static String providerId(Map provider) =>
       sha256.convert(utf8.encode(provider['id'].toString())).toString();
   final Future<void> Function() check;
   final _clients = <String, http.Client>{};
@@ -39,7 +39,7 @@ class PluginAI {
       return [
         for (final p in available)
           {
-            'id': _publicId(p),
+            'id': providerId(p),
             'name': p['name'],
             'models': p['model']
                 .toString()
@@ -56,7 +56,7 @@ class PluginAI {
       throw const FormatException('requestId 无效');
     if (_clients.containsKey(id) || _clients.length >= 2)
       throw StateError('AI 请求重复或超过并发上限 2');
-    final matches = available.where((p) => _publicId(p) == args['providerId']);
+    final matches = available.where((p) => providerId(p) == args['providerId']);
     if (matches.isEmpty) throw StateError('模型提供商不存在');
     final provider = matches.first;
     final models = provider['model']

@@ -60,14 +60,6 @@ class DiaryService {
       for (final bot in bots) {
         final botId = bot['id']?.toString() ?? '';
         if (botId.isEmpty || isBotDisabled(bot['is_disabled'])) continue;
-        final history = await db.getChatHistory(botId);
-        final byDate = <String, List<Map<String, dynamic>>>{};
-        for (final message in history) {
-          final stamp = (message['timestamp'] as num?)?.toInt();
-          if (stamp == null) continue;
-          final key = _dateKey(DateTime.fromMillisecondsSinceEpoch(stamp));
-          byDate.putIfAbsent(key, () => []).add(message);
-        }
         // Start from yesterday and go back up to 30 days, never including today
         for (
           var day = yesterday;
@@ -99,13 +91,22 @@ class DiaryService {
             if (day.isBefore(createdDay)) continue;
           }
 
-          final schedule = await db.getLifeSchedule(botId, dateKey);
+          // Check completion before reading the day's messages.
           // Skip if already has diary
           if (await db.getDiary(botId, dateKey) != null) {
             continue;
           }
-          // Skip if no schedule and no messages for this date
-          if (!byDate.containsKey(dateKey) && schedule == null) {
+          final schedule = await db.getLifeSchedule(botId, dateKey);
+          final dayStart = DateTime(day.year, day.month, day.day);
+          final nextDay = DateTime(day.year, day.month, day.day + 1);
+          final messages = await db.queryMessages(
+            botId,
+            since: dayStart.millisecondsSinceEpoch,
+            before: nextDay.millisecondsSinceEpoch,
+          );
+          await Future<void>.delayed(Duration.zero);
+          // Skip if no schedule and no messages for this date.
+          if (messages.isEmpty && schedule == null) {
             continue;
           }
           final job = 'diary_${botId}_$dateKey';
@@ -114,7 +115,7 @@ class DiaryService {
           try {
             completed =
                 await db.getDiary(botId, dateKey) != null ||
-                await _writeDiary(botId, dateKey, byDate[dateKey] ?? []);
+                await _writeDiary(botId, dateKey, messages);
           } catch (error) {
             AppLogService.instance.add(
               'DIARY',

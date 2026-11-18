@@ -1,3 +1,4 @@
+import 'coalesced_refresh.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -38,6 +39,7 @@ class ChatListPageState extends State<ChatListPage> {
   bool _hasLoaded = false;
   bool _loadFailed = false;
   int _loadGeneration = 0;
+  late final _refresh = CoalescedRefresh(_loadOnce);
   bool _showParticles = false;
   int _particleRun = 0;
   final List<Offset> _origins = [];
@@ -226,7 +228,10 @@ class ChatListPageState extends State<ChatListPage> {
     }
   }
 
-  Future<void> load() async {
+  Future<void> load() => _refresh.request();
+
+  Future<void> _loadOnce() async {
+    if (!mounted) return;
     final generation = ++_loadGeneration;
     if (mounted && _loadFailed) {
       if (_bots.isEmpty) {

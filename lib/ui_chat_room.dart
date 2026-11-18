@@ -1,3 +1,4 @@
+import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'telegram_stamped_text.dart';
 import 'messaging_voice_message.dart';
 import 'chat_media_groups.dart';
@@ -301,6 +302,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   Duration _audioPosition = Duration.zero;
   Duration _audioDuration = Duration.zero;
   String? _playingAudioPath;
+  final Map<String, Future<Duration>> _voiceDurations = {};
   bool _audioPlaying = false;
   Timer? _recTimer;
   int _recSecs = 0;
@@ -3757,12 +3759,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   Future<void> _toggleAudio(String path) async {
+    final messagePath = path;
     return await MediaStorageService.instance.withMediaUse(() async {
       path = await MediaStorageService.instance.resolve(path);
       try {
-        if (_playingAudioPath != path) {
+        if (_playingAudioPath != messagePath) {
           setState(() {
-            _playingAudioPath = path;
+            _playingAudioPath = messagePath;
             _audioPosition = Duration.zero;
             _audioDuration = Duration.zero;
           });
@@ -3800,17 +3803,50 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     return '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
   }
 
+  Future<Duration> _readVoiceDuration(String path) =>
+      _voiceDurations.putIfAbsent(path, () async {
+        try {
+          return await MediaStorageService.instance.withMediaUse(() async {
+            final resolved = await MediaStorageService.instance.resolve(path);
+            final session = await FFprobeKit.getMediaInformation(
+              resolved,
+            ).timeout(const Duration(seconds: 15));
+            final raw = session.getMediaInformation()?.getDuration();
+            final seconds = double.tryParse(raw?.toString() ?? '');
+            if (seconds == null || !seconds.isFinite || seconds <= 0) {
+              return Duration.zero;
+            }
+            return Duration(milliseconds: (seconds * 1000).round());
+          });
+        } catch (_) {
+          return Duration.zero;
+        }
+      });
+
   Widget _audioBubble({
     required String path,
     required bool isUser,
     required int fallbackSeconds,
     String transcript = '',
+    Duration? resolvedDuration,
   }) {
+    if (fallbackSeconds <= 0 && resolvedDuration == null) {
+      return FutureBuilder<Duration>(
+        future: _readVoiceDuration(path),
+        builder: (context, snapshot) => _audioBubble(
+          path: path,
+          isUser: isUser,
+          fallbackSeconds: fallbackSeconds,
+          transcript: transcript,
+          resolvedDuration: snapshot.data ?? Duration.zero,
+        ),
+      );
+    }
     final active = _playingAudioPath == path;
     final position = active ? _audioPosition : Duration.zero;
     final duration = active && _audioDuration > Duration.zero
         ? _audioDuration
-        : Duration(seconds: fallbackSeconds);
+        : resolvedDuration ?? Duration(seconds: fallbackSeconds);
     final knownDuration = duration.inMilliseconds > 0;
     final max = knownDuration ? duration.inMilliseconds.toDouble() : 1.0;
     final value = knownDuration
@@ -5044,21 +5080,35 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         builder: (sheetContext) => ListView(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
           children: [
-            Center(child: Text('媒体消息 · ${ids.length} 条',
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+            Center(
+              child: Text(
+                '媒体消息 · ${ids.length} 条',
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
             ListTile(
               leading: const Icon(Icons.more_horiz_rounded),
               title: const Text('当前消息操作'),
               onTap: () {
                 Navigator.pop(sheetContext);
-                _msgLongPress(messages[index],
-                  anchorMessageId: messages.first['id'].toString());
+                _msgLongPress(
+                  messages[index],
+                  anchorMessageId: messages.first['id'].toString(),
+                );
               },
             ),
             ListTile(
-              leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFE74C3C)),
-              title: Text('删除全部 ${ids.length} 条',
-                style: const TextStyle(color: Color(0xFFE74C3C))),
+              leading: const Icon(
+                Icons.delete_outline_rounded,
+                color: Color(0xFFE74C3C),
+              ),
+              title: Text(
+                '删除全部 ${ids.length} 条',
+                style: const TextStyle(color: Color(0xFFE74C3C)),
+              ),
               onTap: () async {
                 Navigator.pop(sheetContext);
                 _messagesRevision++;
@@ -5066,7 +5116,9 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   await DBManager().deleteMessage(id);
                   if (!mounted) continue;
                   setState(() {
-                    _msgs.removeWhere((message) => message['id'].toString() == id);
+                    _msgs.removeWhere(
+                      (message) => message['id'].toString() == id,
+                    );
                     _deferredPersistedMessageIds.remove(id);
                   });
                 }
@@ -5145,7 +5197,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     if (type == 'inner_thought') {
       return Padding(
         padding: EdgeInsets.only(
-          left: theme.usesMessagingLayout && _showChatAvatar
+          left:
+              theme.usesMessagingLayout && !theme.isTelegram && _showChatAvatar
               ? (theme.isQq ? 46 : 48)
               : 0,
           bottom: theme.usesMessagingLayout ? 6 : 8,
@@ -5369,14 +5422,24 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                         Container(
                           margin: EdgeInsets.only(
                             bottom: theme.usesMessagingLayout
-                                ? (theme.isQq ? 14 : 12)
+                                ? (theme.isQq
+                                      ? 14
+                                      : theme.isTelegram &&
+                                            _telegramJoinsMessages(
+                                              m,
+                                              _msgs.length - i < _msgs.length
+                                                  ? _msgs[_msgs.length - i]
+                                                  : null,
+                                            )
+                                      ? 3
+                                      : 12)
                                 : 8,
                           ),
                           constraints: BoxConstraints(
                             maxWidth: theme.usesMessagingLayout
                                 ? (MediaQuery.sizeOf(context).width -
                                           24 -
-                                          (_showChatAvatar
+                                          (_showChatAvatar && !theme.isTelegram
                                               ? (theme.isQq ? 46 : 48)
                                               : 0) -
                                           (isUser && hasRetryFailure ? 28 : 0))
@@ -5438,29 +5501,20 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                     },
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
-                                      padding: theme.isTelegram
-                                          ? const EdgeInsets.symmetric(
-                                              vertical: 8,
-                                              horizontal: 4,
-                                            )
-                                          : const EdgeInsets.all(12),
-                                      decoration: theme.isTelegram
-                                          ? null
-                                          : BoxDecoration(
-                                              color: isUser && !theme.isTelegram
-                                                  ? theme.primary
-                                                  : theme.buttonSecondary,
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              border: Border.all(
-                                                color:
-                                                    isUser && !theme.isTelegram
-                                                    ? Colors.white.withValues(
-                                                        alpha: .28,
-                                                      )
-                                                    : theme.border,
-                                              ),
-                                            ),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: isUser && !theme.isTelegram
+                                            ? theme.primary
+                                            : theme.buttonSecondary,
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: isUser && !theme.isTelegram
+                                              ? Colors.white.withValues(
+                                                  alpha: .28,
+                                                )
+                                              : theme.border,
+                                        ),
+                                      ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
@@ -5619,7 +5673,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                   _audioBubble(
                                     path: audioPath!,
                                     isUser: isUser,
-                                    fallbackSeconds: m['duration'] as int? ?? 0,
+                                    fallbackSeconds:
+                                        (num.tryParse(
+                                                  m['duration']?.toString() ??
+                                                      '',
+                                                ) ??
+                                                0)
+                                            .ceil(),
                                     transcript: txt,
                                   ),
                                 if (replyId != null && replyId.isNotEmpty)
@@ -5695,8 +5755,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                   ),
                               ],
                             ),
-                            index: i,
-                            document: hasDocument,
+                            index: _msgs.length - 1 - i,
+                            voice: hasAudio,
+                            attachment:
+                                hasDocument ||
+                                hasImg ||
+                                hasVideo ||
+                                hasAudio ||
+                                isEmoji ||
+                                mediaGroup != null,
                             inlineStamp: telegramInlineStamp,
                           ),
                         ),

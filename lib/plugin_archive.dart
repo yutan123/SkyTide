@@ -246,6 +246,21 @@ class PluginArchive {
         hooks.any((hook) => !PluginContract.hooks.contains(hook))) {
       throw const FormatException('hooks 包含不支持的事件');
     }
+    final systemPermissions = m['systemPermissions'];
+    if (m.containsKey('systemPermissions') &&
+        (systemPermissions is! List ||
+            systemPermissions.any(
+              (key) => !const {
+                'overlay',
+                'location',
+                'microphone',
+                'photos',
+                'videos',
+                'motion',
+              }.contains(key),
+            ))) {
+      throw const FormatException('systemPermissions 包含不支持的系统权限');
+    }
     final permissions = m['permissions'] ?? [];
     if (permissions is! List ||
         permissions.any(

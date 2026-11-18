@@ -245,8 +245,7 @@ class _WechatBubblePainter extends CustomPainter {
       oldDelegate.color != color || oldDelegate.isUser != isUser;
 }
 
-/// WeChat voice marks keep all waves visible; their emphasis
-/// pulses during playback.
+/// Voice waves accumulate one at a time, then clear for the next cycle.
 class WechatVoiceIcon extends StatefulWidget {
   const WechatVoiceIcon({
     super.key,
@@ -280,6 +279,7 @@ class _WechatVoiceIconState extends State<WechatVoiceIcon>
     super.didUpdateWidget(oldWidget);
     if (widget.playing == oldWidget.playing) return;
     if (widget.playing) {
+      _controller.value = 0;
       _controller.repeat();
     } else {
       _controller.stop();
@@ -300,11 +300,9 @@ class _WechatVoiceIconState extends State<WechatVoiceIcon>
       animation: _controller,
       builder: (_, __) => CustomPaint(
         painter: _WechatVoicePainter(
-          color: widget.playing
-              ? widget.color.withValues(alpha: .7 + .3 * _controller.value)
-              : widget.color,
+          color: widget.color,
           isUser: widget.isUser,
-          waves: 3,
+          waves: widget.playing ? (_controller.value * 4).floor() : 3,
         ),
       ),
     ),

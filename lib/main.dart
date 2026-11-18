@@ -1,3 +1,4 @@
+import 'coalesced_refresh.dart';
 import 'telegram_theme_widgets.dart';
 import 'auto_backup_service.dart';
 import 'plugin_market.dart';
@@ -1089,9 +1090,9 @@ class _JellyDockState extends State<JellyDock>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 360),
+      value: 1,
     );
     _configureAnimations();
-    _controller.forward();
   }
 
   void _configureAnimations() {
@@ -1328,7 +1329,7 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
   final GlobalKey<ChatListPageState> _chatListKey =
       GlobalKey<ChatListPageState>();
   late final ChatSidebarController _sidebar;
-  late final List<Widget> _pages;
+  late final List<Widget?> _pages;
 
   @override
   void initState() {
@@ -1337,9 +1338,10 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
     _sidebar = ChatSidebarController()..attach(this);
     _pages = [
       ChatListPage(key: _chatListKey, sidebar: _sidebar),
-      const SpacePage(),
+      null,
+      // Mount the feed at launch to preserve its automatic post catch-up.
       SquarePage(key: _squareKey),
-      const ProfilePage(),
+      null,
     ];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshUnread();
@@ -1350,7 +1352,12 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
     });
   }
 
-  Future<void> _refreshUnread() async {
+  late final _unreadRefresh = CoalescedRefresh(_loadUnread);
+
+  Future<void> _refreshUnread() => _unreadRefresh.request();
+
+  Future<void> _loadUnread() async {
+    if (!mounted) return;
     final count = await DBManager().unreadBotCount();
     if (mounted && count != _unreadCount) setState(() => _unreadCount = count);
   }
@@ -1440,7 +1447,11 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
 
   void _onDockTap(int i) {
     if (_idx != i) {
-      setState(() => _idx = i);
+      setState(() {
+        if (i == 1) _pages[i] ??= const SpacePage();
+        if (i == 3) _pages[i] ??= const ProfilePage();
+        _idx = i;
+      });
       if (i == 0) {
         _chatListKey.currentState?.load();
         Future<void>.delayed(const Duration(milliseconds: 350), _refreshUnread);
@@ -1484,7 +1495,12 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
           : null,
       body: Stack(
         children: [
-          IndexedStack(index: _idx, children: _pages),
+          IndexedStack(
+            index: _idx,
+            children: [
+              for (final page in _pages) page ?? const SizedBox.shrink(),
+            ],
+          ),
           if (!theme.usesMessagingLayout)
             Positioned(
               left: 0,

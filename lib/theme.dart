@@ -163,7 +163,7 @@ class TideTheme extends ChangeNotifier {
   // Backgrounds saved before this marker predate the guarded image pipeline.
   // They are discarded at the next launch so an old malformed file cannot crash
   // the renderer before the user can remove it.
-  static const _globalBackgroundSafetyKey = 'global_background_safe_v3';
+  static const _globalBackgroundSafetyKey = DBManager.globalBackgroundSafetyKey;
   double _globalBackgroundOpacity = 0.38;
   bool _enableLiquidGlass = true;
   Future<bool>? _backgroundPreparation;
@@ -589,23 +589,20 @@ class TideTheme extends ChangeNotifier {
   Future<void> loadFromDB() async {
     try {
       final db = DBManager();
-      final style = await db
-          .getKV('interface_theme')
-          .timeout(const Duration(seconds: 5));
+      final settings = await db.readStartupAppearance().timeout(
+        const Duration(seconds: 5),
+      );
+      final style = settings['interface_theme'];
       _interfaceTheme = const {'wechat', 'qq', 'telegram'}.contains(style)
           ? style!
           : 'default';
-      final name = await db
-          .getKV('theme_color')
-          .timeout(const Duration(seconds: 5));
+      final name = settings['theme_color'];
       if (name != null && _themes.containsKey(name)) {
         _name = name;
         _applyColors();
       }
       // 读取日夜模式
-      final modeStr = await db
-          .getKV('theme_mode')
-          .timeout(const Duration(seconds: 5));
+      final modeStr = settings['theme_mode'];
       if (modeStr != null) {
         if (modeStr == 'system') {
           _mode = ThemeMode.system;
@@ -621,12 +618,8 @@ class TideTheme extends ChangeNotifier {
       // A background becomes eligible only after the guarded save pipeline marks
       // it safe. This also recovers installs that saved a bad image before that
       // pipeline existed, without rendering it during startup.
-      final globalBackground = await db
-          .getKV('global_background_image')
-          .timeout(const Duration(seconds: 5));
-      final backgroundIsSafe = await db
-          .getKV(_globalBackgroundSafetyKey)
-          .timeout(const Duration(seconds: 5));
+      final globalBackground = settings['global_background_image'];
+      final backgroundIsSafe = settings[_globalBackgroundSafetyKey];
       if (globalBackground != null && globalBackground.isNotEmpty) {
         final isSafe =
             backgroundIsSafe == 'true' &&
@@ -639,17 +632,10 @@ class TideTheme extends ChangeNotifier {
         }
       }
       _globalBackgroundOpacity =
-          (double.tryParse(
-                    await db
-                            .getKV('global_background_opacity')
-                            .timeout(const Duration(seconds: 5)) ??
-                        '',
-                  ) ??
+          (double.tryParse(settings['global_background_opacity'] ?? '') ??
                   _globalBackgroundOpacity)
               .clamp(0.18, 0.70);
-      final enableLiquidGlass = await db
-          .getKV('enable_liquid_glass')
-          .timeout(const Duration(seconds: 5));
+      final enableLiquidGlass = settings['enable_liquid_glass'];
       _enableLiquidGlass = enableLiquidGlass != 'false';
     } catch (error) {
       debugPrint('[theme] using defaults after database load failure: $error');
