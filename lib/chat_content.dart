@@ -88,14 +88,16 @@ String stripChatMetadata(String raw) {
   return text;
 }
 
+final _sourceCodeOpening = RegExp(
+  r'^```(?!text\b|plaintext\b)[a-z][\w+-]*[^\S\n]*\n',
+  caseSensitive: false,
+);
+
 /// Parse one complete/cumulative reply. No state is shared between requests.
 ChatReplyContent parseChatReply(String raw) {
   var text = _replySource(stripChatMetadata(raw));
   // Keep examples of internal tags inside a real source-code block intact.
-  if (RegExp(
-    r'^```(?!text\b|plaintext\b)[a-z][\w+-]*\s*\n',
-    caseSensitive: false,
-  ).hasMatch(text)) {
+  if (_sourceCodeOpening.hasMatch(text)) {
     return ChatReplyContent(text);
   }
   if (_isPlanning(text)) {
@@ -192,8 +194,8 @@ class ChatReplyStream {
         ) ||
         '[心情'.startsWith(raw) ||
         raw.startsWith('[心情') ||
-        raw.startsWith('```') ||
-        '```'.startsWith(raw) ||
+        (raw.startsWith('```') && !_sourceCodeOpening.hasMatch(raw)) ||
+        (raw.length < 3 && '```'.startsWith(raw)) ||
         'response:'.startsWith(raw) ||
         raw.startsWith('response:') ||
         'data:'.startsWith(raw) ||
@@ -215,20 +217,28 @@ class ChatReplyStream {
   }
 }
 
-List<String> splitChatReplySegments(String content) {
-  // 先检测代码块，避免在代码块内分段
-  final codeBlockPattern = RegExp(r'```[\s\S]*?```', multiLine: true);
-  final codeBlocks = codeBlockPattern.allMatches(content);
-
-  // 如果整个内容包含代码块，不分段
-  if (codeBlocks.isNotEmpty) {
-    return <String>[content];
+List<String> splitChatReplySegments(String content, {bool live = false}) {
+  // A partial opening fence should not attach to the preceding prose.
+  final source = live
+      ? content.replaceFirst(RegExp(r'(?<!`)`{1,2}$'), '')
+      : content;
+  final parts = <String>[];
+  final prosePattern = RegExp(r'.*?[。！？!?…]+|.+$', multiLine: true);
+  void addProse(String prose) {
+    parts.addAll(
+      prosePattern
+          .allMatches(prose)
+          .map((match) => match.group(0)!.trim())
+          .where((part) => part.isNotEmpty),
+    );
   }
 
-  final parts = RegExp(r'.*?[。！？!?…]+|.+$', multiLine: true)
-      .allMatches(content)
-      .map((match) => match.group(0)?.trim() ?? '')
-      .where((part) => part.isNotEmpty)
-      .toList();
-  return parts.isEmpty ? <String>[content] : parts;
+  var offset = 0;
+  for (final fence in RegExp(r'```[\s\S]*?(?:```|$)').allMatches(source)) {
+    addProse(source.substring(offset, fence.start));
+    parts.add(fence.group(0)!);
+    offset = fence.end;
+  }
+  addProse(source.substring(offset));
+  return parts.isEmpty && !live ? [content] : parts;
 }

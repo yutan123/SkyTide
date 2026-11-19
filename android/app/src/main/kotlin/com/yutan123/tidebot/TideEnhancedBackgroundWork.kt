@@ -25,7 +25,7 @@ class TideEnhancedBackgroundWork(
          * 确保后台任务已调度，默认使用正常频率（15 分钟）。
          */
         fun ensureScheduled(context: Context) {
-            // 旧版 TideBackgroundWork 已删除，取消老安装上残留的周期任务，避免 WorkManager 实例化失败
+            // 取消旧版本注册的周期任务，避免 WorkManager 加载已移除的 Worker。
             WorkManager.getInstance(context).cancelUniqueWork(LEGACY_WORK_NAME)
             val isLowPower = TideBatteryMonitor.isLowBattery(context)
             scheduleWork(context, isLowPower)

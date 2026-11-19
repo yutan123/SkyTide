@@ -79,7 +79,6 @@ class MainActivity: FlutterActivity() {
     private var selectionMenu: NativeSelectionMenu? = null
     private var pluginOverlay: TidePluginOverlay? = null
     private var pendingInstallApk: File? = null
-    // 悬浮窗消息转发已移除。
 
 
     override fun onNewIntent(intent: Intent) {
@@ -262,7 +261,6 @@ class MainActivity: FlutterActivity() {
                     TideBackgroundService.endRequest(id)
                     result.success(null)
                 }
-                // 悬浮窗待处理消息接口已移除。
                 "tickVitalSigns" -> {
                     val id = call.argument<String>("botId").orEmpty()
                     backgroundResult(result, "VITAL_FAILED") {
@@ -444,7 +442,6 @@ class MainActivity: FlutterActivity() {
                     startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                     result.success(null)
                 }
-                // 悬浮窗与无障碍操控 MethodChannel 接口已移除。
                 "installApk" -> {
                     val path = call.argument<String>("path")
                     if (path.isNullOrBlank()) {

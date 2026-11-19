@@ -185,7 +185,6 @@ class OpsManager {
     await _notifications.show(id, title, body, details, payload: payload);
   }
 
-  // 手机操控桥接已移除。
 
   Future<bool> setSystemAlarm(int hour, int minute, String message,
       {bool repeating = true}) async {

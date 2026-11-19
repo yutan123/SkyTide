@@ -867,7 +867,6 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
                     DeviceCapabilityService.proactiveFeature,
                     const {'new_notification'},
                   ),
-                  // 机器人操控手机与悬浮窗功能已移除。
                 ],
               ),
             ),

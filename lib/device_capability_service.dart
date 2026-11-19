@@ -54,7 +54,6 @@ class DeviceCapabilityService {
     );
   }
 
-  // 手机操控接口已移除。
 
   Future<Map<String, dynamic>> capabilityState() async =>
       await _channel.invokeMapMethod<String, dynamic>('capabilityState') ??
@@ -84,7 +83,6 @@ class DeviceCapabilityService {
   Future<void> openLocationSettings() =>
       _channel.invokeMethod<void>('openLocationSettings');
 
-  // 悬浮窗接口已移除。
 
   String encodeContext(Map<String, dynamic> context) => jsonEncode(context);
 }

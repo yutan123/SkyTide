@@ -1,5 +1,5 @@
 import 'dart:async';
-import '../lib/coalesced_refresh.dart';
+import 'package:tide_bot/coalesced_refresh.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

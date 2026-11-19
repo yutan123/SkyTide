@@ -137,7 +137,6 @@ final _emojiCategoryIcons = <String, (IconData, String)>{
   'activity': (Icons.sports_basketball_outlined, '活动'),
   'objects': (Icons.lightbulb_outline_rounded, '物品'),
   'symbols': (Icons.tag_rounded, '符号'),
-  // 国旗分组已移除
 };
 
 class _StableLinkPreviewCard extends StatefulWidget {
@@ -914,7 +913,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     );
   }
 
-  // 手机操控确认流程已移除。
   Future<void> _sendEmoji(_EmojiAsset emoji) async {
     if (_loading) return;
     final botId = _bot['id']?.toString() ?? '';
@@ -2231,7 +2229,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         // Remote provider cold starts and tool calls can legitimately exceed 30 seconds.
         const requestTimeout = Duration(minutes: 5);
         final requestToken = _activeRequestToken!;
-        final buffer = ChatStreamBuffer();
+        var buffer = ChatStreamBuffer();
         final segmented =
             !forceSingleReply &&
             audioPath == null &&
@@ -2247,7 +2245,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             }
             if (!buffer.tick()) return;
             final segments = segmented
-                ? splitChatReplySegments(buffer.visible)
+                ? splitChatReplySegments(buffer.visible, live: true)
                 : [buffer.visible];
             setState(() {
               _msgs.removeWhere(previews.contains);
@@ -2286,7 +2284,18 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               useJarvis: (await DBManager().getKV('jarvis_enabled')) == 'true',
               cancellationToken: requestToken,
               deferPluginDelivery: true,
-              onDelta: streamEnabled && audioPath == null ? buffer.add : (_) {},
+              onDelta: streamEnabled && audioPath == null
+                  ? (delta) => buffer.add(delta)
+                  : (_) {},
+              onPreviewReset: () {
+                buffer = ChatStreamBuffer();
+                if (!mounted || myGen != _requestGen || previews.isEmpty)
+                  return;
+                setState(() {
+                  _msgs.removeWhere(previews.contains);
+                  previews.clear();
+                });
+              },
             )
             .timeout(
               requestTimeout,
@@ -2462,8 +2471,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             debugPrint('[video] temporary media cleanup failed: $e');
           }
         }
-        // Release synchronously, even if UI cleanup throws. No old request may
-        // clear a lock owned by the queued request after the handoff.
+        // Flush deferred plugin messages before releasing the current send.
         await MessageDeliveryService.instance.flushPluginMessages(botId);
         _loading = false;
         AppLogService.instance.add(
@@ -4365,7 +4373,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   await _retryMessage(msg);
                 },
               ),
-            // 引用功能已移除，避免生成和维护 reply_to_id 关联。
             ListTile(
               leading: const Icon(
                 Icons.delete_outline_rounded,
@@ -5475,8 +5482,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       excludedUrls: sourceUrls,
     );
     final ts = m['timestamp'] as int? ?? 0;
-    // 流式占位气泡（id 以 stream_ 开头）会先用空内容上屏，之后才填充真实文字。
-    // 它的时间不应展示，否则会出现“先出时间、后出内容”“一条消息两个时间”的观感。
+    // 临时流式气泡不显示时间，避免与持久化消息重复。
     final isStreamingPlaceholder = (m['id']?.toString() ?? '').startsWith(
       'stream_',
     );

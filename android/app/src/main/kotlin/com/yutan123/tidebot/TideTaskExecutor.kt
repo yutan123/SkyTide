@@ -28,7 +28,6 @@ object TideTaskExecutor {
 
 
         try {
-            // 读取任务配置
             val taskConfig = getTaskConfig(context, taskId)
             if (taskConfig == null) {
                 throw IllegalStateException("Task not found: $taskId")
@@ -106,7 +105,6 @@ object TideTaskExecutor {
             TideProactiveTasks.reconcile(context)
             return
         }
-        // 读取机器人配置
         val botConfig = TideConfigReader.getBotConfig(context, botId)
         if (botConfig == null || botConfig.isDisabled) {
             markExecutionFinished(context, executionId, "skipped", null, "Bot disabled or not found")

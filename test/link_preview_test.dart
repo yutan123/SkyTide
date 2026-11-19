@@ -38,13 +38,6 @@ void main() {
   });
 
   group('LinkType identification', () {
-    test('should identify Douyin links', () {
-      final service = LinkPreviewService.instance;
-      // Access private method through reflection would require additional setup
-      // For now, we'll test through the public API by checking the result
-      // This is a placeholder for actual integration testing
-    });
-
     test('PlatformInfo constants should have correct values', () {
       expect(PlatformInfo.douyin.name, '抖音');
       expect(PlatformInfo.douyin.scheme, 'snssdk1128://');

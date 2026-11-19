@@ -123,6 +123,7 @@ class AIManager {
     required List<Map<String, dynamic>> messages,
     String imageBase64 = '',
     void Function(String delta)? onDelta,
+    void Function()? onPreviewReset,
     // 合并/防抖重发时，被拦截的过期请求应跳过落库，避免库里出现“旧回复”，
     // 再由合并后的新请求统一落库，保证聊天记录与界面顺序一致。
     bool persistResponse = true,
@@ -149,6 +150,7 @@ class AIManager {
       text: text,
       imagePath: imgPath,
       onDelta: onDelta,
+      onPreviewReset: onPreviewReset,
       persistResponse: persistResponse,
     );
   }
@@ -250,6 +252,7 @@ class AIManager {
     AICancellationToken? cancellationToken,
     bool deferPluginDelivery = false,
     void Function(String delta)? onDelta,
+    void Function()? onPreviewReset,
   }) async {
     final activity = task == AIRequestTask.chat && !diaryTask && !quoteTask
         ? await ProactiveRequestGate.begin(await DBManager().database, botId)
@@ -352,8 +355,8 @@ class AIManager {
               AppLogService.instance.add('AI_TRACE', '请求前生活状态完成 bot=$botId');
               extraSystemPrompt = '$vitalContext\n$extraSystemPrompt';
             }
-            final pluginPrompts = task == AIRequestTask.chat &&
-                    !diaryTask && !quoteTask
+            final pluginPrompts =
+                task == AIRequestTask.chat && !diaryTask && !quoteTask
                 ? await PluginService.instance.takePrompts(botId)
                 : (persistent: '', once: '');
             try {
@@ -401,6 +404,7 @@ class AIManager {
                     // 不要为了备用重试延迟主请求的 SSE：此前首两次被强制关闭流式，
                     // 部分服务商在非流式模式下长期不返回，聊天室最终只看到超时。
                     onDelta: onDelta,
+                    onPreviewReset: onPreviewReset,
                     forcedLocalId: candidate['local']!,
                     forcedProviderId: candidate['provider']!,
                   );
@@ -926,6 +930,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     bool useJarvis = false,
     AICancellationToken? cancellationToken,
     void Function(String delta)? onDelta,
+    void Function()? onPreviewReset,
     String forcedLocalId = '',
     String forcedProviderId = '',
   }) async {
@@ -1301,7 +1306,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         },
       ];
 
-      final pluginContext = !diaryTask && !quoteTask && task != AIRequestTask.pluginReply
+      final pluginContext =
+          !diaryTask && !quoteTask && task != AIRequestTask.pluginReply
           ? await PluginService.instance.buildContext(botId, text)
           : '';
       final historyMessages = <Map<String, dynamic>>[];
@@ -1594,7 +1600,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
 
       final cacheScope = '$baseUrl|$botId|$providerId|$modelName|${task.name}';
       final cachePolicy = ChatProviderCache.resolve(provider);
-      final cacheOptions = cachePolicy.requestOptions(cacheScope, stream: onDelta != null);
+      final cacheOptions = cachePolicy.requestOptions(
+        cacheScope,
+        stream: onDelta != null,
+      );
       final payload = prepareChatCompletionPayload({
         ...cacheOptions,
         'model': modelName,
@@ -1716,7 +1725,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final rawReasoning = <String, StringBuffer>{};
       var hasToolCallStarted = false;
       void consumeDelta(String value) {
-        if (value.contains('"tool_calls"')) hasToolCallStarted = true;
         if (hasToolCallStarted) return;
         final visible = replyStream.add(value);
         if (visible.isNotEmpty) onDelta?.call(visible);
@@ -1731,8 +1739,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           onDelta != null &&
           payload['stream'] == true &&
           !responseContentType.contains('json')) {
-        final lines = streamedResponse.stream
-            .transform(utf8.decoder)
+        final lines = utf8.decoder
+            .bind(streamedResponse.stream.cast<List<int>>())
             .transform(const LineSplitter());
 
         final toolCallAccumulator = ToolCallAccumulator();
@@ -1743,9 +1751,17 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           if (line.startsWith('data:')) {
             final data = line.substring(5).trim();
             if (data == '[DONE]') break;
+            final Object? json;
             try {
-              final json = jsonDecode(data);
-              if (json is! Map) continue;
+              json = jsonDecode(data);
+            } on FormatException {
+              continue;
+            }
+            if (json is! Map) continue;
+            if (json['error'] != null) {
+              throw FormatException('模型流式响应错误：${json['error']}');
+            }
+            try {
               responseMetadata.addAll(cacheResponseMetadata(json));
               // Usage-only SSE chunks legitimately have choices: []. Do not
               // index choices before reading usage, or the catch loses it.
@@ -1756,6 +1772,17 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               final choice = choices is List && choices.isNotEmpty
                   ? choices.first
                   : null;
+              final calls =
+                  choice?['delta']?['tool_calls'] ??
+                  choice?['message']?['tool_calls'];
+              if (calls is List && calls.isNotEmpty) {
+                if (!hasToolCallStarted && allowTools) onPreviewReset?.call();
+                hasToolCallStarted = allowTools;
+                toolCallAccumulator.add(
+                  calls,
+                  snapshot: choice?['delta']?['tool_calls'] == null,
+                );
+              }
               final delta = choice?['delta']?['content']?.toString();
               if (delta != null && delta.isNotEmpty) {
                 rawAssistantContent.write(delta);
@@ -1766,15 +1793,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                 if (value is String) {
                   rawReasoning.putIfAbsent(key, StringBuffer.new).write(value);
                 }
-              }
-              final calls =
-                  choice?['delta']?['tool_calls'] ??
-                  choice?['message']?['tool_calls'];
-              if (calls is List && calls.isNotEmpty) {
-                toolCallAccumulator.add(
-                  calls,
-                  snapshot: choice?['delta']?['tool_calls'] == null,
-                );
               }
               // 记录 finish_reason
               final finishReason = choice?['finish_reason']?.toString();
@@ -1854,6 +1872,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             apiKey: provider['api_key']?.toString() ?? '',
             maxTokens: maxContext,
             onDelta: onDelta,
+            onPreviewReset: onPreviewReset,
             innerThoughtSetter: (value) => innerThought = value,
             replyTextCallback: (t) => replyText = t,
             usageCallback: (u) {
@@ -1974,7 +1993,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               modelName: modelName,
               apiKey: provider['api_key']?.toString() ?? '',
               maxTokens: maxContext,
-              onDelta: null,
+              onDelta: onDelta,
+              onPreviewReset: onPreviewReset,
               innerThoughtSetter: (value) => innerThought = value,
               replyTextCallback: (t) => replyText = t,
               usageCallback: (u) {
@@ -2109,7 +2129,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           replyText = '图片已生成。';
         }
         // 允许工具成功执行但无文本的情况（贴纸/心情已设置，模型未返回说明文本）
-        // 注意：toolSilenced 时会在前面 return，不会走到这里
         if (replyText.isEmpty &&
             !hadToolCalls &&
             !toolSilenced &&
@@ -3495,9 +3514,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     if (bot.isEmpty || bot['chat_model'] == null) return "今天也要开心度过哦。";
     if (isBotDisabled(bot['is_disabled'])) return "今天也要开心度过哦。";
 
-    // 暗中调用 AI 引擎生成，但不暴露在聊天历史中。
-    // persistResponse=false 保证生成的回复不会写入聊天室，也不会被自动摘要捕获；
-    // includeChatHistory=false 避免今日一言影响正式对话的上下文。
     final recentQuotes = (await Future.wait(
       List.generate(
         3,
@@ -3990,6 +4006,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     required String apiKey,
     required int maxTokens,
     void Function(String delta)? onDelta,
+    void Function()? onPreviewReset,
     required void Function(String) replyTextCallback,
     required void Function(String) innerThoughtSetter,
     required void Function(Map) usageCallback,
@@ -4142,29 +4159,53 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         followUpPayload,
         const {},
       );
-      final followUp = await _withCancellableClient(
+      final replyStream = ChatReplyStream();
+      final canPreview =
+          onDelta != null &&
+          (round > 0 || requiredToolNames.difference(completedTools).isEmpty);
+      final (
+        statusCode,
+        headers,
+        decoded,
+        streamed,
+      ) = await _withCancellableClient(
         cancellationToken,
-        (client) => client
-            .post(
-              Uri.parse(chatApiEndpoint(baseUrl)),
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer $apiKey',
-              },
-              body: jsonEncode(followUpPayload),
-            )
-            .timeout(const Duration(seconds: 60)),
+        (client) => (() async {
+          final request =
+              http.Request('POST', Uri.parse(chatApiEndpoint(baseUrl)))
+                ..headers.addAll({
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $apiKey',
+                })
+                ..body = jsonEncode(followUpPayload);
+          final response = await client.send(request);
+          if (response.statusCode != 200) {
+            return (
+              response.statusCode,
+              response.headers,
+              <String, dynamic>{},
+              false,
+            );
+          }
+          final (decoded, streamed) = await readToolCompletion(
+            response.stream,
+            onToolCalls: onPreviewReset,
+            onDelta: canPreview
+                ? (delta) {
+                    final visible = replyStream.add(delta);
+                    if (visible.isNotEmpty) onDelta(visible);
+                  }
+                : null,
+          );
+          return (response.statusCode, response.headers, decoded, streamed);
+        })().timeout(const Duration(seconds: 60)),
       );
       await cancellationToken?.checkRequestAllowed();
-      if (followUp.statusCode != 200) {
-        AppLogService.instance.add(
-          'TOOLS',
-          '工具后续请求失败：HTTP ${followUp.statusCode}',
-        );
+      if (statusCode != 200) {
+        AppLogService.instance.add('TOOLS', '工具后续请求失败：HTTP $statusCode');
         replyTextCallback('工具执行后的回复请求失败，请查看工具执行结果。');
         return;
       }
-      final decoded = decodeToolCompletion(utf8.decode(followUp.bodyBytes));
       final message = decoded['choices']?[0]?['message'];
       final fu = decoded['usage'];
       if (fu is Map) {
@@ -4178,10 +4219,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           stage: 'tool_follow_up',
           requestId: followUpId,
           responseMetadata: {
-            ...cacheResponseMetadata(decoded as Map),
+            ...cacheResponseMetadata(decoded),
             'provider_request_id':
-                followUp.headers['x-request-id'] ??
-                followUp.headers['request-id'],
+                headers['x-request-id'] ?? headers['request-id'],
           },
         );
         usageCallback(fu);
@@ -4217,7 +4257,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         }
         if (next.isNotEmpty) {
           replyTextCallback(next);
-          onDelta?.call(next);
+          final visible =
+              streamed && canPreview && replyStream.content.text.isNotEmpty
+              ? replyStream.finish()
+              : next;
+          if (visible.isNotEmpty) onDelta?.call(visible);
         }
         return;
       }
@@ -5150,11 +5194,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       }
 
       try {
-        // 从SharedPreferences读取视频历史
         final prefs = await SharedPreferences.getInstance();
         final videoHistory = prefs.getStringList('video_history_$botId') ?? [];
 
-        // 查找匹配的视频
         Map<String, dynamic>? videoInfo;
         for (final videoJson in videoHistory.reversed) {
           try {
@@ -5237,7 +5279,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         final title = videoInfo['title'] as String?;
         final originalVideoPath = videoInfo['original_video_path'] as String?;
 
-        // 检查帧文件是否存在
         final existingFrames = <String>[];
         for (final path in framePaths) {
           if (await File(path).exists()) {
@@ -5245,9 +5286,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           }
         }
 
-        // 如果帧文件不存在
         if (existingFrames.isEmpty) {
-          // 检查是否有保存的原始视频文件（用户上传视频）
           if (originalVideoPath != null &&
               originalVideoPath.isNotEmpty &&
               await File(originalVideoPath).exists()) {
@@ -5280,7 +5319,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               if (newFramePaths.isNotEmpty) {
                 framePaths = newFramePaths;
 
-                // 更新历史记录中的帧路径
                 videoInfo['frame_paths'] = newFramePaths;
                 final prefs = await SharedPreferences.getInstance();
                 final videoHistory =

@@ -68,7 +68,6 @@ void proactiveReplyMain() => startProactiveReplyEngine();
 void autoBackupMain() => startAutoBackupEngine();
 final TideTheme tideTheme = TideTheme();
 final _startupElapsed = Stopwatch();
-// 悬浮窗功能已移除。
 void main() {
   _startupElapsed.start();
   ChatEventBus.instance.foregroundOwner = true;
@@ -103,7 +102,6 @@ Future<void> _startBackgroundServices() async {
     }),
   );
 
-  // 外部 API 服务已移到后台 isolate 启动，这里只记录日志
   final externalApiEnabled = await _readStartupKV('external_api_enabled');
   if (externalApiEnabled == 'true') {
     debugPrint('[startup] 外部 API 服务将在后台 isolate 中启动');

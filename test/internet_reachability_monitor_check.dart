@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../lib/internet_reachability_monitor.dart';
+import 'package:tide_bot/internet_reachability_monitor.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

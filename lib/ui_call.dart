@@ -111,6 +111,7 @@ class _CallPageState extends State<CallPage>
   static const _maxSpeechFrames = 5;
   Timer? _speechFrameTimer;
   Future<void>? _pendingSpeechFrame;
+  List<String>? _closedSpeechFrames;
   List<String> _speechFrames = [];
   final GlobalKey<VideoCallOverlayState> _videoOverlayKey =
       GlobalKey<VideoCallOverlayState>();
@@ -504,7 +505,6 @@ class _CallPageState extends State<CallPage>
     AppLogService.instance.add('VOICE_CALL', 'STT 开始：${_recordingPath!}');
     try {
       final token = _beginTurn();
-      await _pendingSpeechFrame;
       if (_ending) return;
       AppLogService.instance.add(
         'VOICE_CALL',
@@ -1050,24 +1050,43 @@ class _CallPageState extends State<CallPage>
   Future<void> _captureClosingSpeechFrame() async {
     if (!_videoEnabled || _ending) return;
     final frames = _speechFrames;
-    await _pendingSpeechFrame;
-    if (!mounted ||
-        !_videoEnabled ||
-        _ending ||
-        !identical(frames, _speechFrames)) {
-      return;
+    var expired = false;
+    Future<void> capture() async {
+      await _pendingSpeechFrame;
+      if (expired ||
+          !mounted ||
+          !_videoEnabled ||
+          _ending ||
+          !identical(frames, _speechFrames))
+        return;
+      final overlay = _videoOverlayKey.currentState;
+      if (overlay != null) {
+        await _sampleSpeechFrame(overlay, frames, accept: () => !expired);
+      }
     }
-    final overlay = _videoOverlayKey.currentState;
-    if (overlay != null) await _sampleSpeechFrame(overlay, frames);
+
+    try {
+      await capture().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          expired = true;
+        },
+      );
+    } finally {
+      if (identical(frames, _speechFrames)) _closedSpeechFrames = frames;
+    }
   }
 
   Future<void> _sampleSpeechFrame(
     VideoCallOverlayState overlay,
-    List<String> frames,
-  ) async {
+    List<String> frames, {
+    bool Function()? accept,
+  }) async {
     final path = await overlay.captureFrame();
     if (path == null) return;
-    if (!identical(frames, _speechFrames) ||
+    if (accept?.call() == false ||
+        identical(frames, _closedSpeechFrames) ||
+        !identical(frames, _speechFrames) ||
         !mounted ||
         !_videoEnabled ||
         _ending) {
@@ -1083,6 +1102,7 @@ class _CallPageState extends State<CallPage>
     _speechFrameTimer = null;
     final frames = _speechFrames;
     _speechFrames = [];
+    _closedSpeechFrames = null;
     for (final path in frames) {
       unawaited(_deleteSpeechFrame(path));
     }
