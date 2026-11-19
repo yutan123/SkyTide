@@ -95,6 +95,21 @@ jobs:
           test/message_delivery_test.dart
           test/video_input_test.dart
 
+      - name: 配置 Flutter Gradle 插件依赖仓库
+        run: |
+          GRADLE_INIT_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+          mkdir -p "$GRADLE_INIT_DIR"
+          cat > "$GRADLE_INIT_DIR/tidebot-flutter-repositories.gradle" <<'GRADLE'
+          gradle.beforeSettings { settings ->
+              if (settings.settingsDir.toPath().endsWith('packages/flutter_tools/gradle')) {
+                  // The included Flutter build resolves plugin dependencies independently.
+                  settings.pluginManagement.repositories {
+                      mavenCentral()
+                      gradlePluginPortal()
+                  }
+              }
+          }
+          GRADLE
       - name: 编译已签名正式版 APK
         run: flutter build apk --release --no-pub
 
