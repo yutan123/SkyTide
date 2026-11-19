@@ -1,7 +1,7 @@
 name: tide_bot
 description: "TideBot - 本地化沉浸式多模态 AI 伴侣 APP"
 publish_to: "none"
-version: 1.0.0+3
+version: 1.1.0+4
 
 environment:
   sdk: ">=3.8.0 <4.0.0"
