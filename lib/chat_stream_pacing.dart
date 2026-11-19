@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 /// Display timing belongs to the chat client, independently of SSE chunk sizes.
 Duration chatStreamInterval(int speed) => Duration(
-    milliseconds: (300 - (speed.clamp(1, 100) - 1) * 225 / 99).round());
+  milliseconds: (270 - (speed.clamp(1, 100) - 1) * 202 / 99).round(),
+);
 
 /// Consume one visible character without splitting emoji or combining marks.
 (String, String) takeChatStreamCharacter(String pending) {
@@ -12,12 +13,35 @@ Duration chatStreamInterval(int speed) => Duration(
 }
 
 /// Reveal a parsed segment at the user's pace, independently of provider chunks.
-Stream<String> chatStreamText(String text, int speed) async* {
+Stream<String> chatStreamText(
+  String text,
+  int speed, {
+  String prefix = '',
+}) async* {
   final interval = chatStreamInterval(speed);
-  final visible = StringBuffer();
-  for (final character in text.characters) {
+  final visible = StringBuffer(prefix);
+  for (final character in text.substring(prefix.length).characters) {
     await Future<void>.delayed(interval);
     visible.write(character);
     yield visible.toString();
+  }
+}
+
+/// Start after 20 visible characters have accumulated, then drain at one per tick.
+class ChatStreamBuffer {
+  String _pending = '';
+  bool _started = false;
+  String visible = '';
+
+  void add(String delta) => _pending += delta;
+
+  bool tick() {
+    if (!_started && _pending.characters.length <= 20) return false;
+    if (_pending.isEmpty) return false;
+    _started = true;
+    final (character, remainder) = takeChatStreamCharacter(_pending);
+    _pending = remainder;
+    visible += character;
+    return true;
   }
 }

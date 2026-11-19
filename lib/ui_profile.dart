@@ -1847,7 +1847,7 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                   _settingSwitch(
                     theme: theme,
                     title: '流式输出',
-                    help: '按设定速度逐字呈现每段回复，不受提供商返回速度或流式支持影响。',
+                    help: '收到超过 20 个字后按设定速度逐字显示，缓冲用完时等待后续内容。',
                     value: _streaming,
                     onChanged: (v) {
                       setState(() => _streaming = v);

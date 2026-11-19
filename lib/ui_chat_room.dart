@@ -24,6 +24,7 @@ import 'send_voice_cooldown.dart';
 import 'chat_typing_state.dart';
 import 'default_chat_background.dart';
 import 'app_log_service.dart';
+import 'chat_content.dart';
 import 'chat_stream_pacing.dart';
 import 'chat_message_display.dart';
 import 'dart:io';
@@ -1960,6 +1961,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       // 渲染前检测到过期则拦截本次结果，交由 finally 用合并文本统一重发。
       var myGen = _requestGen;
       var turn = ChatTurnCommit();
+      Timer? revealTimer;
+      final previews = <Map<String, dynamic>>[];
       _activeTurn = turn;
       var batchText = text;
       var batchImages = [...images];
@@ -2216,7 +2219,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         // rows must never be reused as a model transcript.
         debugPrint('[send] request start bot=$botId model=$cm');
         final db = DBManager();
-        final streamEnabled = (await db.getKV('streaming_output')) != 'false';
+        final streamSetting =
+            await db.getKV('streaming_output') ??
+            await db.getKV('streaming_input');
+        final streamEnabled = streamSetting != 'false';
         final streamSpeed =
             (int.tryParse(await db.getKV('streaming_speed') ?? '') ?? 50).clamp(
               1,
@@ -2225,6 +2231,42 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         // Remote provider cold starts and tool calls can legitimately exceed 30 seconds.
         const requestTimeout = Duration(minutes: 5);
         final requestToken = _activeRequestToken!;
+        final buffer = ChatStreamBuffer();
+        final segmented =
+            !forceSingleReply &&
+            audioPath == null &&
+            await db.getKV('segmented_reply_enabled') != 'false';
+        final previewTimestamp = DateTime.now().millisecondsSinceEpoch;
+        if (streamEnabled && audioPath == null) {
+          revealTimer = Timer.periodic(chatStreamInterval(streamSpeed), (
+            timer,
+          ) {
+            if (!mounted || myGen != _requestGen || requestToken.isCancelled) {
+              timer.cancel();
+              return;
+            }
+            if (!buffer.tick()) return;
+            final segments = segmented
+                ? splitChatReplySegments(buffer.visible)
+                : [buffer.visible];
+            setState(() {
+              _msgs.removeWhere(previews.contains);
+              previews.clear();
+              for (var index = 0; index < segments.length; index++) {
+                previews.add({
+                  'id': 'stream_${myGen}_$index',
+                  'role': 'assistant',
+                  'type': 'text',
+                  'content': segments[index],
+                  'timestamp': previewTimestamp + index,
+                  'is_streaming': true,
+                });
+              }
+              _msgs.addAll(previews);
+            });
+            _scrollDown(animated: false);
+          });
+        }
         final result = await AIManager()
             .sendMessage(
               botId: botId,
@@ -2244,7 +2286,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               useJarvis: (await DBManager().getKV('jarvis_enabled')) == 'true',
               cancellationToken: requestToken,
               deferPluginDelivery: true,
-              // Display timing is client-owned, including non-SSE providers and tools.
+              onDelta: streamEnabled && audioPath == null ? buffer.add : (_) {},
             )
             .timeout(
               requestTimeout,
@@ -2253,7 +2295,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 throw TimeoutException('请求超过5分钟，已停止');
               },
             )
-            .whenComplete(() => _setTypingState(false));
+            .whenComplete(() {
+              revealTimer?.cancel();
+              _setTypingState(false);
+            });
 
         if (myGen != _requestGen && !turn.isCommitted) return;
         if (result['success'] == true) {
@@ -2308,9 +2353,12 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         }
 
         if (!mounted || myGen != _requestGen) return;
+        var textIndex = 0;
         for (var index = 0; index < persisted.length; index++) {
           if (!mounted || myGen != _requestGen) break;
-          if (index > 0 && persisted[index]['reply_group_id'] != null) {
+          if (!streamEnabled &&
+              index > 0 &&
+              persisted[index]['reply_group_id'] != null) {
             await _applyRandomReplyDelay(db);
           }
           if (!mounted || myGen != _requestGen) break;
@@ -2320,8 +2368,14 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               streamEnabled &&
               (row['type'] == 'text' || row['type'] == 'inner_thought') &&
               fullContent.isNotEmpty;
+          final previewIndex = row['type'] == 'text' ? textIndex++ : -1;
+          final preview = previewIndex >= 0 && previewIndex < previews.length
+              ? previews[previewIndex]
+              : null;
+          final shown = preview?['content']?.toString() ?? '';
+          final prefix = fullContent.startsWith(shown) ? shown : '';
           if (reveal) {
-            row['content'] = '';
+            row['content'] = prefix;
             row['is_streaming'] = true;
           }
 
@@ -2333,6 +2387,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
           }
 
           setState(() {
+            if (preview != null) _msgs.remove(preview);
             final existing = _msgs.indexWhere((m) => m['id'] == row['id']);
             if (existing >= 0) {
               row['_thought_expanded'] = _msgs[existing]['_thought_expanded'];
@@ -2347,6 +2402,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             await for (final content in chatStreamText(
               fullContent,
               streamSpeed,
+              prefix: prefix,
             )) {
               if (!mounted || myGen != _requestGen) break;
               setState(() => row['content'] = content);
@@ -2390,6 +2446,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
           errorCode: 'local',
         );
       } finally {
+        revealTimer?.cancel();
+        if (mounted && previews.isNotEmpty) {
+          setState(() => _msgs.removeWhere(previews.contains));
+        }
         for (final path in unregisteredSharedVideos) {
           try {
             await File(path).delete();
@@ -5953,24 +6013,37 @@ class _ChatRoomPageState extends State<ChatRoomPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(children: [
-                Icon(icon, color: accent),
-                const SizedBox(width: 10),
-                Expanded(child: Text(card['title'] as String,
-                  style: TextStyle(color: theme.textStrong, fontWeight: FontWeight.bold))),
-              ]),
+              Row(
+                children: [
+                  Icon(icon, color: accent),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      card['title'] as String,
+                      style: TextStyle(
+                        color: theme.textStrong,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               if (body.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(body, style: TextStyle(color: theme.textStrong)),
               ],
               if (prompt.isNotEmpty)
                 TextButton(
-                  style: TextButton.styleFrom(foregroundColor: theme.textStrong),
+                  style: TextButton.styleFrom(
+                    foregroundColor: theme.textStrong,
+                  ),
                   onPressed: () {
                     final draft = _msgC.text;
                     final text = draft.isEmpty ? prompt : '$draft\n$prompt';
-                    _msgC.value = TextEditingValue(text: text,
-                      selection: TextSelection.collapsed(offset: text.length));
+                    _msgC.value = TextEditingValue(
+                      text: text,
+                      selection: TextSelection.collapsed(offset: text.length),
+                    );
                     _inputFocus.requestFocus();
                   },
                   child: Text(label.isEmpty ? '填入提示词' : label),

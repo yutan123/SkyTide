@@ -78,7 +78,8 @@ class _CallPageState extends State<CallPage>
   Completer<void>? _playDone;
   StreamSubscription<void>? _playSub;
   final DateTime _startedAt = DateTime.now();
-  late final String _callId = widget.callId ??
+  late final String _callId =
+      widget.callId ??
       'call_${widget.bot['id']}_${_startedAt.millisecondsSinceEpoch}';
   DateTime? _endedAt;
   final List<String> _transcript = [];
@@ -107,24 +108,32 @@ class _CallPageState extends State<CallPage>
   bool _videoEnabled = false;
   String? _generatedImagePath;
   final List<String> _capturedFrames = [];
+  static const _maxSpeechFrames = 5;
+  Timer? _speechFrameTimer;
+  Future<void>? _pendingSpeechFrame;
+  List<String> _speechFrames = [];
   final GlobalKey<VideoCallOverlayState> _videoOverlayKey =
       GlobalKey<VideoCallOverlayState>();
   static const Duration _minimumRecordingDuration = Duration(milliseconds: 300);
   static const String _callSystemPrompt =
       '当前正在进行实时语音通话。只给出简短、自然、适合直接朗读的口语回复；不要使用 Markdown、标题、列表、协议标签或冗长说明。';
   static const String _videoCallSystemPrompt =
-      '当前正在进行实时视频通话。本轮附带的图片是用户摄像头刚刚拍到的真实画面；用户问“这是什么”“你看”等问题时，应以本轮摄像头图片或其视觉识别结果为依据，不要用历史图片、人设或想象代替。看不清或图片识别失败时直接说明，不编造画面内容。只有用户明确要求你生成或展示图片时才调用 generate_image，识别用户展示的物品不需要生成图片。只给出简短、自然、适合直接朗读的口语回复；不要使用 Markdown、标题、列表、协议标签或冗长说明。';
+      '当前正在进行实时视频通话。本轮附带的图片是用户摄像头按拍摄时间顺序提供的画面；用户问“这是什么”“你看”等问题时，应以本轮摄像头图片或其视觉识别结果为依据，不要用历史图片、人设或想象代替。看不清或图片识别失败时直接说明，不编造画面内容。只有用户明确要求你生成或展示图片时才调用 generate_image，识别用户展示的物品不需要生成图片。只给出简短、自然、适合直接朗读的口语回复；不要使用 Markdown、标题、列表、协议标签或冗长说明。';
   DateTime? _recordingStartedAt;
   Timer? _autoStopTimer;
 
   void _appendMessage(String text, {required bool isUser}) {
     final normalized = text.trim();
     if (normalized.isEmpty) return;
-    setState(() => _messages.add(CallMessage(
+    setState(
+      () => _messages.add(
+        CallMessage(
           text: normalized,
           isUser: isUser,
           timestamp: DateTime.now(),
-        )));
+        ),
+      ),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_messageController.hasClients) {
         _messageController.animateTo(
@@ -188,7 +197,7 @@ class _CallPageState extends State<CallPage>
       // 视频通话：发送前截取当前摄像头画面
       final frame = _videoEnabled ? await _captureVideoFrame() : null;
       if (_ending) return;
-      await _completeCallTurn(text, frame, token);
+      await _completeCallTurn(text, [if (frame != null) frame], token);
     } on AICancelledException {
       return;
     } catch (error) {
@@ -251,8 +260,9 @@ class _CallPageState extends State<CallPage>
   void _onAmplitudeChanged(Amplitude amp) {
     if (_muted) return;
     final started = _recordingStartedAt;
-    final elapsed =
-        started == null ? 0 : DateTime.now().difference(started).inMilliseconds;
+    final elapsed = started == null
+        ? 0
+        : DateTime.now().difference(started).inMilliseconds;
     final isVoice = _endpoint.add(amp.current, elapsed);
     if (_vadActive) {
       if (isVoice && _endpoint.speechDetected) {
@@ -274,6 +284,7 @@ class _CallPageState extends State<CallPage>
     if (_recording && !_processing && !_finishingRecording) {
       if (_endpoint.speechDetected && !_speechDetected) {
         _speechDetected = true;
+        _startSpeechFrames();
         if (mounted) {
           setState(() {
             _flowState = CallFlowState.speechDetected;
@@ -300,8 +311,10 @@ class _CallPageState extends State<CallPage>
       final elapsed = DateTime.now().difference(started).inMilliseconds;
       final reason = _endpoint.stopReason(elapsed);
       if (reason == null) return;
-      AppLogService.instance.add('VOICE_CALL',
-          '结束录音 reason=$reason elapsedMs=$elapsed floor=${_endpoint.noiseFloor} gate=${_endpoint.gate}');
+      AppLogService.instance.add(
+        'VOICE_CALL',
+        '结束录音 reason=$reason elapsedMs=$elapsed floor=${_endpoint.noiseFloor} gate=${_endpoint.gate}',
+      );
       unawaited(_finishListening());
     });
   }
@@ -371,6 +384,7 @@ class _CallPageState extends State<CallPage>
   Future<void> _finishListening() async {
     if (_finishingRecording || _ending) return;
     _finishingRecording = true;
+    _speechFrameTimer?.cancel();
     _autoStopTimer?.cancel();
     _stopAmpMonitor();
     if (!_recording) {
@@ -384,6 +398,7 @@ class _CallPageState extends State<CallPage>
         _caption = '正在提交语音识别…';
       });
     }
+    final closingFrame = _captureClosingSpeechFrame();
     try {
       final path = await _recorder.stop();
       final recordingDuration = _recordingStartedAt == null
@@ -451,6 +466,7 @@ class _CallPageState extends State<CallPage>
         AppLogService.instance.add('VOICE_CALL', '⚠️ 未检测到语音分贝，但文件存在，继续尝试 STT');
       }
       _recordingPath = path;
+      await closingFrame;
       await _runVoiceTurn();
     } catch (error) {
       AppLogService.instance.add('VOICE_CALL', '录音停止或提交失败：$error');
@@ -461,6 +477,7 @@ class _CallPageState extends State<CallPage>
         });
       }
     } finally {
+      _discardSpeechFrames();
       _finishingRecording = false;
     }
   }
@@ -487,11 +504,12 @@ class _CallPageState extends State<CallPage>
     AppLogService.instance.add('VOICE_CALL', 'STT 开始：${_recordingPath!}');
     try {
       final token = _beginTurn();
-      // Freeze what the caller is showing before waiting for remote STT.
-      final frame = _videoEnabled ? await _captureVideoFrame() : null;
+      await _pendingSpeechFrame;
       if (_ending) return;
-      AppLogService.instance
-          .add('VOICE_CALL', '调用 AIManager.transcribeAudio，超时45秒');
+      AppLogService.instance.add(
+        'VOICE_CALL',
+        '调用 AIManager.transcribeAudio，超时45秒',
+      );
       final text = await AIManager()
           .transcribeAudio(
             botId: widget.bot['id'].toString(),
@@ -501,11 +519,18 @@ class _CallPageState extends State<CallPage>
           .timeout(const Duration(seconds: 45));
       if (_ending) return;
       AppLogService.instance.add(
-          'VOICE_CALL',
-          'STT 返回：${text == null ? 'null' : text.isEmpty ? '空字符串' : '长度 ${text.trim().length}'}');
+        'VOICE_CALL',
+        'STT 返回：${text == null
+            ? 'null'
+            : text.isEmpty
+            ? '空字符串'
+            : '长度 ${text.trim().length}'}',
+      );
       if (text == null || text.trim().isEmpty) {
-        AppLogService.instance.add('VOICE_CALL',
-            '❌ STT 返回空文本，可能原因：\n  1. 录音文件损坏\n  2. STT 服务配置错误\n  3. 音频格式不支持\n  4. 网络请求失败');
+        AppLogService.instance.add(
+          'VOICE_CALL',
+          '❌ STT 返回空文本，可能原因：\n  1. 录音文件损坏\n  2. STT 服务配置错误\n  3. 音频格式不支持\n  4. 网络请求失败',
+        );
         if (mounted) {
           setState(() {
             _flowState = CallFlowState.failed;
@@ -515,8 +540,10 @@ class _CallPageState extends State<CallPage>
         }
         return;
       }
-      AppLogService.instance
-          .add('VOICE_CALL', 'STT 成功，文本长度 ${text.trim().length}');
+      AppLogService.instance.add(
+        'VOICE_CALL',
+        'STT 成功，文本长度 ${text.trim().length}',
+      );
       _transcript.add('用户：${text.trim()}');
       _appendMessage(text, isUser: true);
 
@@ -531,7 +558,7 @@ class _CallPageState extends State<CallPage>
       }
       AppLogService.instance.add('VOICE_CALL', 'AI 请求开始');
 
-      await _completeCallTurn(text, frame, token);
+      await _completeCallTurn(text, List<String>.of(_speechFrames), token);
     } on AICancelledException {
       return;
     } catch (error) {
@@ -556,35 +583,45 @@ class _CallPageState extends State<CallPage>
 
   /// Both input modes share generation, privacy, voice direction and playback.
   Future<void> _completeCallTurn(
-      String text, String? frame, AICancellationToken token) async {
+    String text,
+    List<String> frames,
+    AICancellationToken token,
+  ) async {
     final db = DBManager();
     final emotional = await db.getKV('call_emotional_voice') != 'false';
     token.throwIfCancelled();
-    final systemPrompt =
-        _videoEnabled ? _videoCallSystemPrompt : _callSystemPrompt;
+    final systemPrompt = _videoEnabled
+        ? _videoCallSystemPrompt
+        : _callSystemPrompt;
     final recent = _transcript.length > 12
         ? _transcript.sublist(_transcript.length - 12)
         : _transcript;
     final reply = await AIManager()
         .sendMessage(
-      botId: widget.bot['id'].toString(),
-      text: text,
-      imagePath: frame,
-      allowTools: _videoEnabled,
-      allowStickers: false,
-      forceSingleReply: true,
-      persistResponse: false,
-      cancellationToken: token,
-      isVoiceCall: true,
-      extraSystemPrompt: '$systemPrompt'
-          '\n本次通话最近的对话仅供上下文参考：\n${recent.join('\n')}'
-          '${emotional ? '\n$callSpeechPrompt' : ''}',
-      includeChatHistory: true,
-    )
-        .timeout(const Duration(seconds: 60), onTimeout: () {
-      token.cancel();
-      throw TimeoutException('通话回复超时');
-    });
+          botId: widget.bot['id'].toString(),
+          text: text,
+          imagePaths: frames,
+          allowTools: _videoEnabled,
+          allowStickers: false,
+          forceSingleReply: true,
+          persistResponse: false,
+          cancellationToken: token,
+          isVoiceCall: true,
+          // Playback starts after the complete reply is parsed.
+          onDelta: (_) {},
+          extraSystemPrompt:
+              '$systemPrompt'
+              '\n本次通话最近的对话仅供上下文参考：\n${recent.join('\n')}'
+              '${emotional ? '\n$callSpeechPrompt' : ''}',
+          includeChatHistory: true,
+        )
+        .timeout(
+          const Duration(seconds: 60),
+          onTimeout: () {
+            token.cancel();
+            throw TimeoutException('通话回复超时');
+          },
+        );
     token.throwIfCancelled();
     if (_ending || !mounted) return;
     if (reply['silent'] == true) {
@@ -602,7 +639,8 @@ class _CallPageState extends State<CallPage>
       return;
     }
     final parsed = CallSpeechReply.parse(
-        reply['reply']?.toString() ?? reply['content']?.toString() ?? '');
+      reply['reply']?.toString() ?? reply['content']?.toString() ?? '',
+    );
     final answer = parsed.text.trim();
     if (answer.isEmpty) {
       setState(() {
@@ -625,8 +663,11 @@ class _CallPageState extends State<CallPage>
     }
   }
 
-  Future<void> _synthesizeAndPlay(String answer, String ttsId,
-      {CallSpeechStyle? speechStyle}) async {
+  Future<void> _synthesizeAndPlay(
+    String answer,
+    String ttsId, {
+    CallSpeechStyle? speechStyle,
+  }) async {
     // 立即显示回复文字（音画同步）
     _appendMessage(answer, isUser: false);
     if (mounted) {
@@ -738,6 +779,7 @@ class _CallPageState extends State<CallPage>
   Future<void> _endCall() async {
     if (_ending) return;
     _ending = true;
+    _discardSpeechFrames();
     _turnToken?.cancel();
     _turnToken = null;
     _autoStopTimer?.cancel();
@@ -791,9 +833,9 @@ class _CallPageState extends State<CallPage>
       AppLogService.instance.add('VOICE_CALL', '保存通话结束卡片失败：$error');
       if (mounted) {
         setState(() => _ending = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('通话记录保存失败，请再次点击挂断重试')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('通话记录保存失败，请再次点击挂断重试')));
       }
       return;
     }
@@ -801,12 +843,14 @@ class _CallPageState extends State<CallPage>
       VoiceCallStateService.instance.endCall();
     }
     if (mounted) Navigator.pop(context, callCard);
-    unawaited(_persistCallSummary(
-      botId: botId,
-      callId: callId,
-      duration: duration,
-      transcript: transcript,
-    ));
+    unawaited(
+      _persistCallSummary(
+        botId: botId,
+        callId: callId,
+        duration: duration,
+        transcript: transcript,
+      ),
+    );
   }
 
   Future<void> _stopCallMedia(bool wasRecording) async {
@@ -867,8 +911,10 @@ class _CallPageState extends State<CallPage>
         'card_$callId',
         '[通话已结束，通话时长$durationText，通话摘要：$summary]',
       );
-      AppLogService.instance
-          .add('VOICE_CALL', '通话摘要已更新：$callId，failed=$failed');
+      AppLogService.instance.add(
+        'VOICE_CALL',
+        '通话摘要已更新：$callId，failed=$failed',
+      );
     } catch (error) {
       AppLogService.instance.add('VOICE_CALL', '更新通话摘要失败：$error');
     }
@@ -908,10 +954,12 @@ class _CallPageState extends State<CallPage>
     final prefs = await SharedPreferences.getInstance();
     final botId = widget.bot['id']?.toString() ?? '';
 
-    _sttProviderId = prefs.getString('stt_model_$botId')?.trim() ??
+    _sttProviderId =
+        prefs.getString('stt_model_$botId')?.trim() ??
         widget.bot['stt_model']?.toString().trim() ??
         '';
-    _ttsProviderId = prefs.getString('tts_model_$botId')?.trim() ??
+    _ttsProviderId =
+        prefs.getString('tts_model_$botId')?.trim() ??
         widget.bot['tts_model']?.toString().trim() ??
         '';
 
@@ -935,6 +983,7 @@ class _CallPageState extends State<CallPage>
 
   @override
   void dispose() {
+    _discardSpeechFrames();
     _turnToken?.cancel();
     _autoStopTimer?.cancel();
     _durationTimer?.cancel();
@@ -950,6 +999,7 @@ class _CallPageState extends State<CallPage>
 
   Future<void> _toggleVideo() async {
     if (_videoEnabled) {
+      if (!_processing) _discardSpeechFrames();
       setState(() {
         _videoEnabled = false;
         _generatedImagePath = null;
@@ -968,7 +1018,83 @@ class _CallPageState extends State<CallPage>
     }
   }
 
-  /// A video turn must not silently degrade to a text-only request.
+  void _startSpeechFrames() {
+    if (!_videoEnabled || _ending) return;
+    final frames = _speechFrames;
+    void sample() {
+      if (!mounted ||
+          !_recording ||
+          !_videoEnabled ||
+          _ending ||
+          _finishingRecording ||
+          _pendingSpeechFrame != null ||
+          frames.length >= _maxSpeechFrames)
+        return;
+      final overlay = _videoOverlayKey.currentState;
+      if (overlay == null) return;
+      _pendingSpeechFrame = _sampleSpeechFrame(overlay, frames).whenComplete(
+        () {
+          _pendingSpeechFrame = null;
+        },
+      );
+    }
+
+    _speechFrameTimer?.cancel();
+    _speechFrameTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => sample(),
+    );
+    sample();
+  }
+
+  Future<void> _captureClosingSpeechFrame() async {
+    if (!_videoEnabled || _ending) return;
+    final frames = _speechFrames;
+    await _pendingSpeechFrame;
+    if (!mounted ||
+        !_videoEnabled ||
+        _ending ||
+        !identical(frames, _speechFrames)) {
+      return;
+    }
+    final overlay = _videoOverlayKey.currentState;
+    if (overlay != null) await _sampleSpeechFrame(overlay, frames);
+  }
+
+  Future<void> _sampleSpeechFrame(
+    VideoCallOverlayState overlay,
+    List<String> frames,
+  ) async {
+    final path = await overlay.captureFrame();
+    if (path == null) return;
+    if (!identical(frames, _speechFrames) ||
+        !mounted ||
+        !_videoEnabled ||
+        _ending) {
+      await _deleteSpeechFrame(path);
+      return;
+    }
+    frames.add(path);
+    if (frames.length == _maxSpeechFrames) _speechFrameTimer?.cancel();
+  }
+
+  void _discardSpeechFrames() {
+    _speechFrameTimer?.cancel();
+    _speechFrameTimer = null;
+    final frames = _speechFrames;
+    _speechFrames = [];
+    for (final path in frames) {
+      unawaited(_deleteSpeechFrame(path));
+    }
+  }
+
+  Future<void> _deleteSpeechFrame(String path) async {
+    try {
+      await File(path).delete();
+    } catch (_) {}
+  }
+
+  /// A manually submitted video turn must not silently degrade to a text-only request.
   Future<String?> _captureVideoFrame() async {
     for (var attempt = 0; attempt < 3; attempt++) {
       if (_ending || !_videoEnabled) {
@@ -979,8 +1105,10 @@ class _CallPageState extends State<CallPage>
         final file = File(path);
         _capturedFrames.add(path);
         if (await file.exists() && await file.length() > 0) {
-          AppLogService.instance
-              .add('VOICE_CALL', '已截取本轮用户摄像头画面 bytes=${await file.length()}');
+          AppLogService.instance.add(
+            'VOICE_CALL',
+            '已截取本轮用户摄像头画面 bytes=${await file.length()}',
+          );
           return path;
         }
       }
@@ -1010,7 +1138,10 @@ class _CallPageState extends State<CallPage>
     _vadActive = false;
     _autoStopTimer?.cancel();
     _stopAmpMonitor();
-    if (_recording) await _recorder.stop();
+    if (_recording) {
+      _discardSpeechFrames();
+      await _recorder.stop();
+    }
     _recordingStartedAt = null;
     if (!mounted) return;
     setState(() {
@@ -1090,31 +1221,41 @@ class _CallPageState extends State<CallPage>
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                      color:
-                                          theme.primary.withValues(alpha: .22),
+                                      color: theme.primary.withValues(
+                                        alpha: .22,
+                                      ),
                                       width: 2,
                                     ),
                                   ),
                                 ),
                               TideBotAvatar(
-                                  name: name, path: avatar, size: 104),
+                                name: name,
+                                path: avatar,
+                                size: 104,
+                              ),
                             ],
                           ),
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Text(name,
-                          style: TextStyle(
-                              color: theme.textStrong,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                              fontFamily: 'TideFont')),
+                      Text(
+                        name,
+                        style: TextStyle(
+                          color: theme.textStrong,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'TideFont',
+                        ),
+                      ),
                       const SizedBox(height: 3),
-                      Text('${_callStateLabel()}  ·  ${_formatClock(_elapsed)}',
-                          style: TextStyle(
-                              color: ready ? theme.primary : theme.textWeak,
-                              fontSize: 14,
-                              fontFamily: 'TideFont')),
+                      Text(
+                        '${_callStateLabel()}  ·  ${_formatClock(_elapsed)}',
+                        style: TextStyle(
+                          color: ready ? theme.primary : theme.textWeak,
+                          fontSize: 14,
+                          fontFamily: 'TideFont',
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       Expanded(child: _messageList(theme)),
                       if (_showTextComposer) ...[
@@ -1124,21 +1265,29 @@ class _CallPageState extends State<CallPage>
                       if (!ready && widget.onOpenSettings != null) ...[
                         const SizedBox(height: 8),
                         OutlinedButton.icon(
-                            onPressed: widget.onOpenSettings,
-                            icon: Icon(Icons.settings_rounded,
-                                color: theme.primary),
-                            label: Text('配置语音模型',
-                                style: TextStyle(
-                                    color: theme.primary,
-                                    fontFamily: 'TideFont'))),
+                          onPressed: widget.onOpenSettings,
+                          icon: Icon(
+                            Icons.settings_rounded,
+                            color: theme.primary,
+                          ),
+                          label: Text(
+                            '配置语音模型',
+                            style: TextStyle(
+                              color: theme.primary,
+                              fontFamily: 'TideFont',
+                            ),
+                          ),
+                        ),
                       ],
                       if (ready) ...[
                         const SizedBox(height: 8),
                         if (_flowState == CallFlowState.failed)
                           OutlinedButton.icon(
                             onPressed: _retryVoiceFlow,
-                            icon: Icon(Icons.refresh_rounded,
-                                color: theme.primary),
+                            icon: Icon(
+                              Icons.refresh_rounded,
+                              color: theme.primary,
+                            ),
                             label: Text(
                               '重试',
                               style: TextStyle(
@@ -1159,31 +1308,36 @@ class _CallPageState extends State<CallPage>
                             alignment: Alignment.topCenter,
                             children: [
                               Align(
-                                  alignment: Alignment.topLeft,
-                                  child: _roundButton(
-                                      icon: _muted
-                                          ? Icons.mic_off_rounded
-                                          : Icons.mic_rounded,
-                                      label: _muted ? '已静音' : '静音',
-                                      color: theme.surfaceVariant,
-                                      iconColor: theme.textStrong,
-                                      onTap: _toggleMute)),
+                                alignment: Alignment.topLeft,
+                                child: _roundButton(
+                                  icon: _muted
+                                      ? Icons.mic_off_rounded
+                                      : Icons.mic_rounded,
+                                  label: _muted ? '已静音' : '静音',
+                                  color: theme.surfaceVariant,
+                                  iconColor: theme.textStrong,
+                                  onTap: _toggleMute,
+                                ),
+                              ),
                               _roundButton(
-                                  icon: Icons.call_end_rounded,
-                                  label: '挂断',
-                                  color: const Color(0xFFE74C3C),
-                                  iconColor: Colors.white,
-                                  onTap: _endCall),
+                                icon: Icons.call_end_rounded,
+                                label: '挂断',
+                                color: const Color(0xFFE74C3C),
+                                iconColor: Colors.white,
+                                onTap: _endCall,
+                              ),
                               Align(
-                                  alignment: Alignment.topRight,
-                                  child: _roundButton(
-                                      icon: _speakerMuted
-                                          ? Icons.volume_off_rounded
-                                          : Icons.volume_up_rounded,
-                                      label: _speakerMuted ? '声音关闭' : '声音开启',
-                                      color: theme.surfaceVariant,
-                                      iconColor: theme.textStrong,
-                                      onTap: _toggleSpeaker)),
+                                alignment: Alignment.topRight,
+                                child: _roundButton(
+                                  icon: _speakerMuted
+                                      ? Icons.volume_off_rounded
+                                      : Icons.volume_up_rounded,
+                                  label: _speakerMuted ? '声音关闭' : '声音开启',
+                                  color: theme.surfaceVariant,
+                                  iconColor: theme.textStrong,
+                                  onTap: _toggleSpeaker,
+                                ),
+                              ),
                               Positioned(
                                 left: 72,
                                 top: 2,
@@ -1404,8 +1558,9 @@ class _CallPageState extends State<CallPage>
                 boxShadow: active
                     ? [
                         BoxShadow(
-                          color:
-                              theme.primary.withValues(alpha: .18 + pulse * .3),
+                          color: theme.primary.withValues(
+                            alpha: .18 + pulse * .3,
+                          ),
                           blurRadius: 14 + pulse * 10,
                         ),
                       ]
@@ -1557,8 +1712,10 @@ class _CallPageState extends State<CallPage>
           opacity: enabled ? 1 : .45,
           child: highlighted
               ? Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(22),
@@ -1567,8 +1724,10 @@ class _CallPageState extends State<CallPage>
                 )
               : _videoGlass(
                   radius: 22,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
                   child: _pillContent(icon, label, Colors.white),
                 ),
         ),
@@ -1698,13 +1857,13 @@ class _CallPageState extends State<CallPage>
     final background = danger
         ? red
         : active
-            ? Colors.white
-            : Colors.white.withValues(alpha: .14);
+        ? Colors.white
+        : Colors.white.withValues(alpha: .14);
     final foreground = danger
         ? Colors.white
         : active
-            ? Colors.black
-            : Colors.white;
+        ? Colors.black
+        : Colors.white;
     return Semantics(
       button: true,
       label: label,
@@ -1775,8 +1934,9 @@ class _CallPageState extends State<CallPage>
         final message = _messages[index];
         final color = message.isUser ? theme.primary : theme.surfaceVariant;
         return Align(
-          alignment:
-              message.isUser ? Alignment.centerRight : Alignment.centerLeft,
+          alignment: message.isUser
+              ? Alignment.centerRight
+              : Alignment.centerLeft,
           child: Container(
             constraints: const BoxConstraints(maxWidth: 280),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -1799,37 +1959,37 @@ class _CallPageState extends State<CallPage>
   }
 
   Widget _textComposer(TideTheme theme) => Row(
-        children: [
-          Expanded(
-            child: TextField(
-              contextMenuBuilder: androidTextContextMenu,
-              focusNode: _textFocusNode,
-              controller: _textController,
-              enabled: !_processing && !_ending,
-              minLines: 1,
-              maxLines: 3,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _submitText(),
-              decoration: InputDecoration(
-                hintText: '输入回复',
-                isDense: true,
-                filled: true,
-                fillColor: theme.surfaceVariant,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-              ),
+    children: [
+      Expanded(
+        child: TextField(
+          contextMenuBuilder: androidTextContextMenu,
+          focusNode: _textFocusNode,
+          controller: _textController,
+          enabled: !_processing && !_ending,
+          minLines: 1,
+          maxLines: 3,
+          textInputAction: TextInputAction.send,
+          onSubmitted: (_) => _submitText(),
+          decoration: InputDecoration(
+            hintText: '输入回复',
+            isDense: true,
+            filled: true,
+            fillColor: theme.surfaceVariant,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
             ),
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            tooltip: '发送文字回复',
-            onPressed: _processing ? null : _submitText,
-            icon: Icon(Icons.send_rounded, color: theme.primary),
-          ),
-        ],
-      );
+        ),
+      ),
+      const SizedBox(width: 8),
+      IconButton(
+        tooltip: '发送文字回复',
+        onPressed: _processing ? null : _submitText,
+        icon: Icon(Icons.send_rounded, color: theme.primary),
+      ),
+    ],
+  );
 
   Future<void> _retryVoiceFlow() async {
     if (_processing || _recording || _ending) return;
@@ -1910,8 +2070,10 @@ class _CallPageState extends State<CallPage>
           ),
         ),
         const SizedBox(height: 7),
-        Text(label,
-            style: const TextStyle(fontFamily: 'TideFont', fontSize: 12)),
+        Text(
+          label,
+          style: const TextStyle(fontFamily: 'TideFont', fontSize: 12),
+        ),
       ],
     );
   }

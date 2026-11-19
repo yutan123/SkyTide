@@ -14,11 +14,13 @@ enum AIRequestTask {
   feedComment,
   callSummary,
   proactiveChat,
+  pluginReply,
 }
 
 extension AIRequestTaskPolicy on AIRequestTask {
   bool get internal =>
-      this != AIRequestTask.chat && this != AIRequestTask.proactiveChat;
+      this != AIRequestTask.chat && this != AIRequestTask.proactiveChat &&
+      this != AIRequestTask.pluginReply;
   bool get needsHistory =>
       this == AIRequestTask.lifeSchedule ||
       this == AIRequestTask.cognitionReview;

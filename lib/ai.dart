@@ -352,6 +352,10 @@ class AIManager {
               AppLogService.instance.add('AI_TRACE', '请求前生活状态完成 bot=$botId');
               extraSystemPrompt = '$vitalContext\n$extraSystemPrompt';
             }
+            final pluginPrompts = task == AIRequestTask.chat &&
+                    !diaryTask && !quoteTask
+                ? await PluginService.instance.takePrompts(botId)
+                : (persistent: '', once: '');
             try {
               Map<String, dynamic>? lastFailure;
               var attempted = 0;
@@ -389,6 +393,8 @@ class AIManager {
                     forceSingleReply: forceSingleReply,
                     notifyResponse: notifyResponse,
                     extraSystemPrompt: extraSystemPrompt,
+                    persistentPluginPrompt: pluginPrompts.persistent,
+                    oneShotPluginPrompt: pluginPrompts.once,
                     isVoiceCall: isVoiceCall,
                     useJarvis: useJarvis,
                     cancellationToken: cancellationToken,
@@ -914,6 +920,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     bool forceSingleReply = false,
     bool notifyResponse = false,
     String extraSystemPrompt = '',
+    String persistentPluginPrompt = '',
+    String oneShotPluginPrompt = '',
     bool isVoiceCall = false,
     bool useJarvis = false,
     AICancellationToken? cancellationToken,
@@ -1285,15 +1293,17 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       ].where((item) => item.trim().isNotEmpty).join('\n\n');
 
       messages = <Map<String, dynamic>>[
-        {'role': 'system', 'content': stableSystemPrompt},
+        {
+          'role': 'system',
+          'content': persistentPluginPrompt.isEmpty
+              ? stableSystemPrompt
+              : '$stableSystemPrompt\n\n$persistentPluginPrompt',
+        },
       ];
 
-      final pluginContext = !diaryTask && !quoteTask
+      final pluginContext = !diaryTask && !quoteTask && task != AIRequestTask.pluginReply
           ? await PluginService.instance.buildContext(botId, text)
           : '';
-      if (pluginContext.isNotEmpty) {
-        messages.add({'role': 'system', 'content': pluginContext});
-      }
       final historyMessages = <Map<String, dynamic>>[];
       // 先标准化历史，再仅对历史部分执行预算裁剪。
       for (final msg in history) {
@@ -1334,6 +1344,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       // Separate the current user turn before trimming or marking history.
       if (currentMessageIds.isEmpty &&
           task != AIRequestTask.proactiveChat &&
+          task != AIRequestTask.pluginReply &&
           historyMessages.isNotEmpty &&
           history.isNotEmpty &&
           history.last['role'] == 'user' &&
@@ -1394,6 +1405,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           DateTime.now().millisecondsSinceEpoch;
       messages.addAll(historyMessages);
 
+      if (pluginContext.isNotEmpty) {
+        messages.add({'role': 'system', 'content': pluginContext});
+      }
+      if (oneShotPluginPrompt.isNotEmpty) {
+        messages.add({'role': 'system', 'content': oneShotPluginPrompt});
+      }
       // Keep turn-varying context after the reusable transcript prefix.
       if (dynamicContext.isNotEmpty) {
         messages.add({'role': 'system', 'content': dynamicContext});
@@ -1484,6 +1501,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       }
       if (!task.internal &&
           task != AIRequestTask.proactiveChat &&
+          task != AIRequestTask.pluginReply &&
           messages.isNotEmpty &&
           messages.last['role'] == 'user') {
         final current = messages.last;
@@ -1707,7 +1725,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         innerThought = parsed.innerThought;
       }
 
-      if (statusCode == 200 && onDelta != null && payload['stream'] == true) {
+      final responseContentType =
+          streamedResponse.headers['content-type']?.toLowerCase() ?? '';
+      if (statusCode == 200 &&
+          onDelta != null &&
+          payload['stream'] == true &&
+          !responseContentType.contains('json')) {
         final lines = streamedResponse.stream
             .transform(utf8.decoder)
             .transform(const LineSplitter());
@@ -2148,7 +2171,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             audioPath == null &&
             (await db.getKV('segmented_reply_enabled')) != 'false';
         final segments = segmented
-            ? _replySegments(replyText)
+            ? splitChatReplySegments(replyText)
             : <String>[replyText];
         final replyGroupId = 'reply_$ts';
         final persistedMessages = <Map<String, dynamic>>[];
@@ -2339,24 +2362,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         cancellationToken?.removeOnCancel(cancelResponse);
       responseClient?.close();
     }
-  }
-
-  List<String> _replySegments(String content) {
-    // 先检测代码块，避免在代码块内分段
-    final codeBlockPattern = RegExp(r'```[\s\S]*?```', multiLine: true);
-    final codeBlocks = codeBlockPattern.allMatches(content);
-
-    // 如果整个内容包含代码块，不分段
-    if (codeBlocks.isNotEmpty) {
-      return <String>[content];
-    }
-
-    final parts = RegExp(r'.*?[。！？!?…]+|.+$', multiLine: true)
-        .allMatches(content)
-        .map((match) => match.group(0)?.trim() ?? '')
-        .where((part) => part.isNotEmpty)
-        .toList();
-    return parts.isEmpty ? <String>[content] : parts;
   }
 
   bool _userExplicitlyRequestedSources(String text) => RegExp(

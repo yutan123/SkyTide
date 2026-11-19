@@ -16,17 +16,31 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
     (
       id: 'default',
       asset: 'tidebot',
+      aspectRatio: 1264 / 859,
       name: 'TideBot',
       color: Color(0xFF378463),
     ),
-    (id: 'wechat', asset: 'wechat', name: '微信', color: Color(0xFF168445)),
+    (
+      id: 'wechat',
+      asset: 'wechat',
+      aspectRatio: 1254 / 696,
+      name: '微信',
+      color: Color(0xFF168445),
+    ),
     (
       id: 'telegram',
       asset: 'telegram',
+      aspectRatio: 1263 / 758,
       name: 'Telegram',
       color: Color(0xFF227DAA),
     ),
-    (id: 'qq', asset: 'qq', name: 'QQ', color: Color(0xFF346AC2)),
+    (
+      id: 'qq',
+      asset: 'qq',
+      aspectRatio: 1264 / 763,
+      name: 'QQ',
+      color: Color(0xFF346AC2),
+    ),
   ];
 
   String? _previewId;
@@ -67,7 +81,7 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
           top: false,
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
+              constraints: const BoxConstraints(maxWidth: 440),
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                 children: [
@@ -151,41 +165,21 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(
-                          '${preview.name} 风格',
-                          style: TextStyle(
-                            color: theme.textStrong,
-                            fontSize: 23,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
                         ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: ColoredBox(
-                            color: Color.alphaBlend(
-                              preview.color.withValues(alpha: .12),
-                              theme.surface,
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: SizedBox(
-                                height:
-                                    (MediaQuery.sizeOf(context).height * .44)
-                                        .clamp(180.0, 440.0),
-                                child: AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 180),
-                                  child: Image.asset(
-                                    'assets/images/theme_preview_${preview.asset}.jpg',
-                                    key: ValueKey(preview.id),
-                                    fit: BoxFit.contain,
-                                    semanticLabel: '${preview.name} 界面预览',
-                                    errorBuilder: (_, _, _) => Center(
-                                      child: Text(
-                                        '预览暂不可用',
-                                        style: TextStyle(color: theme.textWeak),
-                                      ),
-                                    ),
+                          borderRadius: BorderRadius.circular(16),
+                          child: AspectRatio(
+                            aspectRatio: preview.aspectRatio,
+                            child: Image.asset(
+                              'assets/images/theme_preview_${preview.asset}.jpg',
+                              key: ValueKey(preview.id),
+                              fit: BoxFit.contain,
+                              semanticLabel: '${preview.name} 界面预览',
+                              errorBuilder: (_, _, _) => ColoredBox(
+                                color: theme.surface,
+                                child: Center(
+                                  child: Text(
+                                    '预览暂不可用',
+                                    style: TextStyle(color: theme.textWeak),
                                   ),
                                 ),
                               ),

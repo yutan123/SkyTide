@@ -16,6 +16,7 @@ class MarketPlugin {
       version,
       commit,
       changelog;
+  final String? icon;
   MarketPlugin(Map<String, dynamic> json)
     : id = json['id'] as String,
       name = json['name'] as String,
@@ -24,6 +25,7 @@ class MarketPlugin {
       repository = json['repository'] as String,
       version = json['version'] as String,
       commit = json['commit'] as String,
+      icon = json['icon'] is String ? json['icon'] as String : null,
       changelog = json['changelog'] as String? ?? '' {
     if (!RegExp(
           r'^tidebot[a-z0-9_.-]{0,57}$',
@@ -39,6 +41,17 @@ class MarketPlugin {
     }
   }
   Uri get archiveUrl => Uri.parse('$repository/archive/$commit.zip');
+  Uri? get iconUrl {
+    final path = icon;
+    if (path == null ||
+        !RegExp(r'^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*\.(?:png|jpe?g|webp)$',
+          caseSensitive: false,
+        ).hasMatch(path)) return null;
+    final segments = path.split('/');
+    if (segments.any((segment) => segment == '.' || segment == '..')) return null;
+    return Uri.https('raw.githubusercontent.com',
+        '${Uri.parse(repository).path}/$commit/$path');
+  }
   bool newerThan(String installed) {
     final old = installed.split('.').map(int.tryParse).toList();
     final next = version.split('.').map(int.parse).toList();

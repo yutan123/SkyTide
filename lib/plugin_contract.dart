@@ -14,7 +14,9 @@ class PluginContract {
     'auth.oauth',
     'credentials',
     'background.send',
+    'background.generate',
     'context.inject',
+    'context.prompts',
 
     'chat.read',
     'chat.send',

@@ -1,3 +1,4 @@
+import 'ai.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
 import 'dart:math';
@@ -766,6 +767,89 @@ class PluginService {
     return current;
   }
 
+  String _promptKey(String pluginId) => 'plugin_prompts_$pluginId';
+
+  Future<Map<String, dynamic>> _readPrompts(String pluginId) async {
+    final raw = await _secure.read(key: _promptKey(pluginId));
+    return raw == null ? {} : Map<String, dynamic>.from(jsonDecode(raw) as Map);
+  }
+
+  Future<({String persistent, String once})> takePrompts(String botId) async {
+    await initialize();
+    final persistent = <String>[];
+    final once = <String>[];
+    for (final pack in _orderedPackages()) {
+      if (!(pack.manifest['permissions'] as List? ?? []).contains('context.inject') ||
+          !await allowsBot(pack.id, botId)) continue;
+      await PluginCoordinator.locked('lifecycle', () async {
+        if (!identical(_packages[pack.id], pack) || !await allowsBot(pack.id, botId)) return;
+        final data = await _readPrompts(pack.id);
+        final entry = data[botId] as Map?;
+        if (entry == null) return;
+        if (entry['persistent'] case final String prompt) {
+          persistent.add('[插件 ${pack.id} 的指令]\n$prompt');
+        }
+        if (entry['once'] case final String prompt) {
+          entry.remove('once');
+          if (entry.isEmpty) data.remove(botId);
+          await _secure.write(key: _promptKey(pack.id), value: jsonEncode(data));
+          once.add('[插件 ${pack.id} 的本轮指令]\n$prompt');
+        }
+      });
+    }
+    return (persistent: persistent.join('\n\n'), once: once.join('\n\n'));
+  }
+
+  final _generatingBots = <String, String>{};
+
+  Future<void> _generatePluginReply(
+    TidePluginPackage pack, String botId, String id, String prompt, String context,
+  ) async {
+    const host = AppPluginChatHost();
+    try {
+      await host.locked('plugin-generation:$botId', () async {
+        if (await host.findMessage(id, botId) != null) return;
+        await _assertBotAllowed(pack, botId);
+        final result = await AIManager().sendMessage(
+          botId: botId,
+          text: '[插件 ${pack.id} 的主动回复任务]\n$prompt'
+              '${context.isEmpty ? '' : '\n\n[参考资料]\n$context'}',
+          task: AIRequestTask.pluginReply,
+          persistResponse: false,
+          cancellationToken: AICancellationToken(
+            beforeRequest: () => _assertBotAllowed(pack, botId),
+          ),
+          enableAutoSummary: false,
+          skipLifeState: true,
+          allowTools: false,
+          allowStickers: false,
+          forceSingleReply: true,
+        );
+        final reply = result['reply']?.toString().trim() ?? '';
+        if (result['success'] != true || reply.isEmpty) {
+          throw StateError('机器人未生成消息');
+        }
+        await host.locked('lifecycle', () async {
+          await _assertBotAllowed(pack, botId);
+          if (!await host.hasBot(botId)) return;
+          if (await host.findMessage(id, botId) != null) return;
+          await host.insert({
+            'id': id,
+            'bot_id': botId,
+            'role': 'assistant',
+            'type': 'text',
+            'content': reply,
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          });
+        });
+      });
+    } catch (error) {
+      _log(pack.id, 'background.requestReply：$error');
+    } finally {
+      _generatingBots.remove(botId);
+    }
+  }
+
   final _contextBusy = <PluginRuntime>{};
   Future<String> buildContext(String botId, String text) async {
     await initialize();
@@ -1400,6 +1484,51 @@ class PluginService {
           throw StateError('凭据超过 64 KiB');
         await _assertCurrent(pack);
         await _secure.write(key: storageKey, value: encoded);
+        return null;
+      });
+    }
+    if (method == 'context.setPrompt' || method == 'context.clearPrompt' ||
+        method == 'background.requestReply') {
+      final generate = method == 'background.requestReply';
+      final permission = generate ? 'background.generate' : 'context.inject';
+      if (!permissions.contains(permission)) throw StateError('未声明 $permission 权限');
+      final botId = PluginMediaContract.text(args['botId'], 'botId', 256, required: true);
+      const host = AppPluginChatHost();
+      return host.locked('lifecycle', () async {
+        await _assertBotAllowed(pack, botId);
+        if (!await host.hasBot(botId)) throw StateError('会话已不存在');
+        if (generate) {
+          final requestId = PluginMediaContract.text(args['requestId'], 'requestId', 128, required: true);
+          final prompt = PluginMediaContract.text(args['prompt'], 'prompt', 4000, required: true);
+          final context = PluginMediaContract.text(args['context'], 'context', 8000);
+          final id = 'plugin_reply_${sha256.convert(utf8.encode(jsonEncode([pack.id, botId, requestId])))}';
+          if (await host.findMessage(id, botId) != null) {
+            return {'messageId': id, 'status': 'delivered', 'duplicate': true};
+          }
+          final running = _generatingBots[botId];
+          if (running == id) return {'messageId': id, 'status': 'accepted', 'duplicate': true};
+          if (running != null) return {'messageId': id, 'status': 'busy', 'duplicate': false};
+          _generatingBots[botId] = id;
+          unawaited(Zone.root.run(() => _generatePluginReply(pack, botId, id, prompt, context)));
+          return {'messageId': id, 'status': 'accepted', 'duplicate': false};
+        }
+        final mode = args['mode'] ?? 'persistent';
+        if (mode != 'persistent' && mode != 'once') throw const FormatException('mode 无效');
+        final data = await _readPrompts(pack.id);
+        final entry = Map<String, dynamic>.from(data[botId] as Map? ?? const {});
+        if (method == 'context.setPrompt') {
+          entry[mode as String] = PluginMediaContract.text(args['prompt'], 'prompt', 4000, required: true);
+        } else {
+          entry.remove(mode);
+        }
+        if (entry.isEmpty) {
+          data.remove(botId);
+        } else {
+          data[botId] = entry;
+        }
+        final encoded = jsonEncode(data);
+        if (utf8.encode(encoded).length > 256 * 1024) throw StateError('插件提示词超过存储上限');
+        await _secure.write(key: _promptKey(pack.id), value: encoded);
         return null;
       });
     }

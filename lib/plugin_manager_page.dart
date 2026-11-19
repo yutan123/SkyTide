@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:path/path.dart' as p;
 
 import 'db.dart';
@@ -931,7 +932,9 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         pack.directory,
       ).read(p.basename(file.path), maxBytes: 2 * 1024 * 1024);
       final text = utf8.decode(bytes, allowMalformed: true);
-      if (mounted) await _textDialog(_packages[id]?.name ?? id, text);
+      if (mounted) {
+        await _textDialog(pack.name, text, markdown: true);
+      }
     } catch (error) {
       if (mounted) _notice('读取自述文件失败：$error');
     }
@@ -941,6 +944,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     String title,
     String text, {
     double? maxHeightFactor,
+    bool markdown = false,
   }) => TideDialogs.show<void>(
     context: context,
     builder: (ctx) => TideDialogSurface(
@@ -951,10 +955,12 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       content: SizedBox(
         width: double.maxFinite,
         child: SingleChildScrollView(
-          child: SelectableText(
-            text,
-            style: const TextStyle(fontSize: 14, height: 1.6),
-          ),
+          child: markdown
+              ? _readmeBody(ctx, text)
+              : SelectableText(
+                  text,
+                  style: const TextStyle(fontSize: 14, height: 1.6),
+                ),
         ),
       ),
       actions: [
@@ -965,6 +971,56 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       ],
     ),
   );
+
+  Widget _readmeBody(BuildContext context, String text) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final body = theme.textTheme.bodyMedium?.copyWith(height: 1.6);
+    return MarkdownBody(
+      data: text,
+      selectable: true,
+      // README previews are local. Keep image descriptions without fetching URLs.
+      imageBuilder: (_, title, alt) => Text(alt ?? title ?? ''),
+      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+        p: body,
+        blockSpacing: 12,
+        code: (body ?? const TextStyle()).copyWith(
+          fontFamily: 'monospace',
+          fontSize: 13,
+          color: colors.onSurfaceVariant,
+          backgroundColor: colors.surfaceContainerHighest,
+        ),
+        blockquote: body?.copyWith(color: colors.onSurfaceVariant),
+        codeblockDecoration: BoxDecoration(
+          color: colors.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        tableHead: body?.copyWith(fontWeight: FontWeight.w600),
+        tableBody: body,
+        tableColumnWidth: const FixedColumnWidth(144),
+        tableBorder: TableBorder.all(color: colors.outlineVariant),
+        tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        tableHeadCellsDecoration: BoxDecoration(color: colors.surfaceContainerHigh),
+      ),
+    );
+  }
+
+  Widget _marketIcon(MarketPlugin plugin, Color color) {
+    final fallback = Icon(Icons.extension_rounded, color: color, size: 21);
+    final url = plugin.iconUrl;
+    if (url == null) return fallback;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(11),
+      child: Image.network(
+        url.toString(),
+        fit: BoxFit.cover,
+        cacheWidth: 128,
+        frameBuilder: (_, child, frame, synchronous) =>
+            synchronous || frame != null ? child : fallback,
+        errorBuilder: (_, error, stackTrace) => fallback,
+      ),
+    );
+  }
 
   Future<void> _marketDetails(
     MarketPlugin plugin, {
@@ -1452,11 +1508,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                                   color: theme.primary.withValues(alpha: .10),
                                   borderRadius: BorderRadius.circular(11),
                                 ),
-                                child: Icon(
-                                  Icons.extension_rounded,
-                                  color: theme.primary,
-                                  size: 21,
-                                ),
+                                child: _marketIcon(plugin, theme.primary),
                               ),
                               const SizedBox(width: 10),
                               Expanded(

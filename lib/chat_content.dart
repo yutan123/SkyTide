@@ -40,21 +40,21 @@ bool _isPlanning(String text) {
 
 String _replySource(String raw) => raw
     .replaceFirst(
-      RegExp(r'^\s*(?:(?:data|event)\s*:\s*)?response\s*[:：]\s*',
-          caseSensitive: false),
+      RegExp(
+        r'^\s*(?:(?:data|event)\s*:\s*)?response\s*[:：]\s*',
+        caseSensitive: false,
+      ),
       '',
     )
-    .replaceFirst(
-      RegExp(r'^\s*\[心情\s*[:：][^\]\n]*\]\s*'),
-      '',
-    )
+    .replaceFirst(RegExp(r'^\s*\[心情\s*[:：][^\]\n]*\]\s*'), '')
     .trim();
 
 /// Protocol metadata is model context, never visible chat text.
 String stripChatMetadata(String raw) {
   var text = raw.replaceAll(
     RegExp(
-        r'\[(?:(?:说话人\s*[:：]\s*(?:对方|你))[^\]]*|(?:你|对方)发送了一个表情包\s*[,，]\s*表情包类型\s*[:：]?[^\]]*|发送时间\s*[:：][^\]]*|(?:本轮)?图片\s*(?:#\s*\d+|[:：][^\]]*))\]'),
+      r'\[(?:(?:说话人\s*[:：]\s*(?:对方|你))[^\]]*|(?:你|对方)发送了一个表情包\s*[,，]\s*表情包类型\s*[:：]?[^\]]*|发送时间\s*[:：][^\]]*|(?:本轮)?图片\s*(?:#\s*\d+|[:：][^\]]*))\]',
+    ),
     '',
   );
   // Hold a split opening anywhere in a cumulative stream, including mid-sentence.
@@ -79,8 +79,9 @@ String stripChatMetadata(String raw) {
       '[本轮图片：',
       '[本轮图片:',
     ];
-    if (prefixes
-        .any((prefix) => prefix.startsWith(tail) || tail.startsWith(prefix))) {
+    if (prefixes.any(
+      (prefix) => prefix.startsWith(tail) || tail.startsWith(prefix),
+    )) {
       text = text.substring(0, start);
     }
   }
@@ -91,9 +92,10 @@ String stripChatMetadata(String raw) {
 ChatReplyContent parseChatReply(String raw) {
   var text = _replySource(stripChatMetadata(raw));
   // Keep examples of internal tags inside a real source-code block intact.
-  if (RegExp(r'^```(?!text\b|plaintext\b)[a-z][\w+-]*\s*\n',
-          caseSensitive: false)
-      .hasMatch(text)) {
+  if (RegExp(
+    r'^```(?!text\b|plaintext\b)[a-z][\w+-]*\s*\n',
+    caseSensitive: false,
+  ).hasMatch(text)) {
     return ChatReplyContent(text);
   }
   if (_isPlanning(text)) {
@@ -104,22 +106,28 @@ ChatReplyContent parseChatReply(String raw) {
       multiLine: true,
     ).firstMatch(text);
     if (boundary == null) return const ChatReplyContent('');
-    text = text.substring(boundary.start).replaceFirst(
-          RegExp(r'^(?:final(?: answer)?|answer|最终回答|正文)\s*[:：]\s*',
-              caseSensitive: false),
+    text = text
+        .substring(boundary.start)
+        .replaceFirst(
+          RegExp(
+            r'^(?:final(?: answer)?|answer|最终回答|正文)\s*[:：]\s*',
+            caseSensitive: false,
+          ),
           '',
         );
   }
   // Unwrap presentation fences; keep actual source-code fences.
-  final fence = RegExp(r'^```(?:text|plaintext)?\s*\n([\s\S]*?)\n```\s*$',
-          caseSensitive: false)
-      .firstMatch(text);
+  final fence = RegExp(
+    r'^```(?:text|plaintext)?\s*\n([\s\S]*?)\n```\s*$',
+    caseSensitive: false,
+  ).firstMatch(text);
   if (fence != null) text = fence.group(1)!;
   String? thought;
   text = text.replaceAllMapped(
     RegExp(
-        r'<(inner_thought|think|analysis|reasoning|tool_call)\b[^>]*>([\s\S]*?)</\1\s*>',
-        caseSensitive: false),
+      r'<(inner_thought|think|analysis|reasoning|tool_call)\b[^>]*>([\s\S]*?)</\1\s*>',
+      caseSensitive: false,
+    ),
     (match) {
       if (match.group(1)!.toLowerCase() == 'inner_thought') {
         final value = match.group(2)!.trim();
@@ -129,25 +137,36 @@ ChatReplyContent parseChatReply(String raw) {
     },
   );
   text = text.replaceFirst(
-    RegExp(r'<(?:inner_thought|think|analysis|reasoning|tool_call)\b[\s\S]*$',
-        caseSensitive: false),
+    RegExp(
+      r'<(?:inner_thought|think|analysis|reasoning|tool_call)\b[\s\S]*$',
+      caseSensitive: false,
+    ),
     '',
   );
   final partialTag = RegExp(r'<[^>]*$').firstMatch(text);
   if (partialTag != null) {
     final suffix = partialTag.group(0)!.toLowerCase();
-    if (['<inner_thought', '<think', '<analysis', '<reasoning', '<tool_call']
-        .any((tag) => tag.startsWith(suffix))) {
+    if ([
+      '<inner_thought',
+      '<think',
+      '<analysis',
+      '<reasoning',
+      '<tool_call',
+    ].any((tag) => tag.startsWith(suffix))) {
       text = text.substring(0, partialTag.start);
     }
   }
   text = text.replaceAll(
-      RegExp(r'<tool_call>[\s\S]*?</tool_call>', caseSensitive: false), '');
+    RegExp(r'<tool_call>[\s\S]*?</tool_call>', caseSensitive: false),
+    '',
+  );
   text = text.trim();
   if (_isPlanning(text)) {
     final finalReply = parseChatReply(text);
-    return ChatReplyContent(finalReply.text,
-        innerThought: thought ?? finalReply.innerThought);
+    return ChatReplyContent(
+      finalReply.text,
+      innerThought: thought ?? finalReply.innerThought,
+    );
   }
   return ChatReplyContent(text, innerThought: thought);
 }
@@ -164,11 +183,13 @@ class ChatReplyStream {
     _raw.write(delta);
     final raw = _replySource(_raw.toString()).toLowerCase();
     final visible = content.text.toLowerCase();
-    if (_planningOpenings.any((prefix) =>
-            prefix.startsWith(raw) ||
-            raw.startsWith(prefix) ||
-            prefix.startsWith(visible) ||
-            visible.startsWith(prefix)) ||
+    if (_planningOpenings.any(
+          (prefix) =>
+              prefix.startsWith(raw) ||
+              raw.startsWith(prefix) ||
+              prefix.startsWith(visible) ||
+              visible.startsWith(prefix),
+        ) ||
         '[心情'.startsWith(raw) ||
         raw.startsWith('[心情') ||
         raw.startsWith('```') ||
@@ -178,7 +199,8 @@ class ChatReplyStream {
         'data:'.startsWith(raw) ||
         raw.startsWith('data:') ||
         'event:'.startsWith(raw) ||
-        raw.startsWith('event:')) return '';
+        raw.startsWith('event:'))
+      return '';
     return _takeVisible();
   }
 
@@ -191,4 +213,22 @@ class ChatReplyStream {
     _sent = visible;
     return delta;
   }
+}
+
+List<String> splitChatReplySegments(String content) {
+  // 先检测代码块，避免在代码块内分段
+  final codeBlockPattern = RegExp(r'```[\s\S]*?```', multiLine: true);
+  final codeBlocks = codeBlockPattern.allMatches(content);
+
+  // 如果整个内容包含代码块，不分段
+  if (codeBlocks.isNotEmpty) {
+    return <String>[content];
+  }
+
+  final parts = RegExp(r'.*?[。！？!?…]+|.+$', multiLine: true)
+      .allMatches(content)
+      .map((match) => match.group(0)?.trim() ?? '')
+      .where((part) => part.isNotEmpty)
+      .toList();
+  return parts.isEmpty ? <String>[content] : parts;
 }

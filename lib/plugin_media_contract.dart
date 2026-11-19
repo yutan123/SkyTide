@@ -16,6 +16,7 @@ class PluginMediaContract {
     'auth.browser',
     'credentials',
     'background.send',
+    'background.generate',
     'context.inject',
 
     'chat.send',
