@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/images/logo.png" width="250" alt="SkyTide 图标" />
+<img src="assets/images/logo1.png" width="250" alt="SkyTide 图标" />
 
-# SkyTide（云潮）
+# SkyTide
 
 **在自己的手机上，建立有记忆、有日常的 AI 陪伴。**
 
@@ -16,10 +16,6 @@
 [功能概览](#功能概览) · [模型与服务](#模型与服务) · [开始使用](#开始使用) · [常见问题](#常见问题) · [问题反馈](#开发与反馈)
 
 </div>
-
-## 从旧版迁移
-
-SkyTide 使用新的 Android 包名，会与旧版并存。请在旧版中导出完整备份，再到 SkyTide 中恢复。
 
 ## 关于 SkyTide
 
@@ -97,11 +93,11 @@ SkyTide 保留提供商选择权，是为了让角色体验、预算和能力配
 
 在应用的「插件管理」中，可从「插件市场」安装插件，也可导入本地 ZIP。安装后可查看插件声明的权限，并按需启用和配置。市场优先展示索引中声明的插件缩略图，缺少缩略图或图片加载失败时显示默认图标。
 
-插件开发、示例与市场提交规范见 [SkyTide 插件仓库](https://github.com/yutan123/TideBot-plugins)。
+插件开发、示例与市场提交规范见 [SkyTide 插件仓库](https://github.com/yutan123/SkyTide-plugins)。
 
 ### 技能包
 
-可导入以 `SKILL.md` 或 `manifest.json` 为入口的技能，也支持 `.zip`、`.skill`、`.tideskill` 等包格式。技能可以携带说明与附属文件，并按配置参与角色的上下文和工具使用。
+可导入以 `SKILL.md` 或 `manifest.json` 为入口的技能，也支持 `.zip`、`.skill` 等包格式。技能可以携带说明与附属文件，并按配置参与角色的上下文和工具使用。
 
 ### MCP
 
