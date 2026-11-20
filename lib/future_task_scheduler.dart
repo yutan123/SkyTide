@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 class FutureTaskScheduler {
   FutureTaskScheduler._();
 
-  static const MethodChannel _channel = MethodChannel('tidebot.native.channel');
+  static const MethodChannel _channel = MethodChannel('skytide.native.channel');
 
   static Future<bool> schedule(Map<String, dynamic> task) async {
     final id = task['id']?.toString() ?? '';
@@ -19,7 +19,7 @@ class FutureTaskScheduler {
     } on PlatformException {
       return false;
     } on MissingPluginException {
-      // 后台 isolate 的引擎未注册 tidebot.native.channel；
+      // 后台 isolate 的引擎未注册 skytide.native.channel；
       // SQLite 仍是任务来源，由 WorkManager 周期唤醒兜底执行。
       return false;
     }

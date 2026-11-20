@@ -61,7 +61,7 @@ Future<void> main() async {
   final root = await Directory.systemTemp.createTemp('plugin-media-options-');
   final host = Host(root);
   final session = PluginChatSession(
-    pluginId: 'tidebot.test',
+    pluginId: 'skytide.test',
     botId: 'a',
     host: host,
     assertCurrent: () async {},

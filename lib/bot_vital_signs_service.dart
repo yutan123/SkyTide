@@ -302,7 +302,7 @@ class BotVitalSignsService {
   Future<void> tick(String id, {DateTime? at, bool replyPending = true}) async {
     if (defaultTargetPlatform == TargetPlatform.android) {
       try {
-        await const MethodChannel('tidebot.native.channel')
+        await const MethodChannel('skytide.native.channel')
             .invokeMethod<String>('tickVitalSigns', {'botId': id});
         revision.value++;
       } on MissingPluginException {

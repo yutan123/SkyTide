@@ -9,7 +9,7 @@ import 'package:flutter/widgets.dart';
 /// The native service owns bounded leases, so engine loss cannot leak a service.
 class RequestExecutionLease with WidgetsBindingObserver {
   RequestExecutionLease._(this._id);
-  static const _channel = MethodChannel('tidebot.native.channel');
+  static const _channel = MethodChannel('skytide.native.channel');
   static int _sequence = 0;
   final String? _id;
   Timer? _renewal;

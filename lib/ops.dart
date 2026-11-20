@@ -18,7 +18,7 @@ class OpsManager {
   OpsManager._internal();
 
   static const MethodChannel _nativeChannel =
-      MethodChannel('tidebot.native.channel');
+      MethodChannel('skytide.native.channel');
 
   final AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _audioPlayer = AudioPlayer();

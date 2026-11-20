@@ -18,7 +18,7 @@ const backupChoices = <String, String>{
 };
 
 class AutoBackupService {
-  static const channel = MethodChannel('tidebot.auto_backup');
+  static const channel = MethodChannel('skytide.auto_backup');
   static const location = '下载/SkyTide/backup';
   static const configKey = 'auto_backup_config';
   static Future<Map<String, dynamic>> config() async {

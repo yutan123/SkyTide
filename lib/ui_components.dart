@@ -31,7 +31,7 @@ class TideHaptics {
     );
   }
 
-  static const MethodChannel _channel = MethodChannel('tidebot.native.channel');
+  static const MethodChannel _channel = MethodChannel('skytide.native.channel');
 
   static void _impact(int duration, int amplitude, Future<void> fallback) {
     if (!_enabled) return;

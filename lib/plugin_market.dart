@@ -18,7 +18,7 @@ class MarketPlugin {
       changelog;
   final String? icon;
   MarketPlugin(Map<String, dynamic> json)
-    : id = json['id'] as String,
+    : id = PluginArchive.marketId(json['id'] as String),
       name = json['name'] as String,
       author = json['author'] as String,
       description = json['description'] as String,
@@ -28,7 +28,7 @@ class MarketPlugin {
       icon = json['icon'] is String ? json['icon'] as String : null,
       changelog = json['changelog'] as String? ?? '' {
     if (!RegExp(
-          r'^tidebot[a-z0-9_.-]{0,57}$',
+          r'^skytide[a-z0-9_.-]{0,57}$',
           caseSensitive: false,
         ).hasMatch(id) ||
         name.isEmpty ||
@@ -80,6 +80,11 @@ class PluginMarket extends ChangeNotifier {
       Uri.parse('https://gh-proxy.com/$encoded'),
       Uri.parse('https://ghfast.top/$encoded'),
     ];
+  }
+
+  static List<Uri> iconRoutes(MarketPlugin plugin) {
+    final url = plugin.iconUrl;
+    return url == null ? const [] : _routes(url);
   }
 
   static Future<HttpClientResponse> _getWithFallback(
@@ -208,7 +213,9 @@ class PluginMarket extends ChangeNotifier {
     void Function(int, int) progress,
   ) async {
     if (_revocations.any(
-      (r) => r['id'] == plugin.id && r['commit'] == plugin.commit,
+      (r) => r['id'] is String &&
+          PluginArchive.marketId(r['id'] as String) == plugin.id &&
+          r['commit'] == plugin.commit,
     )) {
       throw const FormatException('该版本已撤销');
     }
@@ -233,7 +240,11 @@ class PluginMarket extends ChangeNotifier {
         progress(bytes.length, response.contentLength);
       }
       operation.check();
-      final package = PluginArchive.decode(bytes, githubWrapper: true);
+      final package = PluginArchive.decode(
+        bytes,
+        githubWrapper: true,
+        expectedMarketId: plugin.id,
+      );
       if (package.manifest['id'] != plugin.id ||
           package.manifest['version'] != plugin.version) {
         throw const FormatException('下载插件的 ID 或版本与市场不一致');

@@ -5,7 +5,7 @@ import 'package:skytide/future_task_scheduler.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const channel = MethodChannel('tidebot.native.channel');
+  const channel = MethodChannel('skytide.native.channel');
   final calls = <MethodCall>[];
 
   setUp(() {

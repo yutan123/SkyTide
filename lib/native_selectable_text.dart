@@ -145,7 +145,7 @@ class _NativeSelectableTextState extends State<NativeSelectableText> {
   }
 
   void _onCreated(int id) {
-    _channel = MethodChannel('tidebot/native_selectable_text/$id')
+    _channel = MethodChannel('skytide/native_selectable_text/$id')
       ..setMethodCallHandler(_onNativeCall);
     unawaited(_updateNative());
   }
@@ -239,7 +239,7 @@ class _NativeSelectableTextState extends State<NativeSelectableText> {
                 Text(widget.data,
                     style: resolvedStyle, textAlign: widget.textAlign),
               PlatformViewLink(
-                viewType: 'tidebot/native_selectable_text',
+                viewType: 'skytide/native_selectable_text',
                 surfaceFactory: (context, controller) => AndroidViewSurface(
                   controller: controller as AndroidViewController,
                   hitTestBehavior: PlatformViewHitTestBehavior.opaque,
@@ -252,7 +252,7 @@ class _NativeSelectableTextState extends State<NativeSelectableText> {
                   final controller =
                       PlatformViewsService.initExpensiveAndroidView(
                     id: params.id,
-                    viewType: 'tidebot/native_selectable_text',
+                    viewType: 'skytide/native_selectable_text',
                     layoutDirection: direction,
                     creationParams: {
                       ..._params,
@@ -288,7 +288,7 @@ class _NativeSelectableTextState extends State<NativeSelectableText> {
             estimatedHeight.ceilToDouble().clamp(1, double.infinity),
         // Texture composition follows Flutter scrolling, clipping and transforms.
         child: AndroidView(
-          viewType: 'tidebot/native_selectable_text',
+          viewType: 'skytide/native_selectable_text',
           layoutDirection: direction,
           creationParams: {...params, 'revision': _revision},
           creationParamsCodec: const StandardMessageCodec(),

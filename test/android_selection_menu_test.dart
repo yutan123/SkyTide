@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skytide/android_selection_menu.dart';
 
 void main() {
-  const channel = MethodChannel('tidebot/selection_menu');
+  const channel = MethodChannel('skytide/selection_menu');
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   final calls = <MethodCall>[];
 
@@ -22,7 +22,7 @@ void main() {
 
   Future<void> send(String method, Map<String, Object> args) async {
     await binding.defaultBinaryMessenger.handlePlatformMessage(
-      'tidebot/selection_menu',
+      'skytide/selection_menu',
       const StandardMethodCodec().encodeMethodCall(MethodCall(method, args)),
       (_) {},
     );

@@ -5,7 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter/services.dart';
 
 class MediaPreprocessor {
-  static const MethodChannel _channel = MethodChannel('tidebot.native.channel');
+  static const MethodChannel _channel = MethodChannel('skytide.native.channel');
 
   // 防止单个附件占满聊天上下文。
   static const int _maxDocumentBytes = 1024 * 1024;

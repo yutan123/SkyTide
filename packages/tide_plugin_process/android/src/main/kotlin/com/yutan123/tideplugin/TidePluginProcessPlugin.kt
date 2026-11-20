@@ -17,8 +17,8 @@ class TidePluginProcessPlugin : FlutterPlugin {
     companion object { private val slots = arrayOfNulls<String>(8) }
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
-        channel = MethodChannel(binding.binaryMessenger, "tidebot.plugin.process")
-        coordination = MethodChannel(binding.binaryMessenger, "tidebot.plugin.coordination")
+        channel = MethodChannel(binding.binaryMessenger, "skytide.plugin.process")
+        coordination = MethodChannel(binding.binaryMessenger, "skytide.plugin.coordination")
         PluginCoordination.attach(this) { id, epoch ->
             sessions.values.toList().filter { it.pluginId == id }.forEach { it.finish(false) }
             coordination.invokeMethod("invalidated", mapOf("id" to id, "epoch" to epoch))

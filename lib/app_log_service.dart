@@ -133,7 +133,7 @@ class AppLogService {
 
   Future<File> _historyFile() async {
     final dir = await getApplicationDocumentsDirectory();
-    return File('${dir.path}/tidebot_dev_logs.json');
+    return File('${dir.path}/skytide_dev_logs.json');
   }
 
   Future<void> saveCurrent() async {

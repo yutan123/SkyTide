@@ -399,7 +399,7 @@ Future<void> main() async {
 
     final host = fixture.Host(root);
     final session = PluginChatSession(
-      pluginId: 'tidebot.expansion',
+      pluginId: 'skytide.expansion',
       botId: 'bot',
       assertCurrent: current,
       host: host,

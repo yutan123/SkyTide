@@ -27,7 +27,7 @@ internal class TidePluginOverlay(private val activity: MainActivity, messenger: 
     private val context = activity.applicationContext
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val appOps = context.getSystemService(android.app.AppOpsManager::class.java)
-    private val channel = MethodChannel(messenger, "tidebot.plugin.device")
+    private val channel = MethodChannel(messenger, "skytide.plugin.device")
     private val watcher = android.app.AppOpsManager.OnOpChangedListener { _, _ ->
         activity.runOnUiThread { if (!allowed()) close() }
     }

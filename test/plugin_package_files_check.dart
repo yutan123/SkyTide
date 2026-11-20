@@ -115,7 +115,7 @@ Future<void> main() async {
     await response.drain<void>();
     check(response.statusCode == 404, 'epoch invalidation');
     final manifest = <String, dynamic>{
-      'id': 'tidebot_package_test',
+      'id': 'skytide_package_test',
       'name': 'test',
       'version': '1.0.0',
       'entry': 'main.js',

@@ -8,7 +8,7 @@ import 'package:skytide/request_execution_lease.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const channel = MethodChannel('tidebot.native.channel');
+  const channel = MethodChannel('skytide.native.channel');
   final calls = <MethodCall>[];
   setUp(() {
     calls.clear();

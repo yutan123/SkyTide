@@ -63,7 +63,7 @@ private class BundledTypefaceSpan(private val font: Typeface) : MetricAffectingS
 private class NativeSelectableTextView(
     context: Context, viewId: Int, messenger: BinaryMessenger, args: Map<String, Any?>,
 ) : PlatformView {
-    private val channel = MethodChannel(messenger, "tidebot/native_selectable_text/$viewId")
+    private val channel = MethodChannel(messenger, "skytide/native_selectable_text/$viewId")
     private val textView = TextView(context).apply {
         includeFontPadding = false
         setPadding(0, 0, 0, 0)

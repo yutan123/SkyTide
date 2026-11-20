@@ -41,7 +41,7 @@ object TideNativeNotifications {
                 val id = row.getString("message_id")
                 if (TideStore.kv(db, "native_notified_$id") == "true") continue
                 val intent = Intent(context, MainActivity::class.java)
-                    .setData(android.net.Uri.parse("tidebot://chat/$id"))
+                    .setData(android.net.Uri.parse("skytide://chat/$id"))
                     .putExtra("tide_bot_id", row.getString("bot_id"))
                     .putExtra("tide_message_id", id)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)

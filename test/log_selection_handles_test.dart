@@ -6,7 +6,7 @@ import 'package:skytide/log_session_detail_page.dart';
 import 'package:skytide/log_text.dart';
 
 void main() {
-  const menu = MethodChannel('tidebot/selection_menu');
+  const menu = MethodChannel('skytide/selection_menu');
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   final calls = <MethodCall>[];
   final processCalls = <MethodCall>[];

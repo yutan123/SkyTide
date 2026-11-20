@@ -2286,7 +2286,7 @@ class DBManager {
         '_',
       );
       final fileName =
-          'tidebot_chat_${safeName}_${DateTime.now().millisecondsSinceEpoch}.zip';
+          'skytide_chat_${safeName}_${DateTime.now().millisecondsSinceEpoch}.zip';
       final json = File('${work.path}/chat_history.json');
       final sink = json.openWrite();
       final files = <String, String>{'chat_history.json': json.path};
@@ -2298,7 +2298,7 @@ class DBManager {
       final mapPath = media.mapPath;
 
       try {
-        sink.write('{"format":"tidebot.chat","version":2,"exported_at":');
+        sink.write('{"format":"skytide.chat","version":2,"exported_at":');
         sink.write(jsonEncode(DateTime.now().toIso8601String()));
         sink.write(
           ',"bot":${jsonEncode({'id': botId, 'name': bot['name']})},"video_history":[',
@@ -2420,7 +2420,7 @@ class DBManager {
             throw const FormatException('聊天消息格式无效');
         }
       }
-      if (format != 'tidebot.chat' ||
+      if ((format != 'skytide.chat' && format != 'tidebot.chat') ||
           !const [1, 2].contains(version) ||
           !hasMessages) {
         throw const FormatException('仅支持 SkyTide 导出的聊天记录文件');
@@ -2512,12 +2512,12 @@ class DBManager {
     final work = await DataTransfer.workspace();
     try {
       final name =
-          'tidebot_memory_${DateTime.now().millisecondsSinceEpoch}.json';
+          'skytide_memory_${DateTime.now().millisecondsSinceEpoch}.json';
       final file = File('${work.path}/$name');
       final sink = file.openWrite();
       try {
         sink.write(
-          '{"format":"tidebot.memory","version":1,"bot":${jsonEncode({'id': botId, 'name': bot['name'], 'created_at': bot['created_at'], 'daily_quote': bot['daily_quote']})},',
+          '{"format":"skytide.memory","version":1,"bot":${jsonEncode({'id': botId, 'name': bot['name'], 'created_at': bot['created_at'], 'daily_quote': bot['daily_quote']})},',
         );
         final db = await database;
         await db.transaction((txn) async {
@@ -2584,7 +2584,8 @@ class DBManager {
           throw const FormatException('世界书内容无效');
       }
     }
-    if (format != 'tidebot.memory' || version != 1 || sections.length != 2) {
+    if ((format != 'skytide.memory' && format != 'tidebot.memory') ||
+        version != 1 || sections.length != 2) {
       throw const FormatException('仅支持 SkyTide 导出的世界书文件');
     }
     final sourceBotId = bot['id']?.toString() ?? '';
@@ -2663,7 +2664,7 @@ class DBManager {
   Future<void> exportToMarkdown() => DataTransfer.exclusive(() async {
     final db = await database;
     final dir = await getDatabasesPath();
-    final file = File('$dir/tidebot_export.md');
+    final file = File('$dir/skytide_export.md');
     final sink = file.openWrite();
     try {
       sink.writeln('# SkyTide 数据导出');

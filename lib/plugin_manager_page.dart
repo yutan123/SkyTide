@@ -1007,18 +1007,24 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
 
   Widget _marketIcon(MarketPlugin plugin, Color color) {
     final fallback = Icon(Icons.extension_rounded, color: color, size: 21);
-    final url = plugin.iconUrl;
-    if (url == null) return fallback;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(11),
-      child: Image.network(
-        url.toString(),
+    final routes = PluginMarket.iconRoutes(plugin);
+    if (routes.isEmpty) return fallback;
+
+    Widget load(int index) {
+      if (index == routes.length) return fallback;
+      return Image.network(
+        routes[index].toString(),
         fit: BoxFit.cover,
         cacheWidth: 128,
         frameBuilder: (_, child, frame, synchronous) =>
             synchronous || frame != null ? child : fallback,
-        errorBuilder: (_, error, stackTrace) => fallback,
-      ),
+        errorBuilder: (_, _, _) => load(index + 1),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(11),
+      child: load(0),
     );
   }
 

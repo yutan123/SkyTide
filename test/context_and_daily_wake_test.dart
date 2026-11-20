@@ -36,7 +36,7 @@ void main() {
     expect(line(DateTime(2026, 2, 18), '2026-02-18'), isNot(contains('春节')));
   });
   test('daily wake passes repeat flag to native application alarm', () async {
-    const channel = MethodChannel('tidebot.native.channel');
+    const channel = MethodChannel('skytide.native.channel');
     final calls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {

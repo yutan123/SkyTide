@@ -74,7 +74,7 @@ class MainActivity: FlutterActivity() {
             }
         }
     }
-    private val CHANNEL = "tidebot.native.channel"
+    private val CHANNEL = "skytide.native.channel"
     private var nativeChannel: MethodChannel? = null
     private var selectionMenu: NativeSelectionMenu? = null
     private var pluginOverlay: TidePluginOverlay? = null
@@ -155,7 +155,7 @@ class MainActivity: FlutterActivity() {
         selectionMenu?.dispose()
         selectionMenu = NativeSelectionMenu(this, flutterEngine.dartExecutor.binaryMessenger)
         flutterEngine.platformViewsController.registry.registerViewFactory(
-            "tidebot/native_selectable_text",
+            "skytide/native_selectable_text",
             NativeSelectableTextFactory(flutterEngine.dartExecutor.binaryMessenger),
         )
         nativeChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
@@ -652,7 +652,7 @@ class MainActivity: FlutterActivity() {
         val source = File(path)
         require(source.exists()) { "视频文件不存在" }
 
-        val outputDir = File(cacheDir, "tidebot_video_${System.currentTimeMillis()}")
+        val outputDir = File(cacheDir, "skytide_video_${System.currentTimeMillis()}")
         outputDir.mkdirs()
         val retriever = MediaMetadataRetriever()
         try {

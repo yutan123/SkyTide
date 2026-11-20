@@ -27,7 +27,7 @@ class MediaStorageService {
   bool _running = false;
   Timer? _retry;
   ReceivePort? _updates;
-  static const _portName = 'tidebot.media.storage.updates';
+  static const _portName = 'skytide.media.storage.updates';
 
   void startForeground() {
     if (_updates != null) return;

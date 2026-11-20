@@ -11,7 +11,7 @@ import 'package:path_provider/path_provider.dart';
 
 /// Only file paths cross the platform channel; file contents never do.
 class DataTransfer {
-  static const _channel = MethodChannel('tidebot.data_transfer');
+  static const _channel = MethodChannel('skytide.data_transfer');
   static bool _busy = false;
   static bool get isBusy => _busy;
 
@@ -42,7 +42,7 @@ class DataTransfer {
   }
 
   static Future<Directory> workspace() async =>
-      (await getTemporaryDirectory()).createTemp('tidebot_transfer_');
+      (await getTemporaryDirectory()).createTemp('skytide_transfer_');
 
   static Future<String?> save(File file, String name, String mime) =>
       _channel.invokeMethod<String>('save', {

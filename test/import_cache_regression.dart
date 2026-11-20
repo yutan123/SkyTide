@@ -24,7 +24,7 @@ Future<void> main() async {
       '${work.path}/documents/imported_media/image.jpg',
     );
     final rollback = await write(
-      '${cache.path}/tidebot_transfer_recovery/rollback/tidebot.db',
+      '${cache.path}/skytide_transfer_recovery/rollback/tidebot.db',
     );
     final result = await consumePickedImport(source.path, cache, () async {
       check(await source.exists(), 'Input exists during import');

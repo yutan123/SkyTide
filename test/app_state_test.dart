@@ -5,7 +5,7 @@ import 'package:skytide/app_state.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const channel = MethodChannel('tidebot.native.channel');
+  const channel = MethodChannel('skytide.native.channel');
   final calls = <MethodCall>[];
   late Object owner;
 

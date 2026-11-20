@@ -15,7 +15,8 @@ import 'db.dart';
 
 class FullBackupService {
   static const _dbName = 'tidebot.db';
-  static const _native = MethodChannel('tidebot.native.channel');
+  static const _archiveDbName = 'skytide.db';
+  static const _native = MethodChannel('skytide.native.channel');
   static Future<void> restartToApply() =>
       _native.invokeMethod<void>('restartForRestore');
 
@@ -28,7 +29,7 @@ class FullBackupService {
       final dbPath = '${await getDatabasesPath()}/$_dbName';
       final snapshot = File('${work.path}/$_dbName');
       final docs = await getApplicationDocumentsDirectory();
-      final files = <String, String>{'tidebot.db': snapshot.path};
+      final files = <String, String>{_archiveDbName: snapshot.path};
       if (await docs.exists()) {
         await for (final item in docs.list(
           recursive: true,
@@ -38,7 +39,7 @@ class FullBackupService {
           final relative = p.relative(item.path, from: docs.path);
           if (relative.startsWith('memory_embedding/') ||
               relative.startsWith('models/') ||
-              relative == 'tidebot_dev_logs.json' ||
+              relative == 'skytide_dev_logs.json' ||
               relative.startsWith('SkyTide/exports/'))
             continue;
           files['documents/$relative'] = item.path;
@@ -300,7 +301,7 @@ class FullBackupService {
       }
       files['preferences.json'] = preferences.path;
       final name =
-          'tidebot_backup_${DateTime.now().millisecondsSinceEpoch}.zip';
+          'skytide_backup_${DateTime.now().millisecondsSinceEpoch}.zip';
       final file = File('${work.path}/$name');
       await DataTransfer.ensureSpace(
         work,
@@ -334,6 +335,8 @@ class FullBackupService {
           try {
             await DataTransfer.extract(path, work.path);
             final source = File('${work.path}/$_dbName');
+            final archiveDb = File('${work.path}/$_archiveDbName');
+            if (await archiveDb.exists()) await archiveDb.rename(source.path);
             final preferences = File('${work.path}/preferences.json');
             if (!await source.exists() || !await preferences.exists()) {
               throw const FormatException('不是有效的 SkyTide 完整备份');

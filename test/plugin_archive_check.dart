@@ -75,7 +75,7 @@ List<int> zip(List<Entry> entries) {
 Future<void> main() async {
   var checks = 0;
   final manifest = <String, dynamic>{
-    'id': 'tidebot.test.contract',
+    'id': 'skytide.test.contract',
     'name': 'Package contract fixture',
     'version': '1.0.0',
     'entry': 'main.js',
@@ -168,10 +168,10 @@ Future<void> main() async {
     }),
   );
   for (final id in [
-    'tidebot_meme_search',
-    'tidebot.meme.serch',
-    'tidebot.meme_serch',
-    'TideBot_Meme_Search',
+    'skytide_meme_search',
+    'skytide.meme.serch',
+    'skytide.meme_serch',
+    'SkyTide_Meme_Search',
   ]) {
     final result = PluginArchive.decode(zip(base({'id': id})));
     if (result.manifest['id'] != id) throw StateError('ID spelling changed');
@@ -189,14 +189,27 @@ Future<void> main() async {
   }
   for (final id in [
     'test.contract',
-    'xtidebot.example',
+    'xskytide.example',
     'tidebo',
-    'tidebot/escape',
-    'tidebot 空格',
-    'tidebot${'a' * 58}',
+    'skytide/escape',
+    'skytide 空格',
+    'skytide${'a' * 58}',
   ]) {
     rejects(base({'id': id}));
   }
+  final legacyEntries = base({'id': 'tidebot_meme_search'});
+  rejects(legacyEntries);
+  final migrated = PluginArchive.decode(
+    zip(legacyEntries),
+    githubWrapper: true,
+    expectedMarketId: 'skytide_meme_search',
+  );
+  final savedManifest = jsonDecode(utf8.decode(migrated.files['manifest.json']!));
+  if (migrated.manifest['id'] != 'skytide_meme_search' ||
+      savedManifest['id'] != 'skytide_meme_search') {
+    throw StateError('Legacy market ID was not normalized in the saved package');
+  }
+  checks++;
   accepts(base());
   accepts([
     for (final entry in base()) Entry(entry.name, entry.bytes, method: 8),

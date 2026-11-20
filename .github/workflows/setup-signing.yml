@@ -40,14 +40,14 @@ jobs:
           set -euo pipefail
           case "$GITHUB_REPOSITORY" in
             yutan123/TideBot-Dev)
-              echo 'KEY_ALIAS=tidebot-dev' >> "$GITHUB_ENV"
+              echo 'KEY_ALIAS=skytide-dev' >> "$GITHUB_ENV"
               echo 'KEY_DN=CN=SkyTide Dev, OU=Development, O=SkyTide, C=CN' >> "$GITHUB_ENV"
-              echo 'KEYSTORE_NAME=tidebot-dev.keystore' >> "$GITHUB_ENV"
+              echo 'KEYSTORE_NAME=skytide-dev.keystore' >> "$GITHUB_ENV"
               ;;
             yutan123/TideBot)
-              echo 'KEY_ALIAS=tidebot-release' >> "$GITHUB_ENV"
+              echo 'KEY_ALIAS=skytide-release' >> "$GITHUB_ENV"
               echo 'KEY_DN=CN=SkyTide, OU=Release, O=SkyTide, C=CN' >> "$GITHUB_ENV"
-              echo 'KEYSTORE_NAME=tidebot-release.keystore' >> "$GITHUB_ENV"
+              echo 'KEYSTORE_NAME=skytide-release.keystore' >> "$GITHUB_ENV"
               ;;
             *)
               echo "::error::Unexpected repository: $GITHUB_REPOSITORY"
@@ -79,10 +79,11 @@ jobs:
             exit 1
           fi
           test -n "$OLD_KEYSTORE"
-          if [[ "$OLD_ALIAS" != "$KEY_ALIAS" || "$OLD_KEY_PASSWORD" != "$KEYSTORE_PASSWORD" ]]; then
-            echo '::error::Rotation requires preserving the existing alias and key password.'
+          if [[ -z "$OLD_ALIAS" || "$OLD_KEY_PASSWORD" != "$KEYSTORE_PASSWORD" ]]; then
+            echo '::error::Rotation requires an existing alias and matching key/store passwords.'
             exit 1
           fi
+          printf 'KEY_ALIAS=%s\n' "$OLD_ALIAS" >> "$GITHUB_ENV"
           old=$(mktemp)
           restored=$(mktemp)
           trap 'rm -f "$old" "$restored"' EXIT

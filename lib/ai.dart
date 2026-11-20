@@ -3036,7 +3036,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       ..add(_le32(dataBytes))
       ..add(List<int>.filled(dataBytes, 0));
     final directory = await getTemporaryDirectory();
-    final file = File('${directory.path}/tidebot_stt_probe.wav');
+    final file = File('${directory.path}/skytide_stt_probe.wav');
     await file.writeAsBytes(bytes.toBytes(), flush: true);
     return file.path;
   }
@@ -6226,7 +6226,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                 http.MultipartFile.fromBytes(
                   'file',
                   wav,
-                  filename: 'tidebot-test.wav',
+                  filename: 'skytide-test.wav',
                   contentType: null,
                 ),
               );

@@ -7,7 +7,7 @@ import 'package:skytide/theme.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const native = MethodChannel('tidebot.native.channel');
+  const native = MethodChannel('skytide.native.channel');
   const permissions = MethodChannel('flutter.baseflow.com/permissions/methods');
   final statuses = <int, int>{};
   final checked = <int>[];

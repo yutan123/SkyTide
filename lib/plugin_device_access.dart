@@ -15,7 +15,7 @@ class PluginDeviceAccess {
     'videos': '视频',
     'motion': '设备动作与方向',
   };
-  static const channel = MethodChannel('tidebot.plugin.device');
+  static const channel = MethodChannel('skytide.plugin.device');
 
   static Set<String> declared(Map<String, dynamic> manifest) {
     final values = manifest['systemPermissions'];

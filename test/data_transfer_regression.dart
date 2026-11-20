@@ -18,7 +18,7 @@ Future<void> main() async {
   try {
     final json = File('${work.path}/chat.json');
     final sink = json.openWrite();
-    sink.write('{"format":"tidebot.chat","version":2,"messages":[');
+    sink.write('{"format":"skytide.chat","version":2,"messages":[');
     for (var i = 0; i < 12000; i++) {
       if (i != 0) sink.write(',');
       sink.write(
@@ -91,7 +91,7 @@ Future<void> main() async {
         ArchiveFile.string(
           'chat_history.json',
           jsonEncode({
-            'format': 'tidebot.chat',
+            'format': 'skytide.chat',
             'version': 2,
             'messages': [
               {'content': '旧版压缩备份'},

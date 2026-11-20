@@ -226,7 +226,7 @@ class ExternalApiService {
             {
               'id': _modelId(bot),
               'object': 'model',
-              'owned_by': 'tidebot',
+              'owned_by': 'skytide',
             }
           ]
         };
@@ -356,7 +356,7 @@ class ExternalApiService {
         }));
         final created = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         final completionId =
-            'chatcmpl-tidebot-${DateTime.now().microsecondsSinceEpoch}';
+            'chatcmpl-skytide-${DateTime.now().microsecondsSinceEpoch}';
         var emitted = '';
         var pendingCharacters = 0;
         var heartbeatPending = false;
@@ -487,7 +487,7 @@ class ExternalApiService {
             .add('EXTERNAL_API', 'Non-stream 模式：返回完整 JSON 响应');
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         return _json(request, 200, {
-          'id': 'chatcmpl-tidebot-$now',
+          'id': 'chatcmpl-skytide-$now',
           'object': 'chat.completion',
           'created': now,
           'model': _modelId(bot),
@@ -705,7 +705,7 @@ class ExternalApiService {
 
   String _modelId(Map<String, dynamic> bot) {
     final name = bot['name']?.toString().trim() ?? '';
-    return name.isEmpty ? 'tidebot' : name;
+    return name.isEmpty ? 'skytide' : name;
   }
 
   bool _allowRequest(HttpRequest request) {

@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit
 /** Only app-owned, date-named automatic archives enter the rotation. */
 class TideAutoBackup(private val context: Context, messenger: BinaryMessenger,
     private val ready: (() -> Unit)? = null) {
-    private val channel = MethodChannel(messenger, "tidebot.auto_backup")
+    private val channel = MethodChannel(messenger, "skytide.auto_backup")
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var lockFile: RandomAccessFile? = null
@@ -151,8 +151,8 @@ class TideAutoBackupWorker(context: Context, parameters: WorkerParameters) : Cor
         val engine = FlutterEngine(applicationContext)
         val messenger = engine.dartExecutor.binaryMessenger
         val completed = CompletableDeferred<Boolean>()
-        val channel = MethodChannel(messenger, "tidebot.auto_backup")
-        val transfer = MethodChannel(messenger, "tidebot.data_transfer")
+        val channel = MethodChannel(messenger, "skytide.auto_backup")
+        val transfer = MethodChannel(messenger, "skytide.data_transfer")
         transfer.setMethodCallHandler { call, result ->
             if (call.method == "freeSpace") {
                 runCatching { StatFs(requireNotNull(call.argument<String>("path"))).availableBytes }

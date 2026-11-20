@@ -22,7 +22,7 @@ void main() {
       final args = call.arguments as Map? ?? {};
       if (call.method == 'create') {
         viewId = args['id'] as int;
-        final channel = MethodChannel('tidebot/native_selectable_text/$viewId');
+        final channel = MethodChannel('skytide/native_selectable_text/$viewId');
         channels.add(channel);
         messenger.setMockMethodCallHandler(channel, (call) async {
           nativeCalls.add(call);
@@ -67,7 +67,7 @@ void main() {
   Future<void> reportHeight(WidgetTester tester, double height,
       {int? revision}) async {
     await messenger.handlePlatformMessage(
-      'tidebot/native_selectable_text/$viewId',
+      'skytide/native_selectable_text/$viewId',
       const StandardMethodCodec().encodeMethodCall(MethodCall('heightChanged', {
         'revision': revision ?? latest['revision'],
         'width': latest['width'],

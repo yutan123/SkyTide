@@ -10,7 +10,7 @@ class _PluginLease {
 }
 
 class PluginCoordinator {
-  static const _channel = MethodChannel('tidebot.plugin.coordination');
+  static const _channel = MethodChannel('skytide.plugin.coordination');
   static final _heldKey = Object();
   static final _localQueues = <String, Future<void>>{};
   static final _localEpochs = <String, int>{};

@@ -32,7 +32,7 @@ class _AndroidSelectionMenu extends StatefulWidget {
 }
 
 class _AndroidSelectionMenuState extends State<_AndroidSelectionMenu> {
-  static const _channel = MethodChannel('tidebot/selection_menu');
+  static const _channel = MethodChannel('skytide/selection_menu');
   static int _nextId = 0;
   static int? _activeId;
   final int _id = ++_nextId;

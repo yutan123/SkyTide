@@ -14,7 +14,7 @@ import kotlin.math.roundToInt
 
 /** Android owns toolbar labels; Flutter retains text and editing callbacks. */
 class NativeSelectionMenu(private val activity: Activity, messenger: BinaryMessenger) {
-    private val channel = MethodChannel(messenger, "tidebot/selection_menu")
+    private val channel = MethodChannel(messenger, "skytide/selection_menu")
     private var mode: ActionMode? = null
     private var session = -1
     private var anchor = Rect()

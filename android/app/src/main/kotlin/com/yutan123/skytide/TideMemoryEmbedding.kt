@@ -56,7 +56,7 @@ object TideMemoryEmbedding {
 
     fun register(context: Context, messenger: BinaryMessenger) {
         app = context.applicationContext
-        MethodChannel(messenger, "tidebot.memory.embedding").setMethodCallHandler { call, result ->
+        MethodChannel(messenger, "skytide.memory.embedding").setMethodCallHandler { call, result ->
             when (call.method) {
                 "status" -> result.success(unavailableReason == null)
                 "embed" -> {

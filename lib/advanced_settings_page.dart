@@ -210,7 +210,7 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
             'scroll_down': '向下滚动',
             'open_app': '打开应用',
             'close_app': '关闭应用后台进程',
-            'jump_tidebot': '跳转 SkyTide',
+            'jump_skytide': '跳转 SkyTide',
           };
     values.removeWhere((value) => !labels.containsKey(value));
     values.addAll(defaults);

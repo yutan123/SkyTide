@@ -5,7 +5,7 @@ import 'package:skytide/native_background_coordinator.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const channel = MethodChannel('tidebot.native.channel');
+  const channel = MethodChannel('skytide.native.channel');
 
   tearDown(() {
     debugDefaultTargetPlatformOverride = null;

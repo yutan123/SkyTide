@@ -13,7 +13,7 @@ import 'media_storage_service.dart';
 
 class NativeBackgroundCoordinator {
   NativeBackgroundCoordinator._();
-  static const _channel = MethodChannel('tidebot.native.channel');
+  static const _channel = MethodChannel('skytide.native.channel');
   static bool _started = false;
   static bool _refreshing = false;
   static Future<void>? _synchronizing;

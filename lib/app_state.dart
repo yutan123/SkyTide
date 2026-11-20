@@ -9,7 +9,7 @@ class AppState {
   static final ValueNotifier<bool> isForeground = ValueNotifier<bool>(true);
   static final RouteObserver<ModalRoute<dynamic>> chatRouteObserver =
       RouteObserver<ModalRoute<dynamic>>();
-  static const _nativeChannel = MethodChannel('tidebot.native.channel');
+  static const _nativeChannel = MethodChannel('skytide.native.channel');
   static String? _visibleChatBotId;
   static Object? _visibleChatOwner;
 

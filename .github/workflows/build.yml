@@ -99,7 +99,7 @@ jobs:
         run: |
           GRADLE_INIT_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
           mkdir -p "$GRADLE_INIT_DIR"
-          cat > "$GRADLE_INIT_DIR/tidebot-flutter-repositories.gradle" <<'GRADLE'
+          cat > "$GRADLE_INIT_DIR/skytide-flutter-repositories.gradle" <<'GRADLE'
           gradle.beforeSettings { settings ->
               if (settings.settingsDir.toPath().endsWith('packages/flutter_tools/gradle')) {
                   // The included Flutter build resolves plugin dependencies independently.

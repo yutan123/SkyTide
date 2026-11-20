@@ -4,7 +4,8 @@ import 'package:cryptography/cryptography.dart';
 /// Portable credential protection, not protection against app reverse engineering.
 /// Keys in this versioned keyring must remain available for old backups.
 class BackupCredentialCipher {
-  static const _format = 'tidebot.credentials';
+  static const _format = 'skytide.credentials';
+  static const _legacyFormat = 'tidebot.credentials';
   static const _keyId = 'backup-v1';
   static const _keys = <String, List<int>>{
     'backup-v1': [
@@ -43,8 +44,8 @@ class BackupCredentialCipher {
     ],
   };
   static final _cipher = AesGcm.with256bits();
-  static List<int> _aad(String keyId) =>
-      utf8.encode('$_format:1:$keyId:AES-256-GCM');
+  static List<int> _aad(String keyId, [String format = _format]) =>
+      utf8.encode('$format:1:$keyId:AES-256-GCM');
 
   static Future<String> encrypt(Map<String, String> credentials) async {
     final box = await _cipher.encrypt(
@@ -72,7 +73,8 @@ class BackupCredentialCipher {
       if (decoded is! Map) throw const FormatException();
       if (!decoded.containsKey('format')) return _credentialMap(decoded);
       final keyId = decoded['keyId'];
-      if (decoded['format'] != _format ||
+      final format = decoded['format'];
+      if ((format != _format && format != _legacyFormat) ||
           decoded['version'] != 1 ||
           decoded['algorithm'] != 'AES-256-GCM' ||
           keyId is! String ||
@@ -91,7 +93,7 @@ class BackupCredentialCipher {
       final plaintext = await _cipher.decrypt(
         SecretBox(bytes('ciphertext'), nonce: nonce, mac: Mac(tag)),
         secretKey: SecretKey(_keys[keyId]!),
-        aad: _aad(keyId),
+        aad: _aad(keyId, format as String),
       );
       return _credentialMap(jsonDecode(utf8.decode(plaintext)));
     } on SecretBoxAuthenticationError {

@@ -18,7 +18,14 @@ class PluginArchive {
   final Map<String, List<int>> files;
   PluginArchive._(this.manifest, this.files);
 
-  static PluginArchive decode(List<int> bytes, {bool githubWrapper = false}) {
+  static String marketId(String id) =>
+      id.toLowerCase().startsWith('tidebot') ? 'skytide${id.substring(7)}' : id;
+
+  static PluginArchive decode(
+    List<int> bytes, {
+    bool githubWrapper = false,
+    String? expectedMarketId,
+  }) {
     if (bytes.length > maxCompressed) {
       throw const FormatException('插件包超过 256 MiB 限制');
     }
@@ -113,6 +120,14 @@ class PluginArchive {
         throw const FormatException('manifest.json 必须是 JSON 对象');
       }
       final manifest = Map<String, dynamic>.from(raw);
+      final originalId = manifest['id'];
+      if (expectedMarketId != null &&
+          originalId is String &&
+          originalId != expectedMarketId &&
+          marketId(originalId) == expectedMarketId) {
+        manifest['id'] = expectedMarketId;
+        files['manifest.json'] = utf8.encode(jsonEncode(manifest));
+      }
       if (manifest['config'] == null &&
           files.containsKey('config.schema.json')) {
         if (files['config.schema.json']!.length > 1024 * 1024) {
@@ -140,7 +155,7 @@ class PluginArchive {
     final name = m['name'];
     final entry = m['entry'];
     final idPattern = RegExp(
-      r'^tidebot[a-z0-9_.-]{0,57}$',
+      r'^skytide[a-z0-9_.-]{0,57}$',
       caseSensitive: false,
     );
     if (id is! String ||

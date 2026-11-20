@@ -35,7 +35,7 @@ class _Attachment {
 
 class _TelegramAttachmentSheetState extends State<TelegramAttachmentSheet>
     with SingleTickerProviderStateMixin {
-  static const _channel = MethodChannel('tidebot.native.channel');
+  static const _channel = MethodChannel('skytide.native.channel');
   static const _tabs = [
     (Icons.camera_alt_outlined, '相机', 'camera'),
     (Icons.photo_library_outlined, '相册', 'img'),

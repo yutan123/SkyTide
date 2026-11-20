@@ -4,7 +4,7 @@ import 'plugin_process_transport.dart';
 final pluginProcessBridge = _PlatformPluginProcessBridge();
 
 class _PlatformPluginProcessBridge implements PluginProcessBridge {
-  static const _channel = MethodChannel('tidebot.plugin.process');
+  static const _channel = MethodChannel('skytide.plugin.process');
   @override
   Future<void> send(String method, String payload) =>
       _channel.invokeMethod<void>(method, payload);

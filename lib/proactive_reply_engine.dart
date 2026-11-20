@@ -10,7 +10,7 @@ import 'app_log_service.dart';
 /// Use the ordinary chat pipeline to assemble context, run tools and split text.
 void startProactiveReplyEngine() {
   WidgetsFlutterBinding.ensureInitialized();
-  const channel = MethodChannel('tidebot/proactive_reply');
+  const channel = MethodChannel('skytide/proactive_reply');
   AICancellationToken? activeToken;
   channel.setMethodCallHandler((call) async {
     if (call.method == 'cancel') {

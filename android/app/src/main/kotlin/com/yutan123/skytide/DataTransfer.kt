@@ -12,7 +12,7 @@ import java.util.concurrent.Executors
 
 /** SAF export using a bounded buffer on a worker; never retains file bytes. */
 class DataTransfer(private val activity: Activity, messenger: BinaryMessenger) {
-    private val channel = MethodChannel(messenger, "tidebot.data_transfer")
+    private val channel = MethodChannel(messenger, "skytide.data_transfer")
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var pending: MethodChannel.Result? = null
@@ -39,7 +39,7 @@ class DataTransfer(private val activity: Activity, messenger: BinaryMessenger) {
                         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
                             type = call.argument<String>("mime") ?: "application/zip"
-                            putExtra(Intent.EXTRA_TITLE, call.argument<String>("name") ?: "tidebot.zip")
+                            putExtra(Intent.EXTRA_TITLE, call.argument<String>("name") ?: "skytide.zip")
                         }
                         activity.startActivityForResult(intent, REQUEST)
                     } catch (e: Exception) { finishError(e) }

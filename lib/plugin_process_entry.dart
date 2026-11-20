@@ -10,7 +10,7 @@ import 'plugin_transport.dart';
 @pragma('vm:entry-point')
 Future<void> pluginProcessMain() async {
   WidgetsFlutterBinding.ensureInitialized();
-  const channel = MethodChannel('tidebot.plugin.worker');
+  const channel = MethodChannel('skytide.plugin.worker');
   final hosts = <int, Completer<dynamic>>{};
   var sequence = 0;
   Future<void> emit(Map<String, dynamic> event) =>

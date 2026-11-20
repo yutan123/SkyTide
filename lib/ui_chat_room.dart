@@ -3187,7 +3187,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       await dir.create(recursive: true);
       final ext = path.toLowerCase().endsWith('.png') ? 'png' : 'jpg';
       final target = File(
-        '${dir.path}/tidebot_${DateTime.now().millisecondsSinceEpoch}.$ext',
+        '${dir.path}/skytide_${DateTime.now().millisecondsSinceEpoch}.$ext',
       );
       await File(path).copy(target.path);
       GlobalNotice.show('图片已保存到手机相册');
@@ -5682,7 +5682,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                           return;
                                         }
                                         await const MethodChannel(
-                                          'tidebot.native.channel',
+                                          'skytide.native.channel',
                                         ).invokeMethod<void>('openChatFile', {
                                           'path': documentPath,
                                         });

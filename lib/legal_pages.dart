@@ -7,7 +7,7 @@ import 'main.dart';
 import 'ota_update.dart';
 import 'theme.dart';
 
-const String tideBotLegalText = '''SkyTide 用户协议与免责声明
+const String skyTideLegalText = '''SkyTide 用户协议与免责声明
 
 请在使用前阅读本协议，尤其是数据传输、工具权限与责任限制条款。首次使用时，请明确勾选同意并确认已满 18 周岁；不同意时可退出应用。
 
@@ -139,7 +139,7 @@ class _LegalAgreementPageState extends State<LegalAgreementPage> {
                     child: SelectionArea(
                       contextMenuBuilder: androidSelectionContextMenu,
                       child: Text(
-                        tideBotLegalText,
+                        skyTideLegalText,
                         style: TextStyle(
                           fontFamily: 'TideFont',
                           fontSize: 15,

@@ -31,7 +31,7 @@ Future<void> main() async {
     final files = <String, String>{};
     final exporter = TransferMedia(docs, cache, files);
     final payload = {
-      'format': 'tidebot.chat',
+      'format': 'skytide.chat',
       'version': 2,
       'messages': [
         for (final type in paths.keys)

@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class DeviceCapabilityService {
   DeviceCapabilityService._();
   static final instance = DeviceCapabilityService._();
-  static const _channel = MethodChannel('tidebot.native.channel');
+  static const _channel = MethodChannel('skytide.native.channel');
 
   static const contextFeature = 'extra_context';
   static const proactiveFeature = 'operation_proactive';

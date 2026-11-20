@@ -44,7 +44,7 @@ open class PluginProcessService : Service() {
                 // Do not register application plugins in an untrusted execution process.
                 val flutter = FlutterEngine(applicationContext, null, false)
                 engine = flutter
-                val bridge = MethodChannel(flutter.dartExecutor.binaryMessenger, "tidebot.plugin.worker")
+                val bridge = MethodChannel(flutter.dartExecutor.binaryMessenger, "skytide.plugin.worker")
                 channel = bridge
                 bridge.setMethodCallHandler { call, result ->
                     when (call.method) {

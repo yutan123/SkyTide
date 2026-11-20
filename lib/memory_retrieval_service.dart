@@ -11,7 +11,7 @@ import 'memory_retrieval_policy.dart';
 /// This also covers imports and review transactions that bypass DB helpers.
 class MemoryRetrievalService {
   static final instance = MemoryRetrievalService();
-  static const _channel = MethodChannel('tidebot.memory.embedding');
+  static const _channel = MethodChannel('skytide.memory.embedding');
   static const model = 'bge-small-zh-v1.5:75c43b0:int8:cls:512:v1';
   Future<bool> modelReady() async {
     try {
