@@ -2,6 +2,11 @@ name: Initialize Android signing
 
 on:
   workflow_dispatch:
+    inputs:
+      rotate:
+        description: Replace existing signing key (only for a new application ID)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,12 +41,12 @@ jobs:
           case "$GITHUB_REPOSITORY" in
             yutan123/TideBot-Dev)
               echo 'KEY_ALIAS=tidebot-dev' >> "$GITHUB_ENV"
-              echo 'KEY_DN=CN=TideBot Dev, OU=Development, O=TideBot, C=CN' >> "$GITHUB_ENV"
+              echo 'KEY_DN=CN=SkyTide Dev, OU=Development, O=SkyTide, C=CN' >> "$GITHUB_ENV"
               echo 'KEYSTORE_NAME=tidebot-dev.keystore' >> "$GITHUB_ENV"
               ;;
             yutan123/TideBot)
               echo 'KEY_ALIAS=tidebot-release' >> "$GITHUB_ENV"
-              echo 'KEY_DN=CN=TideBot, OU=Release, O=TideBot, C=CN' >> "$GITHUB_ENV"
+              echo 'KEY_DN=CN=SkyTide, OU=Release, O=SkyTide, C=CN' >> "$GITHUB_ENV"
               echo 'KEYSTORE_NAME=tidebot-release.keystore' >> "$GITHUB_ENV"
               ;;
             *)
@@ -50,15 +55,47 @@ jobs:
               ;;
           esac
 
-      - name: Refuse to overwrite an existing signing secret
+      - name: Validate rotation and back up existing signing key
         shell: bash
+        env:
+          ROTATE: ${{ inputs.rotate }}
+          OLD_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          OLD_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          OLD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          gh secret list --repo "$GITHUB_REPOSITORY" --json name --jq '.[].name' > existing-secrets.txt
-          if grep -qx ANDROID_KEYSTORE_BASE64 existing-secrets.txt; then
-            echo '::error::ANDROID_KEYSTORE_BASE64 already exists; refusing to overwrite it.'
+          umask 077
+          secrets=$(gh secret list --repo "$GITHUB_REPOSITORY" --json name --jq '.[].name')
+          if [[ "$ROTATE" != true ]]; then
+            if grep -qx ANDROID_KEYSTORE_BASE64 <<< "$secrets"; then
+              echo '::error::Signing already exists; explicit rotation is required.'
+              exit 1
+            fi
+            exit 0
+          fi
+          grep -qx ANDROID_KEYSTORE_BASE64 <<< "$secrets"
+          if grep -qx ANDROID_PREVIOUS_KEYSTORE_BASE64 <<< "$secrets"; then
+            echo '::error::A rollback key already exists; refusing another rotation.'
             exit 1
           fi
+          test -n "$OLD_KEYSTORE"
+          if [[ "$OLD_ALIAS" != "$KEY_ALIAS" || "$OLD_KEY_PASSWORD" != "$KEYSTORE_PASSWORD" ]]; then
+            echo '::error::Rotation requires preserving the existing alias and key password.'
+            exit 1
+          fi
+          old=$(mktemp)
+          restored=$(mktemp)
+          trap 'rm -f "$old" "$restored"' EXIT
+          printf '%s' "$OLD_KEYSTORE" | base64 --decode > "$old"
+          keytool -certreq -keystore "$old" -alias "$OLD_ALIAS" \
+            -storepass:env KEYSTORE_PASSWORD -keypass:env OLD_KEY_PASSWORD > /dev/null
+          printf '%s\n' "$BACKUP_PASSWORD" | gpg --batch --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 \
+            --output previous-signing.keystore.gpg "$old"
+          printf '%s\n' "$BACKUP_PASSWORD" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --output "$restored" --decrypt previous-signing.keystore.gpg
+          cmp "$old" "$restored"
+          tar -czf previous-signing-backup.tar.gz previous-signing.keystore.gpg
 
       - name: Generate signing keystore
         shell: bash
@@ -100,8 +137,16 @@ jobs:
 
       - name: Save repository signing secrets
         shell: bash
+        env:
+          ROTATE: ${{ inputs.rotate }}
+          OLD_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          gh secret set ANDROID_KEYSTORE_BASE64 --repo "$GITHUB_REPOSITORY" < keystore.base64
+          if [[ "$ROTATE" == true ]]; then
+            printf '%s' "$OLD_KEYSTORE" | gh secret set ANDROID_PREVIOUS_KEYSTORE_BASE64 --repo "$GITHUB_REPOSITORY"
+            gh secret set ANDROID_KEYSTORE_BASE64 --repo "$GITHUB_REPOSITORY" < keystore.base64
+            exit 0
+          fi
           gh secret set ANDROID_KEY_ALIAS --repo "$GITHUB_REPOSITORY" --body "$KEY_ALIAS"
           gh secret set ANDROID_KEY_PASSWORD --repo "$GITHUB_REPOSITORY" --body "$KEYSTORE_PASSWORD"
+          gh secret set ANDROID_KEYSTORE_BASE64 --repo "$GITHUB_REPOSITORY" < keystore.base64
