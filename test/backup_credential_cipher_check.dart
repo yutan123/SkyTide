@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:skytide/backup_credential_cipher.dart';
 import 'package:skytide/model_credential_codec.dart';
+import 'package:skytide/plugin_backup_data.dart';
 import 'package:skytide/transfer_archive.dart';
 
 void check(bool condition, String reason) {
@@ -62,6 +63,55 @@ Future<void> main(List<String> args) async {
     )).isEmpty,
     'Empty credential backups must round-trip',
   );
+
+  const pluginId = 'skytide_demo';
+  final pluginKeys = PluginBackupData.keysFor([pluginId]);
+  check(pluginKeys.length == 5, 'All five plugin stores must be included');
+  check(
+    !PluginBackupData.isStorageKey('plugin_device_permissions_$pluginId'),
+    'Device grants must not be backed up',
+  );
+  check(
+    PluginBackupData.isSafeDirectory('$pluginId/empty'),
+    'Empty plugin directories must be restorable',
+  );
+  for (final path in [
+    '/root',
+    '$pluginId/../outside',
+    '$pluginId/.pending-1',
+  ]) {
+    check(!PluginBackupData.isSafeDirectory(path), 'Unsafe directory: $path');
+  }
+  final pluginSample = {
+    for (final key in pluginKeys)
+      key: jsonEncode({'token': 'plugin-secret-demo'}),
+    PluginBackupData.directoryList: jsonEncode(['$pluginId/empty']),
+  };
+  final pluginEnvelope = await BackupCredentialCipher.encrypt(pluginSample);
+  check(
+    !pluginEnvelope.contains('plugin-secret-demo'),
+    'Plugin secrets leaked',
+  );
+  check(
+    jsonEncode(
+          await BackupCredentialCipher.decrypt(
+            pluginEnvelope,
+            allowLegacyPlaintext: false,
+          ),
+        ) ==
+        jsonEncode(pluginSample),
+    'Plugin credentials and directory list must round-trip',
+  );
+  var rejectedPlaintext = false;
+  try {
+    await BackupCredentialCipher.decrypt(
+      jsonEncode(pluginSample),
+      allowLegacyPlaintext: false,
+    );
+  } on FormatException {
+    rejectedPlaintext = true;
+  }
+  check(rejectedPlaintext, 'Plugin credential imports must be encrypted');
 
   for (final field in ['nonce', 'ciphertext', 'tag']) {
     final envelope = Map<String, dynamic>.from(jsonDecode(first) as Map);

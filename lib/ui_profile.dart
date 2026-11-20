@@ -1,5 +1,6 @@
 import 'builtin_generation_settings.dart';
 import 'chat_api_endpoint.dart';
+import 'native_chat_api.dart';
 import 'reasoning_control.dart';
 import 'bot_avatar_crop_page.dart';
 import 'support_us_page.dart';
@@ -2519,6 +2520,24 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
   final Map<String, List<String>> _modelListCache = {};
   final _presets = [
     {
+      'name': 'Claude',
+      'key_url': 'https://console.anthropic.com/settings/keys',
+      'url': 'https://api.anthropic.com/v1',
+      'models': '',
+    },
+    {
+      'name': 'Gemini',
+      'key_url': 'https://aistudio.google.com/apikey',
+      'url': 'https://generativelanguage.googleapis.com/v1beta',
+      'models': '',
+    },
+    {
+      'name': 'ChatGPT',
+      'key_url': 'https://platform.openai.com/api-keys',
+      'url': 'https://api.openai.com/v1',
+      'models': '',
+    },
+    {
       'name': 'MiniMax',
       'key_url': 'https://platform.minimaxi.com/',
       'url': 'https://api.minimax.cn/v1',
@@ -2969,7 +2988,16 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
             const SizedBox(height: 8),
             _f('API Key', kCtrl, obscure: true, keyUrl: preset?['key_url']),
             const SizedBox(height: 8),
-            _modelField(ctx, mCtrl, uCtrl, kCtrl),
+            _modelField(
+              ctx,
+              mCtrl,
+              uCtrl,
+              kCtrl,
+              provider: {
+                'preset_name': preset?['name'],
+                'is_custom': preset == null,
+              },
+            ),
             if (!isTts)
               StatefulBuilder(
                 builder: (settingContext, updateSetting) => Column(
@@ -3313,6 +3341,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
   Future<List<String>> _fetchProviderModels({
     required String baseUrl,
     required String apiKey,
+    Map? provider,
   }) async {
     final root = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     final normalizedRoot = chatApiBase(
@@ -3320,6 +3349,8 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     );
     if (normalizedRoot.isEmpty) throw Exception('请先填写 API Base URL');
     if (apiKey.trim().isEmpty) throw Exception('请先填写 API Key');
+    final native = NativeChatApi.resolve(provider ?? const {}, root);
+    if (native != null) return native.listModels(apiKey.trim());
     final cacheKey = '$normalizedRoot|${apiKey.trim()}';
     final cached = _modelListCache[cacheKey];
     if (cached != null && cached.isNotEmpty) return List<String>.from(cached);
@@ -3388,8 +3419,9 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     BuildContext dialogContext,
     TextEditingController urlCtrl,
     TextEditingController keyCtrl,
-    TextEditingController modelCtrl,
-  ) async {
+    TextEditingController modelCtrl, {
+    Map? provider,
+  }) async {
     FocusScope.of(dialogContext).unfocus();
     final searchCtrl = TextEditingController();
     List<String> models = [];
@@ -3413,6 +3445,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
                 final result = await _fetchProviderModels(
                   baseUrl: urlCtrl.text,
                   apiKey: keyCtrl.text,
+                  provider: provider,
                 );
                 if (!pickerContext.mounted) return;
                 setPickerState(() {
@@ -3689,8 +3722,9 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     BuildContext dialogContext,
     TextEditingController modelCtrl,
     TextEditingController urlCtrl,
-    TextEditingController keyCtrl,
-  ) {
+    TextEditingController keyCtrl, {
+    Map? provider,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3730,6 +3764,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
                   urlCtrl,
                   keyCtrl,
                   modelCtrl,
+                  provider: provider,
                 ),
                 icon: const Icon(Icons.cloud_download_outlined, size: 18),
                 label: const Text('获取'),
@@ -3918,7 +3953,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
             _f('API Key', kCtrl, obscure: true, keyUrl: _providerKeyUrl(p)),
             if (requiresModel) ...[
               const SizedBox(height: 8),
-              _modelField(ctx, mCtrl, uCtrl, kCtrl),
+              _modelField(ctx, mCtrl, uCtrl, kCtrl, provider: p),
             ],
             if (!isStt && !hasVoice)
               StatefulBuilder(
@@ -4101,11 +4136,17 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
   Future<void> _testProvider(Map<String, dynamic> p) async {
     GlobalNotice.show('测试中');
     try {
-      final result = await AIManager().testProviderCapabilities(
-        p['url']?.toString() ?? '',
-        p['key']?.toString() ?? '',
-        p['model']?.toString() ?? '',
-      );
+      final native = NativeChatApi.resolve(p, p['url']?.toString() ?? '');
+      final result = native == null
+          ? await AIManager().testProviderCapabilities(
+              p['url']?.toString() ?? '',
+              p['key']?.toString() ?? '',
+              p['model']?.toString() ?? '',
+            )
+          : await native.testConnection(
+              p['key']?.toString() ?? '',
+              p['model']?.toString() ?? '',
+            );
       if (result['passed'] == true) {
         final latency = result['fastest_latency'];
         GlobalNotice.show(

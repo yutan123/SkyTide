@@ -1,3 +1,4 @@
+import 'plugin_backup_data.dart';
 import 'model_credentials.dart';
 import 'user_profile_changes.dart';
 import 'proactive_request_gate.dart';
@@ -483,20 +484,21 @@ class DBManager {
           ? <String, dynamic>{}
           : Map<String, dynamic>.from(jsonDecode(payload) as Map);
       const secure = FlutterSecureStorage();
+      final hasPluginData = restored[PluginBackupData.restoredMarker] == '1';
+      bool canRestore(String key) =>
+          key.startsWith('mcp_headers_') ||
+          key.startsWith('skill_headers_') ||
+          key.startsWith(ModelCredentials.prefix) ||
+          (hasPluginData && PluginBackupData.isStorageKey(key));
       final entries = await secure.readAll();
-      for (final key in entries.keys) {
-        if (key.startsWith('mcp_headers_') ||
-            key.startsWith('skill_headers_') ||
-            key.startsWith(ModelCredentials.prefix)) {
-          await secure.delete(key: key);
+      for (final entry in restored.entries) {
+        if (canRestore(entry.key) && entry.value is String) {
+          await secure.write(key: entry.key, value: entry.value as String);
         }
       }
-      for (final entry in restored.entries) {
-        if ((entry.key.startsWith('mcp_headers_') ||
-                entry.key.startsWith('skill_headers_') ||
-                entry.key.startsWith(ModelCredentials.prefix)) &&
-            entry.value is String) {
-          await secure.write(key: entry.key, value: entry.value as String);
+      for (final key in entries.keys) {
+        if (canRestore(key) && !restored.containsKey(key)) {
+          await secure.delete(key: key);
         }
       }
       if (await marker.exists()) await marker.delete();
@@ -3590,6 +3592,8 @@ class DBManager {
           'base_url': m['url'] ?? '',
           'api_key': m['key'] ?? '',
           'model': m['model'] ?? '',
+          'preset_name': m['preset_name'],
+          'is_custom': m['is_custom'] == true,
           'thinking_mode': m['thinking_mode'] == true,
           'reasoning_effort': m['reasoning_effort'] ?? 'medium',
         });

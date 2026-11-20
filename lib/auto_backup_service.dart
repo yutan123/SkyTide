@@ -13,7 +13,7 @@ const backupChoices = <String, String>{
   'posts': '动态与评论',
   'diaries': '日记与生活日程',
   'stickers': '表情包',
-  'plugins': '插件、Skill 与 MCP 配置',
+  'plugins': '插件（含设置、凭据和私有文件）、Skill 与 MCP 配置',
   'media': '图片、视频、语音、头像与背景',
 };
 

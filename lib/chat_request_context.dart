@@ -15,8 +15,9 @@
       removed += index;
     }
   }
-  final sizes =
-      messages.map((m) => countTokens(m['content']?.toString() ?? '')).toList();
+  final sizes = messages
+      .map((m) => countTokens(m['content']?.toString() ?? ''))
+      .toList();
   var tokens = sizes.fold<int>(0, (sum, size) => sum + size);
   var roll = 0;
   if (tokens >= budget) {
@@ -52,8 +53,9 @@ Map<String, dynamic> messageWithSpeaker(Map<String, dynamic> message) {
 }
 
 String messageTimeContext(String content, Object? timestamp) {
-  final stamp =
-      timestamp is num ? timestamp.toInt() : int.tryParse('$timestamp');
+  final stamp = timestamp is num
+      ? timestamp.toInt()
+      : int.tryParse('$timestamp');
   if (stamp == null) return '[发送时间:未知]\n$content';
   final time = DateTime.fromMillisecondsSinceEpoch(stamp);
   String two(int value) => value.toString().padLeft(2, '0');
@@ -69,24 +71,54 @@ String stickerModelContext({required String role, required String type}) {
 
 int? cachedPromptTokens(Map usage) {
   final details = usage['prompt_tokens_details'];
-  final value = (details is Map ? details['cached_tokens'] : null) ??
+  final value =
+      (details is Map ? details['cached_tokens'] : null) ??
       usage['cached_tokens'] ??
       usage['prompt_cache_hit_tokens'] ??
       usage['cache_read_input_tokens'];
   return value is num ? value.toInt() : null;
 }
 
-/// OpenAI Chat Completions has no standardized per-message cache breakpoint.
-/// Providers that cache this endpoint do so using matching request prefixes;
-/// `cache_control` is an Anthropic extension.
+/// Prepare Chat Completions messages without Anthropic-specific cache controls.
+/// Supported GPT models can mark the end of the fixed initial system prompt.
 List<Map<String, dynamic>> prepareOpenAIChatCompletionMessages(
-  List<Map<String, dynamic>> messages,
-) =>
-    messages.map((message) {
-      final prepared = Map<String, dynamic>.from(message)
-        ..remove('cache_control');
-      return prepared;
-    }).toList();
+  List<Map<String, dynamic>> messages, {
+  bool markFixedPrefix = false,
+}) {
+  final prepared = [
+    for (final message in messages)
+      Map<String, dynamic>.from(message)..remove('cache_control'),
+  ];
+  if (markFixedPrefix && prepared.isNotEmpty) {
+    final first = prepared.first;
+    final content = first['content'];
+    if (first['role'] == 'system' &&
+        content is String &&
+        content.trim().isNotEmpty) {
+      first['content'] = [
+        {
+          'type': 'text',
+          'text': content,
+          'prompt_cache_breakpoint': {'mode': 'explicit'},
+        },
+      ];
+    }
+  }
+  return prepared;
+}
+
+bool supportsGptChatCacheBreakpoint(String model) => RegExp(
+  r'^gpt-(?:5\.(?:[6-9]|[1-9][0-9]+)|(?:[6-9]|[1-9][0-9]+)(?:\.[0-9]+)?)(?:-[a-z0-9]+)*$',
+).hasMatch(model.trim().toLowerCase());
+
+bool rejectsGptChatCacheBreakpoint(String body) {
+  final error = body.toLowerCase();
+  return error.contains('prompt_cache_breakpoint') ||
+      (error.contains('messages') &&
+          error.contains('content') &&
+          error.contains('string') &&
+          (error.contains('array') || error.contains('list')));
+}
 
 String memoryRecordedTime(Map<String, dynamic> memory) {
   final stamp = memory['timestamp'] ?? memory['created_at'];

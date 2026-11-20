@@ -153,13 +153,11 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   }
 
   MarketPlugin? _marketUpdate(Map<String, dynamic> row) {
-    final source = _marketSources[row['id']];
-    if (source == null || source['version'] != row['version']) return null;
     for (final plugin in PluginMarket.instance.plugins) {
       if (plugin.id == row['id'] &&
-          plugin.repository == source['repository'] &&
-          plugin.newerThan(row['version'].toString()))
+          plugin.newerThan(row['version'].toString())) {
         return plugin;
+      }
     }
     return null;
   }
@@ -398,6 +396,15 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     final previous = updatingId == null
         ? null
         : _packages[updatingId]?.manifest;
+    final previousSource = updatingId == null
+        ? null
+        : _marketSources[updatingId];
+    final previousRepository = previousSource?['repository'];
+    final sourceChanged =
+        market != null &&
+        updatingId != null &&
+        (previousRepository != market.repository ||
+            previousSource?['version'] != previous?['version']);
     final permissions = (manifest['permissions'] as List? ?? []).cast<String>();
     final origins = (manifest['networkOrigins'] as List? ?? []).cast<String>();
     final endpoints = (manifest['networkEndpoints'] as List? ?? [])
@@ -429,6 +436,13 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                         ? '来源：本地导入文件'
                         : '来源：插件市场 · ${market.repository}',
                   ),
+                  if (sourceChanged)
+                    Text(
+                      previousRepository is String &&
+                              previousRepository != market?.repository
+                          ? '更新仓库已变更。原记录：$previousRepository，请确认新来源。'
+                          : '无法确认已安装版本的市场来源，请确认更新来源。',
+                    ),
                   if (market != null && market.changelog.isNotEmpty)
                     Text('更新说明：${market.changelog}'),
                   if (permissions.isNotEmpty)
@@ -999,8 +1013,13 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         tableBody: body,
         tableColumnWidth: const FixedColumnWidth(144),
         tableBorder: TableBorder.all(color: colors.outlineVariant),
-        tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        tableHeadCellsDecoration: BoxDecoration(color: colors.surfaceContainerHigh),
+        tableCellsPadding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 8,
+        ),
+        tableHeadCellsDecoration: BoxDecoration(
+          color: colors.surfaceContainerHigh,
+        ),
       ),
     );
   }
@@ -1022,10 +1041,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       );
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(11),
-      child: load(0),
-    );
+    return ClipRRect(borderRadius: BorderRadius.circular(11), child: load(0));
   }
 
   Future<void> _marketDetails(
@@ -1428,7 +1444,9 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
               controller: _marketScrollController,
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-              itemCount: entries.isEmpty ? 1 : entries.length + (hasMore ? 1 : 0),
+              itemCount: entries.isEmpty
+                  ? 1
+                  : entries.length + (hasMore ? 1 : 0),
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (_, index) {
                 if (entries.isEmpty)
@@ -1453,7 +1471,9 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                                 : '暂无上架插件',
                             style: TextStyle(color: theme.textWeak),
                           ),
-                          if (!market.loading && market.error != null && !market.hasIndex)
+                          if (!market.loading &&
+                              market.error != null &&
+                              !market.hasIndex)
                             TextButton(
                               onPressed: _refreshAll,
                               child: const Text('重新加载'),

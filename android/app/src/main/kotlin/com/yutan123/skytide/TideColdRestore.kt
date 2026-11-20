@@ -12,6 +12,7 @@ import java.io.RandomAccessFile
 
 /** Replace live data only at process startup, before providers, engines or workers. */
 object TideColdRestore {
+    private val optionalSupport = listOf("plugin_files", "mimo_voice_samples")
     private fun root(context: Context) = File(context.noBackupFilesDir, "tide_restore")
     private fun write(file: File, text: String) {
         file.parentFile?.mkdirs()
@@ -51,6 +52,9 @@ object TideColdRestore {
                     else File(next, "documents").mkdirs()
                     val support = File(source, "support")
                     if (support.exists()) check(support.copyRecursively(File(next, "support")))
+                    for (name in optionalSupport) {
+                        if (File(support, name).isDirectory) write(File(next, "has_$name"), "1")
+                    }
                     preferences(File(source, "restored_preferences.json"), File(next, "preferences"))
                     val credentials = File(source, "tool_credentials.json")
                     if (credentials.exists()) check(credentials.copyTo(File(next, "credential_marker")).exists())
@@ -125,12 +129,13 @@ object TideColdRestore {
                 remove(discarded)
                 val applied = File(root, "applied")
                 if (applied.exists()) {
-                    write(File(root, "result"), "完整备份已恢复。新备份中的 MCP 和 HTTP Skill 鉴权信息将自动导入；旧备份缺失的信息需重新填写。")
+                    write(File(root, "result"), "完整备份已恢复。备份包含的插件设置、MCP 和 HTTP Skill 鉴权信息将自动导入；旧备份缺失的信息需重新填写。")
                     remove(applied)
                 }
                 val ready = File(root, "ready")
                 if (!ready.exists()) return
                 val prefs = File(context.applicationInfo.dataDir, "shared_prefs/FlutterSharedPreferences.xml")
+                val restoredSupport = optionalSupport.filter { File(ready, "has_$it").isFile }
                 val targets = listOf(
                     context.getDatabasePath("tidebot.db"),
                     File(context.applicationInfo.dataDir, "app_flutter"),
@@ -141,8 +146,8 @@ object TideColdRestore {
                     File(context.filesDir, "restore_credentials_pending"),
                     File(context.filesDir, "plugins"),
                     File(context.filesDir, "skills")
-                )
-                val names = listOf("database", "documents", "preferences", "wal", "shm", "prefs_bak", "credential_marker", "support/plugins", "support/skills")
+                ) + restoredSupport.map { File(context.filesDir, it) }
+                val names = listOf("database", "documents", "preferences", "wal", "shm", "prefs_bak", "credential_marker", "support/plugins", "support/skills") + restoredSupport.map { "support/$it" }
                 val rollback = File(ready, "rollback")
                 val state = File(ready, "originals.json")
                 fun rollback(originals: JSONArray) {
@@ -184,7 +189,7 @@ object TideColdRestore {
                     write(File(root, "result"), "恢复失败，已保留原始数据：${error.message}")
                     return
                 }
-                write(File(root, "result"), "完整备份已恢复。新备份中的 MCP 和 HTTP Skill 鉴权信息将自动导入；旧备份缺失的信息需重新填写。")
+                write(File(root, "result"), "完整备份已恢复。备份包含的插件设置、MCP 和 HTTP Skill 鉴权信息将自动导入；旧备份缺失的信息需重新填写。")
                 remove(applied)
             }
         }

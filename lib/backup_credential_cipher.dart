@@ -67,11 +67,17 @@ class BackupCredentialCipher {
 
   /// Legacy credential maps remain readable; a malformed encrypted envelope
   /// never falls back to plaintext. No device storage or platform APIs needed.
-  static Future<Map<String, String>> decrypt(String payload) async {
+  static Future<Map<String, String>> decrypt(
+    String payload, {
+    bool allowLegacyPlaintext = true,
+  }) async {
     try {
       final decoded = jsonDecode(payload);
       if (decoded is! Map) throw const FormatException();
-      if (!decoded.containsKey('format')) return _credentialMap(decoded);
+      if (!decoded.containsKey('format')) {
+        if (!allowLegacyPlaintext) throw const FormatException();
+        return _credentialMap(decoded);
+      }
       final keyId = decoded['keyId'];
       final format = decoded['format'];
       if ((format != _format && format != _legacyFormat) ||

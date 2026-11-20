@@ -8,14 +8,18 @@ class ToolCallAccumulator {
       if (fragment is! Map) continue;
       final index = (fragment['index'] as num?)?.toInt() ?? position;
       final call = _calls.putIfAbsent(
-          index,
-          () => {
-                'id': '',
-                'type': 'function',
-                'function': <String, dynamic>{'name': '', 'arguments': ''},
-              });
+        index,
+        () => {
+          'id': '',
+          'type': 'function',
+          'function': <String, dynamic>{'name': '', 'arguments': ''},
+        },
+      );
       if (fragment['id'] != null) call['id'] = fragment['id'].toString();
       if (fragment['type'] != null) call['type'] = fragment['type'];
+      for (final key in ['native_thought_signature', 'native_function_id']) {
+        if (fragment[key] != null) call[key] = fragment[key];
+      }
       final function = fragment['function'];
       if (function is! Map) continue;
       final target = call['function'] as Map<String, dynamic>;
@@ -30,11 +34,14 @@ class ToolCallAccumulator {
   List<Map<String, dynamic>> get calls {
     final indexes = _calls.keys.toList()..sort();
     return indexes
-        .map((index) => {
-              ..._calls[index]!,
-              'function':
-                  Map<String, dynamic>.from(_calls[index]!['function'] as Map),
-            })
+        .map(
+          (index) => {
+            ..._calls[index]!,
+            'function': Map<String, dynamic>.from(
+              _calls[index]!['function'] as Map,
+            ),
+          },
+        )
         .toList();
   }
 }

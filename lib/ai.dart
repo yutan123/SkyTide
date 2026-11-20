@@ -64,6 +64,7 @@ import 'tool_call_accumulator.dart';
 import 'tool_completion.dart';
 import 'chat_request_context.dart';
 import 'chat_provider_cache.dart';
+import 'native_chat_api.dart';
 import 'chat_cache_diagnostics.dart';
 import 'voice_call_state_service.dart';
 
@@ -193,7 +194,8 @@ class AIManager {
       'cache_policy': cachePolicy.name,
       'cached_tokens': cache.hit,
       'cache_miss_tokens': cache.miss,
-      'cache_creation_input_tokens': cache.written,
+      'cache_creation_input_tokens':
+          cache.written ?? usage['cache_creation_input_tokens'],
       'cache_reported': cache.hit != null,
     });
   }
@@ -763,8 +765,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       late http.Response response;
       try {
         await cancellationToken?.checkRequestAllowed();
-        streamed = await client
-            .send(request)
+        final native = NativeChatApi.resolve(provider, baseUrl);
+        streamed = await (native?.send(client, request) ?? client.send(request))
             .timeout(const Duration(seconds: 30));
         response = await http.Response.fromStream(streamed);
         cancellationToken?.throwIfCancelled();
@@ -1077,8 +1079,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
 
       // 构建核心设定提示
       final coreSettings = [
-        if (activeGame == null)
-          recentMemoryReference(recentOrdinaryMemories(allMemories)),
         if (botViewOfUser?.isNotEmpty == true)
           '【你眼中的对方】\n$botViewOfUser'
         else
@@ -1274,12 +1274,16 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           ],
           skillContext,
           toolContext,
+          profileContext,
         ],
       ].where((part) => part.trim().isNotEmpty).join('\n\n');
 
-      // 第三层：动态上下文（每轮变化：世界书激活、会话约束、安全判断、生活状态、设备、情绪、最近独白）
+      // Keep turn-specific context after the reusable transcript prefix.
       final dynamicContext = [
-        profileContext,
+        if (diaryTask || quoteTask)
+          profileContext
+        else if (activeGame == null)
+          recentMemoryReference(recentMemories),
         if (randomVoice && features.has('request_voice_reply'))
           features.voiceInstructions(voiceMessageSpeechPrompt),
         if (features.has('save_memory')) presetCategoryContext,
@@ -1600,15 +1604,30 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
 
       final cacheScope = '$baseUrl|$botId|$providerId|$modelName|${task.name}';
       final cachePolicy = ChatProviderCache.resolve(provider);
+      final nativeApi = NativeChatApi.resolve(provider, baseUrl);
       final cacheOptions = cachePolicy.requestOptions(
         cacheScope,
         stream: onDelta != null,
       );
+      final markFixedPrefix =
+          task == AIRequestTask.chat &&
+          cachePolicy == ChatProviderCache.gpt &&
+          supportsGptChatCacheBreakpoint(modelName) &&
+          messages.isNotEmpty &&
+          messages.first['role'] == 'system' &&
+          messages.first['content'] is String &&
+          (messages.first['content'] as String).trim().isNotEmpty;
       final payload = prepareChatCompletionPayload({
         ...cacheOptions,
         'model': modelName,
-        'messages': prepareOpenAIChatCompletionMessages(messages),
-        'max_tokens': maxContext,
+        'messages': prepareOpenAIChatCompletionMessages(
+          messages,
+          markFixedPrefix: markFixedPrefix,
+        ),
+        if (cachePolicy == ChatProviderCache.gpt)
+          'max_completion_tokens': maxContext
+        else
+          'max_tokens': maxContext,
         if (provider['thinking_mode'] == true)
           'reasoning_effort': provider['reasoning_effort'] ?? 'medium',
         if (toolCallingEnabled && tools.isNotEmpty) 'tools': tools,
@@ -1698,7 +1717,33 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       );
       final httpStarted = DateTime.now();
       await token?.checkRequestAllowed();
-      final streamedResponse = await client.send(request);
+      var streamedResponse =
+          await (nativeApi?.send(client, request) ??
+              _sendCompatibleChat(client, request, cachePolicy));
+      if (markFixedPrefix &&
+          (streamedResponse.statusCode == 400 ||
+              streamedResponse.statusCode == 422)) {
+        final rejected = await http.Response.fromStream(streamedResponse);
+        token?.throwIfCancelled();
+        if (rejectsGptChatCacheBreakpoint(rejected.body)) {
+          await token?.checkRequestAllowed();
+          final retry = http.Request('POST', request.url)
+            ..headers.addAll(request.headers)
+            ..body = jsonEncode(
+              prepareChatCompletionPayload({
+                ...payload,
+                'messages': prepareOpenAIChatCompletionMessages(messages),
+              }),
+            );
+          streamedResponse = await client.send(retry);
+        } else {
+          streamedResponse = http.StreamedResponse(
+            Stream.value(rejected.bodyBytes),
+            rejected.statusCode,
+            headers: rejected.headers,
+          );
+        }
+      }
       token?.throwIfCancelled();
       statusCode = streamedResponse.statusCode;
       responseMetadata.addAll({
@@ -1867,6 +1912,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             baseUrl: baseUrl,
             cachePolicy: cachePolicy,
             cacheScope: cacheScope,
+            nativeApi: nativeApi,
             requestId: requestId,
             modelName: modelName,
             apiKey: provider['api_key']?.toString() ?? '',
@@ -1989,6 +2035,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               baseUrl: baseUrl,
               cachePolicy: cachePolicy,
               cacheScope: cacheScope,
+              nativeApi: nativeApi,
               requestId: requestId,
               modelName: modelName,
               apiKey: provider['api_key']?.toString() ?? '',
@@ -2666,14 +2713,13 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         if (baseUrl.isEmpty || model.isEmpty) {
           return await MediaPreprocessor().imageFallbackText(imagePath);
         }
-        final response = await http
-            .post(
-              Uri.parse(chatApiEndpoint(baseUrl)),
-              headers: {
+        final request =
+            http.Request('POST', Uri.parse(chatApiEndpoint(baseUrl)))
+              ..headers.addAll({
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ${provider['api_key']}',
-              },
-              body: jsonEncode({
+              })
+              ..body = jsonEncode({
                 'model': model,
                 'messages': [
                   {
@@ -2699,9 +2745,18 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                   },
                 ],
                 'max_tokens': 1200,
-              }),
-            )
-            .timeout(const Duration(seconds: 40));
+              });
+        final native = NativeChatApi.resolve(provider, baseUrl);
+        final client = http.Client();
+        late final http.Response response;
+        try {
+          response =
+              await (native?.send(client, request) ?? client.send(request))
+                  .then(http.Response.fromStream)
+                  .timeout(const Duration(seconds: 40));
+        } finally {
+          client.close();
+        }
         if (response.statusCode == 200) {
           final decoded = jsonDecode(utf8.decode(response.bodyBytes));
           final text = decoded['choices']?[0]?['message']?['content']
@@ -2838,6 +2893,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           audio.path,
         );
         const format = 'wav';
+        final native = NativeChatApi.resolve(provider, baseUrl);
+        if (native == NativeChatApi.claude) return null;
         final endpoint = _chatCompletionsEndpoint(baseUrl);
         final payload = {
           'model': model,
@@ -2877,15 +2934,14 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         final response = await _withCancellableClient(cancellationToken, (
           client,
         ) {
-          return client
-              .post(
-                Uri.parse(endpoint),
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer $apiKey',
-                },
-                body: jsonEncode(payload),
-              )
+          final request = http.Request('POST', Uri.parse(endpoint))
+            ..headers.addAll({
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $apiKey',
+            })
+            ..body = jsonEncode(payload);
+          return (native?.send(client, request) ?? client.send(request))
+              .then(http.Response.fromStream)
               .timeout(const Duration(seconds: 45));
         });
         final body = utf8.decode(response.bodyBytes, allowMalformed: true);
@@ -3124,6 +3180,37 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     if (root.endsWith('/audio/transcriptions')) return root;
     if (root.endsWith('/v1')) return '$root/audio/transcriptions';
     return '$root/v1/audio/transcriptions';
+  }
+
+  Future<http.StreamedResponse> _sendCompatibleChat(
+    http.Client client,
+    http.Request request,
+    ChatProviderCache policy,
+  ) async {
+    final response = await client.send(request);
+    if (policy != ChatProviderCache.compatible ||
+        (response.statusCode != 400 && response.statusCode != 422)) {
+      return response;
+    }
+    final error = await http.Response.fromStream(response);
+    final payload = jsonDecode(request.body) as Map;
+    final message = error.body.toLowerCase();
+    if (payload.containsKey('stream_options') &&
+        (message.contains('stream_options') ||
+            message.contains('include_usage'))) {
+      payload.remove('stream_options');
+      return client.send(
+        http.Request(request.method, request.url)
+          ..followRedirects = request.followRedirects
+          ..headers.addAll(request.headers)
+          ..body = jsonEncode(payload),
+      );
+    }
+    return http.StreamedResponse(
+      Stream.value(error.bodyBytes),
+      error.statusCode,
+      headers: error.headers,
+    );
   }
 
   String _chatCompletionsEndpoint(String configuredUrl) =>
@@ -4001,6 +4088,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     required String baseUrl,
     required ChatProviderCache cachePolicy,
     required String cacheScope,
+    NativeChatApi? nativeApi,
     required String requestId,
     required String modelName,
     required String apiKey,
@@ -4148,7 +4236,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         ...cachePolicy.requestOptions(cacheScope, stream: onDelta != null),
         'model': modelName,
         'messages': prepareOpenAIChatCompletionMessages(messages),
-        'max_tokens': maxTokens,
+        if (cachePolicy == ChatProviderCache.gpt)
+          'max_completion_tokens': maxTokens
+        else
+          'max_tokens': maxTokens,
         if (requestTools.isNotEmpty) 'tools': requestTools,
         if (requestTools.isNotEmpty) 'tool_choice': 'auto',
         if (onDelta != null) 'stream': true,
@@ -4178,7 +4269,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                   'Authorization': 'Bearer $apiKey',
                 })
                 ..body = jsonEncode(followUpPayload);
-          final response = await client.send(request);
+          final response =
+              await (nativeApi?.send(client, request) ??
+                  _sendCompatibleChat(client, request, cachePolicy));
           if (response.statusCode != 200) {
             return (
               response.statusCode,

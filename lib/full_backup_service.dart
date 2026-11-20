@@ -1,6 +1,7 @@
 import 'backup_credential_cipher.dart';
 import 'model_credential_codec.dart';
 import 'model_credentials.dart';
+import 'plugin_backup_data.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -16,6 +17,7 @@ import 'db.dart';
 class FullBackupService {
   static const _dbName = 'tidebot.db';
   static const _archiveDbName = 'skytide.db';
+  static const _voiceSamples = 'mimo_voice_samples';
   static const _native = MethodChannel('skytide.native.channel');
   static Future<void> restartToApply() =>
       _native.invokeMethod<void>('restartForRestore');
@@ -45,19 +47,26 @@ class FullBackupService {
           files['documents/$relative'] = item.path;
         }
       }
-      if (selection == null || selection.contains('plugins')) {
-        final support = await getApplicationSupportDirectory();
-        for (final name in ['plugins', 'skills']) {
-          final directory = Directory(p.join(support.path, name));
-          if (!await directory.exists()) continue;
-          await for (final item in directory.list(
-            recursive: true,
-            followLinks: false,
-          )) {
-            if (item is File)
-              files['support/$name/${p.relative(item.path, from: directory.path)}'] =
-                  item.path;
+      final support = await getApplicationSupportDirectory();
+      final pluginDirectories = <String>[];
+      final supportDirectories = [
+        if (selection == null || selection.contains('plugins'))
+          ...PluginBackupData.supportDirectories,
+        if (selection == null || selection.contains('media')) _voiceSamples,
+      ];
+      for (final name in supportDirectories) {
+        final directory = Directory(p.join(support.path, name));
+        if (!await directory.exists()) continue;
+        await for (final item in directory.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          final relative = p.relative(item.path, from: directory.path);
+          if (name == PluginBackupData.privateFiles) {
+            if (!PluginBackupData.isSafeDirectory(relative)) continue;
+            if (item is Directory) pluginDirectories.add(relative);
           }
+          if (item is File) files['support/$name/$relative'] = item.path;
         }
       }
       final dbSize = await File(dbPath).length();
@@ -108,6 +117,8 @@ class FullBackupService {
               'mcp_tools',
               'mcp_servers',
               'plugins',
+              'plugin_documents',
+              'plugin_data_versions',
             ],
           };
           final tables = (await copy.rawQuery(
@@ -129,19 +140,25 @@ class FullBackupService {
             'memory_vectors',
             'media_storage_garbage',
             'plugin_tasks',
+            'plugin_workers',
+            'plugin_events',
             'media_storage_jobs',
             'media_storage_uses',
             'media_storage_worker',
           ]) {
             if (tables.contains(table)) await copy.delete(table);
           }
-          if (!selection.contains('settings')) await copy.delete('kv_store');
-          if (!selection.contains('plugins') && tables.contains('kv_store')) {
-            await copy.delete(
-              'kv_store',
-              where: 'key LIKE ? OR key LIKE ?',
-              whereArgs: ['plugin_%', 'skill_%'],
-            );
+          if (tables.contains('kv_store')) {
+            const toolKeys =
+                "(key GLOB 'plugin_*' OR key GLOB 'skill_*' OR key GLOB 'mcp_*')";
+            if (!selection.contains('settings')) {
+              await copy.delete(
+                'kv_store',
+                where: selection.contains('plugins') ? 'NOT $toolKeys' : null,
+              );
+            } else if (!selection.contains('plugins')) {
+              await copy.delete('kv_store', where: toolKeys);
+            }
           }
           if (tables.contains('kv_store')) {
             await copy.delete(
@@ -185,6 +202,16 @@ class FullBackupService {
       try {
         final credentials = <String, String>{};
         if (selection == null || selection.contains('plugins')) {
+          final pluginKeys = await _pluginStorageKeys(credentialDb);
+          final pluginData = File(p.join(work.path, 'plugin_data.json'));
+          await pluginData.writeAsString(
+            await BackupCredentialCipher.encrypt({
+              PluginBackupData.directoryList: jsonEncode(pluginDirectories),
+              for (final entry in snapshotSecrets.entries)
+                if (pluginKeys.contains(entry.key)) entry.key: entry.value,
+            }),
+          );
+          files['plugin_data.json'] = pluginData.path;
           final retained = <String>{
             for (final row in await credentialDb.query('mcp_servers'))
               'mcp_headers_${row['id']}',
@@ -378,7 +405,10 @@ class FullBackupService {
             Future<String> mapRestoredPath(String original) async {
               final mapped = await restoredPaths.mapPath(original);
               if (mapped != original) return mapped;
-              for (final name in ['plugins', 'skills']) {
+              for (final name in [
+                ...PluginBackupData.supportDirectories,
+                _voiceSamples,
+              ]) {
                 final staged = Directory(p.join(restoredSupport.path, name));
                 final target = await ImportedMedia(
                   staged,
@@ -456,12 +486,51 @@ class FullBackupService {
                 }
               }
             }
+            final pluginData = File(p.join(work.path, 'plugin_data.json'));
+            final hasPluginData = await pluginData.exists();
+            final privateFiles = Directory(
+              p.join(restoredSupport.path, PluginBackupData.privateFiles),
+            );
             final credentialCheck = await openDatabase(
               source.path,
               readOnly: true,
               singleInstance: false,
             );
             try {
+              if (hasPluginData) {
+                final allowed = await _pluginStorageKeys(credentialCheck);
+                final decoded = await BackupCredentialCipher.decrypt(
+                  await pluginData.readAsString(),
+                  allowLegacyPlaintext: false,
+                );
+                final directories = jsonDecode(
+                  decoded.remove(PluginBackupData.directoryList) ?? '[]',
+                );
+                if (directories is! List ||
+                    directories.any(
+                      (value) =>
+                          value is! String ||
+                          !PluginBackupData.isSafeDirectory(value),
+                    )) {
+                  throw const FormatException('插件目录备份格式无效');
+                }
+                for (final relative in directories.cast<String>()) {
+                  await Directory(
+                    p.join(privateFiles.path, relative),
+                  ).create(recursive: true);
+                }
+                for (final entry in decoded.entries) {
+                  if (!allowed.contains(entry.key) ||
+                      jsonDecode(entry.value) is! Map) {
+                    throw const FormatException('插件设置备份格式无效');
+                  }
+                  restoredCredentials[entry.key] = entry.value;
+                }
+                restoredCredentials[PluginBackupData.restoredMarker] = '1';
+                await privateFiles.create(recursive: true);
+              } else if (await privateFiles.exists()) {
+                throw const FormatException('插件私有文件缺少对应备份记录');
+              }
               for (final row in await credentialCheck.query('kv_store')) {
                 if (!ModelCredentials.handles(row['key'] as String)) continue;
                 await ModelCredentialCodec.resolveKey(
@@ -479,7 +548,7 @@ class FullBackupService {
             );
             // Only the private restore workspace contains decoded credentials.
             // The published ZIP always contains the encrypted envelope.
-            if (hasCredentials) {
+            if (hasCredentials || hasPluginData) {
               await credentialFile.writeAsString(
                 jsonEncode(restoredCredentials),
                 flush: true,
@@ -495,6 +564,15 @@ class FullBackupService {
         }) ??
         false;
   });
+
+  static Future<Set<String>> _pluginStorageKeys(Database db) async {
+    final tables = await db.rawQuery(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'plugins'",
+    );
+    if (tables.isEmpty) return {};
+    final rows = await db.query('plugins', columns: ['id']);
+    return PluginBackupData.keysFor(rows.map((row) => row['id'] as String));
+  }
 
   // Rewrite only the extracted snapshot, before touching live data. Bounded
   // pages keep large chat databases from being retained in memory.
@@ -565,6 +643,9 @@ class FullBackupService {
       await db.transaction((txn) async {
         if (tables.contains('plugins')) {
           await txn.update('plugins', {'enabled': 0});
+        }
+        for (final table in ['plugin_workers', 'plugin_events']) {
+          if (tables.contains(table)) await txn.delete(table);
         }
         if (tables.contains('plugin_tasks')) {
           await txn.update('plugin_tasks', {
