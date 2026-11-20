@@ -570,7 +570,7 @@ class AIManager {
     return fromValue(payload['output_text']);
   }
 
-  static const _jarvisPrompt = '''你是 TideBot 对话军师，分析用户消息为角色提供策略。只输出JSON（无代码块）。
+  static const _jarvisPrompt = '''你是 SkyTide 对话军师，分析用户消息为角色提供策略。只输出JSON（无代码块）。
 
 原则：保留角色判断/边界/小脾气；不一味顺从道歉；低风险可调侃分享，高风险需慎重；可主动分享自己的事。
 

@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:tide_bot/plugin_oauth.dart';
-import 'package:tide_bot/plugin_crypto.dart';
+import 'package:skytide/plugin_oauth.dart';
+import 'package:skytide/plugin_crypto.dart';
 
 Future<void> main() async {
   var checks = 0;

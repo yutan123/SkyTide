@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/bot_reference_image.dart';
+import 'package:skytide/bot_reference_image.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

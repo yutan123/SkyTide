@@ -1,8 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_request_context.dart';
-import 'package:tide_bot/holiday_calendar_service.dart';
-import 'package:tide_bot/ops.dart';
+import 'package:skytide/chat_request_context.dart';
+import 'package:skytide/holiday_calendar_service.dart';
+import 'package:skytide/ops.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -48,7 +48,7 @@ void main() {
         .setMockMethodCallHandler(channel, null));
     expect(
         await OpsManager()
-            .setSystemAlarm(0, 0, 'TideBot 日记补写', repeating: true),
+            .setSystemAlarm(0, 0, 'SkyTide 日记补写', repeating: true),
         isTrue);
     expect(calls.single.method, 'scheduleFutureTask');
     expect(calls.single.arguments['repeating'], isTrue);

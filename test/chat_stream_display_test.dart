@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_message_display.dart';
-import 'package:tide_bot/chat_stream_pacing.dart';
+import 'package:skytide/chat_message_display.dart';
+import 'package:skytide/chat_stream_pacing.dart';
 
 Map<String, dynamic> body(String id, int time) => {
       'id': id,

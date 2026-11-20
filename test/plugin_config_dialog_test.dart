@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/plugin_config_dialog.dart';
-import 'package:tide_bot/ui_components.dart';
+import 'package:skytide/plugin_config_dialog.dart';
+import 'package:skytide/ui_components.dart';
 
 const _testLabel = '测试主邮箱 IMAP 连接';
 const _schema = {

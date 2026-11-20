@@ -1,4 +1,4 @@
-import 'package:tide_bot/proactive_request_state.dart';
+import 'package:skytide/proactive_request_state.dart';
 
 void check(bool value, String message) {
   if (!value) throw StateError(message);

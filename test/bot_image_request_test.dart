@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:tide_bot/bot_image_request.dart';
+import 'package:skytide/bot_image_request.dart';
 
 void main() {
   test('without reference keeps generation JSON request', () {

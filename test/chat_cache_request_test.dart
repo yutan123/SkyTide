@@ -4,9 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:tide_bot/ai.dart';
-import 'package:tide_bot/app_log_service.dart';
-import 'package:tide_bot/db.dart';
+import 'package:skytide/ai.dart';
+import 'package:skytide/app_log_service.dart';
+import 'package:skytide/db.dart';
 
 import 'support/sqlite_bridge.dart';
 

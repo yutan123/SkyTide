@@ -3,12 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:tide_bot/plugin_contract.dart';
-import 'package:tide_bot/plugin_file_store.dart';
-import 'package:tide_bot/plugin_file_transfer.dart';
-import 'package:tide_bot/plugin_media_pipeline.dart';
-import 'package:tide_bot/plugin_task_timing.dart';
-import 'package:tide_bot/plugin_chat_session.dart';
+import 'package:skytide/plugin_contract.dart';
+import 'package:skytide/plugin_file_store.dart';
+import 'package:skytide/plugin_file_transfer.dart';
+import 'package:skytide/plugin_media_pipeline.dart';
+import 'package:skytide/plugin_task_timing.dart';
+import 'package:skytide/plugin_chat_session.dart';
 import 'plugin_chat_session_check.dart' as fixture;
 
 int checks = 0;

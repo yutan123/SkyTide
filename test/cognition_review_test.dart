@@ -1,7 +1,7 @@
-import 'package:tide_bot/ai_request_task.dart';
+import 'package:skytide/ai_request_task.dart';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/cognition_review.dart';
+import 'package:skytide/cognition_review.dart';
 
 void main() {
   test('only completed reviews suppress catch-up, including legacy attempts',

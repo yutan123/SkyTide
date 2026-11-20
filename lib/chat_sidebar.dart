@@ -442,15 +442,15 @@ class _ChatSidebarState extends State<ChatSidebar> {
       children: [
         Row(
           children: [
-            TideBotAvatar(
-              name: bot['name']?.toString() ?? 'TideBot',
+            SkyTideAvatar(
+              name: bot['name']?.toString() ?? 'SkyTide',
               path: bot['avatar']?.toString(),
               size: 38,
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                bot['name']?.toString() ?? 'TideBot',
+                bot['name']?.toString() ?? 'SkyTide',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -484,7 +484,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '最新动态 —— ${bot['name']?.toString() ?? 'TideBot'}',
+          '最新动态 —— ${bot['name']?.toString() ?? 'SkyTide'}',
           style: TextStyle(
             fontWeight: FontWeight.w700,
             color: theme.textStrong,

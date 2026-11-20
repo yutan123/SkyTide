@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'theme.dart';
 
-/// TideBot compact popovers: solid surface, 24px corners, subtle outline,
+/// SkyTide compact popovers: solid surface, 24px corners, subtle outline,
 /// no dimming, 8px anchor gap, automatic safe-area/keyboard avoidance.
 /// Menus default to 164px wide and 50px rows. Use the trigger's own context.
 Future<T?> showTidePopover<T>({

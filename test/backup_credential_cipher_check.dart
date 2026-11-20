@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:tide_bot/backup_credential_cipher.dart';
-import 'package:tide_bot/model_credential_codec.dart';
-import 'package:tide_bot/transfer_archive.dart';
+import 'package:skytide/backup_credential_cipher.dart';
+import 'package:skytide/model_credential_codec.dart';
+import 'package:skytide/transfer_archive.dart';
 
 void check(bool condition, String reason) {
   if (!condition) throw StateError(reason);

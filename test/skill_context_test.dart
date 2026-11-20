@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/skill_context.dart';
+import 'package:skytide/skill_context.dart';
 
 void main() {
   Map<String, dynamic> skill(String id, int enabled, String instructions) => {

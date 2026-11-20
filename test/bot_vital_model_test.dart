@@ -1,8 +1,8 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/bot_vital_model.dart';
-import 'package:tide_bot/bot_data_page.dart';
+import 'package:skytide/bot_vital_model.dart';
+import 'package:skytide/bot_data_page.dart';
 
 void main() {
   final start = DateTime(2026, 10, 12, 23, 30).millisecondsSinceEpoch;

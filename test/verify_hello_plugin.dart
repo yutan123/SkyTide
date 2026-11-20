@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:tide_bot/plugin_archive.dart';
+import 'package:skytide/plugin_archive.dart';
 
 void main() {
   final bytes = File('assets/plugins/hello.tideplugin').readAsBytesSync();

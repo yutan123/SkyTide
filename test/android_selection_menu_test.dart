@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/android_selection_menu.dart';
+import 'package:skytide/android_selection_menu.dart';
 
 void main() {
   const channel = MethodChannel('tidebot/selection_menu');

@@ -1184,7 +1184,7 @@ class _CallPageState extends State<CallPage>
     final theme = TideTheme.of(context);
     final name = widget.bot['name']?.toString().trim().isNotEmpty == true
         ? widget.bot['name'].toString()
-        : 'TideBot';
+        : 'SkyTide';
     final avatar = widget.bot['avatar']?.toString() ?? '';
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 360),
@@ -1248,7 +1248,7 @@ class _CallPageState extends State<CallPage>
                                     ),
                                   ),
                                 ),
-                              TideBotAvatar(
+                              SkyTideAvatar(
                                 name: name,
                                 path: avatar,
                                 size: 104,
@@ -1589,7 +1589,7 @@ class _CallPageState extends State<CallPage>
               child: child,
             );
           },
-          child: TideBotAvatar(name: name, path: avatar, size: 46),
+          child: SkyTideAvatar(name: name, path: avatar, size: 46),
         ),
         const SizedBox(width: 12),
         Flexible(

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:tide_bot/plugin_connections.dart';
+import 'package:skytide/plugin_connections.dart';
 
 Future<void> main() async {
   var checks = 0;

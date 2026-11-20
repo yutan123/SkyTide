@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:tide_bot/memory_retrieval_policy.dart';
-import 'package:tide_bot/memory_prompt_policy.dart';
+import 'package:skytide/memory_retrieval_policy.dart';
+import 'package:skytide/memory_prompt_policy.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

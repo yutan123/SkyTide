@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/tool_call_accumulator.dart';
+import 'package:skytide/tool_call_accumulator.dart';
 
 void main() {
   test('preserves image tool name and joins JSON argument fragments', () {

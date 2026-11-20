@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:tide_bot/mimo_voice_clone.dart';
-import 'package:tide_bot/call_speech.dart';
+import 'package:skytide/mimo_voice_clone.dart';
+import 'package:skytide/call_speech.dart';
 
 const mimoCloneModel = "test-clone-model";
 

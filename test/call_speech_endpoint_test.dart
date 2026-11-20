@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/call_speech_endpoint.dart';
+import 'package:skytide/call_speech_endpoint.dart';
 
 void main() {
   test('ends one second after speech despite background and a transient', () {

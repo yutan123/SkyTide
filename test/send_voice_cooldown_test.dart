@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/send_voice_cooldown.dart';
+import 'package:skytide/send_voice_cooldown.dart';
 
 void main() {
   testWidgets('voice is blocked immediately, then unlocked at two seconds',

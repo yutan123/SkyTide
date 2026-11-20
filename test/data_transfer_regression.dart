@@ -4,8 +4,8 @@ import 'dart:io';
 import 'dart:math';
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
-import 'package:tide_bot/json_records.dart';
-import 'package:tide_bot/transfer_archive.dart';
+import 'package:skytide/json_records.dart';
+import 'package:skytide/transfer_archive.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

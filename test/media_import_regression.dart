@@ -1,9 +1,9 @@
 // Dart VM regression; no Flutter or Android compilation.
 import 'dart:convert';
 import 'dart:io';
-import 'package:tide_bot/transfer_media.dart';
-import 'package:tide_bot/transfer_archive.dart';
-import 'package:tide_bot/json_records.dart';
+import 'package:skytide/transfer_media.dart';
+import 'package:skytide/transfer_archive.dart';
+import 'package:skytide/json_records.dart';
 
 void check(bool value, String label) {
   if (!value) throw StateError(label);

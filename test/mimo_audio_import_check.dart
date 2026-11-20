@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:tide_bot/mimo_audio_import.dart';
-import 'package:tide_bot/mimo_voice_clone.dart';
+import 'package:skytide/mimo_audio_import.dart';
+import 'package:skytide/mimo_voice_clone.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

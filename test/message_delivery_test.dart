@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/ai.dart';
-import 'package:tide_bot/chat_event_bus.dart';
+import 'package:skytide/ai.dart';
+import 'package:skytide/chat_event_bus.dart';
 
 void main() {
   test('cancellation token invokes callbacks once and supports late listeners',

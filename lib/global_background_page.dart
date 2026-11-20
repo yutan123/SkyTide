@@ -235,7 +235,7 @@ class _BackgroundAppPreviewState extends State<_BackgroundAppPreview> {
               child: IgnorePointer(
                 child: MediaQuery(
                   data: media.copyWith(viewInsets: EdgeInsets.zero),
-                  child: TideBotThemeProvider(
+                  child: SkyTideThemeProvider(
                     theme: _previewTheme,
                     child: TideBackground(
                       child: Stack(

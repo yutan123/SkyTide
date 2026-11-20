@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_protocol.dart';
+import 'package:skytide/chat_protocol.dart';
 
 void main() {
   group('chatListPreview', () {

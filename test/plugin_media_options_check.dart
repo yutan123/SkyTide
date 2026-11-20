@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:tide_bot/plugin_chat_session.dart';
-import 'package:tide_bot/plugin_media_contract.dart';
-import 'package:tide_bot/plugin_network.dart';
+import 'package:skytide/plugin_chat_session.dart';
+import 'package:skytide/plugin_media_contract.dart';
+import 'package:skytide/plugin_network.dart';
 import 'package:http/testing.dart';
 import 'plugin_chat_session_check.dart' show Host;
 

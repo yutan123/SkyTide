@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/assistant_output_guard.dart';
+import 'package:skytide/assistant_output_guard.dart';
 
 void main() {
   test('discards bracket tool imitations from proactive replies', () {

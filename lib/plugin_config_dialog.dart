@@ -716,7 +716,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
                             leading: option.isBot
-                                ? TideBotAvatar(
+                                ? SkyTideAvatar(
                                     name: option.label,
                                     path: option.avatar,
                                     size: 40,

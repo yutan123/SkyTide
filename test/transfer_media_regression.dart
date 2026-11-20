@@ -1,7 +1,7 @@
 // Dart VM regression; does not build Flutter or Android.
 import 'dart:io';
-import 'package:tide_bot/transfer_media.dart';
-import 'package:tide_bot/transfer_archive.dart';
+import 'package:skytide/transfer_media.dart';
+import 'package:skytide/transfer_archive.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

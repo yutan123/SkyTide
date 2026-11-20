@@ -1121,7 +1121,7 @@ class _WorldBookDetailPageState extends State<WorldBookDetailPage> {
         padding: const EdgeInsets.all(18),
         child: Row(
           children: [
-            TideBotAvatar(
+            SkyTideAvatar(
               name: _botName,
               path: _text(_bot, 'avatar'),
               size: 56,

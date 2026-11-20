@@ -19,7 +19,7 @@ const backupChoices = <String, String>{
 
 class AutoBackupService {
   static const channel = MethodChannel('tidebot.auto_backup');
-  static const location = '下载/TideBot/backup';
+  static const location = '下载/SkyTide/backup';
   static const configKey = 'auto_backup_config';
   static Future<Map<String, dynamic>> config() async {
     final raw = await DBManager().getKV(configKey);
@@ -77,7 +77,7 @@ class AutoBackupService {
           final date = now.toIso8601String().substring(0, 10);
           await channel.invokeMethod<void>('publish', {
             'path': backup.file.path,
-            'name': 'TideBot-backup-$date.zip',
+            'name': 'SkyTide-backup-$date.zip',
             'selected': selected.map((k) => backupChoices[k]).toList(),
           });
           await DBManager().setKV(

@@ -13,7 +13,7 @@ import 'message_delivery_service.dart';
 import 'db.dart';
 import 'bot_state.dart';
 
-/// A small OpenAI-compatible LAN gateway backed by one TideBot persona.
+/// A small OpenAI-compatible LAN gateway backed by one SkyTide persona.
 /// It exposes the standard models and chat completions endpoints.
 class ExternalApiService {
   ExternalApiService._();
@@ -309,7 +309,7 @@ class ExternalApiService {
             .map((item) => item['text'].toString())
             .join('\n');
         final sync = await db.getKV('external_api_sync_messages') != 'false';
-        // Inbound platform traffic is persisted as a normal TideBot turn.
+        // Inbound platform traffic is persisted as a normal SkyTide turn.
         // App-originated messages never enter this HTTP handler, so they are
         // not echoed back to external platforms.
         if (sync) {
@@ -435,7 +435,7 @@ class ExternalApiService {
         await writes;
         cancellationToken.throwIfCancelled();
         if (result['success'] != true) {
-          final message = result['error']?.toString() ?? 'TideBot 上游模型请求失败';
+          final message = result['error']?.toString() ?? 'SkyTide 上游模型请求失败';
           if (sseStarted) {
             await _writeSse(request, {
               'error': {'message': message, 'type': 'upstream_error'}

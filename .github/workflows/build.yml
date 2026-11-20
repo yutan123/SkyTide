@@ -1,4 +1,4 @@
-name: Build TideBot Dev APK
+name: Build Android APK
 
 on:
   workflow_dispatch:
@@ -19,8 +19,8 @@ permissions:
 
 jobs:
   build-release:
-    name: Android Dev 构建
-    if: github.repository == 'yutan123/TideBot-Dev'
+    name: Android APK 构建
+    if: github.repository == 'yutan123/TideBot-Dev' || github.repository == 'yutan123/TideBot'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: 准备临时签名路径
-        run: echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/tidebot-dev.keystore" >> "$GITHUB_ENV"
+        run: echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/android-release.keystore" >> "$GITHUB_ENV"
 
       - name: 获取源码
         uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 恢复并检查 Dev 签名
+      - name: 恢复并检查当前仓库的签名
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -110,23 +110,23 @@ jobs:
               }
           }
           GRADLE
-      - name: 编译已签名正式版 APK
+      - name: 编译已签名 Release APK
         run: flutter build apk --release --no-pub
 
       - name: 验证 APK 签名
         run: |
           APKSIGNER="$(find "${ANDROID_HOME}" -path '*/build-tools/*/apksigner' -type f | sort -V | tail -n 1)"
           APK="build/app/outputs/flutter-apk/app-release.apk"
-          test -s "$APK" || { echo "::error::未生成正式版 APK"; exit 1; }
+          test -s "$APK" || { echo "::error::未生成 Release APK"; exit 1; }
           "$APKSIGNER" verify --verbose "$APK"
 
       - name: 清理临时签名文件
         if: always()
         run: rm -f "$ANDROID_KEYSTORE_PATH"
 
-      - name: 上传已验证的 Dev APK
+      - name: 上传已验证的 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TideBot-Dev-APK
+          name: ${{ github.repository == 'yutan123/TideBot-Dev' && 'SkyTide-Dev-APK' || 'Android-Release-APK' }}
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error

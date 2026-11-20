@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/video_input.dart';
-import 'package:tide_bot/video_processing_service.dart';
+import 'package:skytide/video_input.dart';
+import 'package:skytide/video_processing_service.dart';
 
 void main() {
   test('超过五分钟即使已选择模型也先预览并让机器人决定完整分析', () async {

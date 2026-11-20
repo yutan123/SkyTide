@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:tide_bot/future_task_scheduler.dart';
+import 'package:skytide/future_task_scheduler.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

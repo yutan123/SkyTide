@@ -190,7 +190,7 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
             canPop: false,
             child: TideDialogSurface(
               title: const Text('备份已准备完成'),
-              content: const Text('重启后应用备份。若未自动打开，请手动重新打开 TideBot。'),
+              content: const Text('重启后应用备份。若未自动打开，请手动重新打开 SkyTide。'),
               actions: [
                 TextButton(
                   onPressed: () async {
@@ -243,7 +243,7 @@ class _StorageManagementPageState extends State<StorageManagementPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'TideBot 已用 ${_format(used)}',
+                          'SkyTide 已用 ${_format(used)}',
                           style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w700,

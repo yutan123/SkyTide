@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:tide_bot/plugin_archive.dart';
+import 'package:skytide/plugin_archive.dart';
 
 // Builds real ZIP records to preserve duplicate names and inconsistent headers.
 class Entry {

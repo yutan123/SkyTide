@@ -1,5 +1,5 @@
-import 'package:tide_bot/call_speech.dart';
-import 'package:tide_bot/voice_message_speech.dart';
+import 'package:skytide/call_speech.dart';
+import 'package:skytide/voice_message_speech.dart';
 
 void check(bool value, String message) {
   if (!value) throw StateError(message);

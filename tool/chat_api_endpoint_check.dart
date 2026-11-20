@@ -1,4 +1,4 @@
-import 'package:tide_bot/chat_api_endpoint.dart';
+import 'package:skytide/chat_api_endpoint.dart';
 
 void main() {
   const expected = 'https://api.deepseek.com/v1/chat/completions';

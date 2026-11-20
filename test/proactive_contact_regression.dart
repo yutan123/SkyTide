@@ -1,4 +1,4 @@
-import 'package:tide_bot/proactive_contact.dart';
+import 'package:skytide/proactive_contact.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

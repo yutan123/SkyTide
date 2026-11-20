@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:tide_bot/app_log_service.dart';
-import 'package:tide_bot/native_background_coordinator.dart';
+import 'package:skytide/app_log_service.dart';
+import 'package:skytide/native_background_coordinator.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

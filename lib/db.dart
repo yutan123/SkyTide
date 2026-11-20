@@ -2375,7 +2375,7 @@ class DBManager {
         final export = await buildChatExport(botId);
         try {
           final dir = await getApplicationDocumentsDirectory();
-          final target = File('${dir.path}/TideBot/exports/${export.fileName}');
+          final target = File('${dir.path}/SkyTide/exports/${export.fileName}');
           await target.parent.create(recursive: true);
           await export.file.copy(target.path);
           return target.path;
@@ -2423,7 +2423,7 @@ class DBManager {
       if (format != 'tidebot.chat' ||
           !const [1, 2].contains(version) ||
           !hasMessages) {
-        throw const FormatException('仅支持 TideBot 导出的聊天记录文件');
+        throw const FormatException('仅支持 SkyTide 导出的聊天记录文件');
       }
       final media = Directory('${work.path}/media');
       if (await media.exists()) {
@@ -2585,7 +2585,7 @@ class DBManager {
       }
     }
     if (format != 'tidebot.memory' || version != 1 || sections.length != 2) {
-      throw const FormatException('仅支持 TideBot 导出的世界书文件');
+      throw const FormatException('仅支持 SkyTide 导出的世界书文件');
     }
     final sourceBotId = bot['id']?.toString() ?? '';
     var count = 0;
@@ -2666,7 +2666,7 @@ class DBManager {
     final file = File('$dir/tidebot_export.md');
     final sink = file.openWrite();
     try {
-      sink.writeln('# TideBot 数据导出');
+      sink.writeln('# SkyTide 数据导出');
       sink.writeln('导出时间: ${DateTime.now()}');
       await db.transaction((txn) async {
         for (final bot in await txn.query('bots')) {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_stream_pacing.dart';
+import 'package:skytide/chat_stream_pacing.dart';
 
 void main() {
   test('live buffer starts on character 21 and drains during a pause', () {

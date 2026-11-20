@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/model_image.dart';
+import 'package:skytide/model_image.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

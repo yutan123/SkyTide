@@ -39,7 +39,7 @@ class FullBackupService {
           if (relative.startsWith('memory_embedding/') ||
               relative.startsWith('models/') ||
               relative == 'tidebot_dev_logs.json' ||
-              relative.startsWith('TideBot/exports/'))
+              relative.startsWith('SkyTide/exports/'))
             continue;
           files['documents/$relative'] = item.path;
         }
@@ -336,7 +336,7 @@ class FullBackupService {
             final source = File('${work.path}/$_dbName');
             final preferences = File('${work.path}/preferences.json');
             if (!await source.exists() || !await preferences.exists()) {
-              throw const FormatException('不是有效的 TideBot 完整备份');
+              throw const FormatException('不是有效的 SkyTide 完整备份');
             }
             // Validate one preference at a time; retaining the complete decoded map
             // doubled the live preferences during a full restore.

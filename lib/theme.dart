@@ -795,7 +795,7 @@ class TideTheme extends ChangeNotifier {
 
   static TideTheme of(BuildContext context, {bool listen = true}) {
     return listen
-        ? TideBotThemeProvider.of(context)
+        ? SkyTideThemeProvider.of(context)
         : (context
                   .dependOnInheritedWidgetOfExactType<_TideThemeWidget>()
                   ?.theme ??
@@ -811,10 +811,10 @@ class _TideThemeWidget extends InheritedNotifier<TideTheme> {
   final TideTheme theme;
 }
 
-class TideBotThemeProvider extends StatelessWidget {
+class SkyTideThemeProvider extends StatelessWidget {
   final TideTheme theme;
   final Widget child;
-  const TideBotThemeProvider({
+  const SkyTideThemeProvider({
     super.key,
     required this.theme,
     required this.child,

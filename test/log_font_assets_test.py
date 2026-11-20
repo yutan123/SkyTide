@@ -62,7 +62,7 @@ class LogFontAssetsTest(unittest.TestCase):
         # shared Flutter/native API name used throughout the application.
         asset = 'assets/fonts/LXGWMarkerGothic-Regular.ttf'
         pubspec = (ROOT / 'pubspec.yaml').read_text()
-        native = (ROOT / 'android/app/src/main/kotlin/com/yutan123/tidebot/NativeSelectableText.kt').read_text()
+        native = (ROOT / 'android/app/src/main/kotlin/com/yutan123/skytide/NativeSelectableText.kt').read_text()
         self.assertEqual(pubspec.count('asset: ' + asset), 2)
         self.assertIn('family: TideFont', pubspec)
         self.assertIn('"TideFont" -> runCatching', native)
@@ -76,7 +76,7 @@ class LogFontAssetsTest(unittest.TestCase):
 
     def test_flutter_and_android_use_the_same_cjk_asset(self):
         pubspec = (ROOT / 'pubspec.yaml').read_text()
-        native = (ROOT / 'android/app/src/main/kotlin/com/yutan123/tidebot/NativeSelectableText.kt').read_text()
+        native = (ROOT / 'android/app/src/main/kotlin/com/yutan123/skytide/NativeSelectableText.kt').read_text()
         self.assertIn('asset: assets/fonts/LogSansSC.otf', pubspec)
         self.assertIn('"LogSansSC.otf"', native)
         self.assertNotIn('LogSansSC.ttf', pubspec)

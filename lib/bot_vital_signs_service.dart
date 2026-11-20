@@ -223,7 +223,7 @@ class BotVitalSignsService {
       await FutureTaskScheduler.schedule({
         'id': 'vital:$id:$t',
         'run_at': t,
-        'title': 'TideBot 生活状态更新',
+        'title': 'SkyTide 生活状态更新',
         'bot_id': id
       });
   }

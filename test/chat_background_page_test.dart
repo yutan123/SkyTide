@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:tide_bot/chat_background_page.dart';
-import 'package:tide_bot/theme.dart';
+import 'package:skytide/chat_background_page.dart';
+import 'package:skytide/theme.dart';
 
 void main() {
   testWidgets('storage failure ends loading and retry attempts another read',
@@ -18,7 +18,7 @@ void main() {
     });
     addTearDown(() => tester.binding.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null));
-    await tester.pumpWidget(TideBotThemeProvider(
+    await tester.pumpWidget(SkyTideThemeProvider(
       theme: TideTheme(),
       child: const MaterialApp(home: ChatBackgroundPage()),
     ));

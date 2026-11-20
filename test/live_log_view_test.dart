@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:tide_bot/app_log_service.dart';
-import 'package:tide_bot/live_log_view.dart';
+import 'package:skytide/app_log_service.dart';
+import 'package:skytide/live_log_view.dart';
 
 void main() {
   final logs = AppLogService.instance;

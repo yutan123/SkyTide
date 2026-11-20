@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:tide_bot/chat_background_defaults.dart';
+import 'package:skytide/chat_background_defaults.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

@@ -4,7 +4,7 @@
   "dart_packages": 173,
   "entries": [
     {
-      "name": "TideBot",
+      "name": "SkyTide",
       "version": "AGPL-3.0-only",
       "category": "项目",
       "source": "https://github.com/yutan123/TideBot-Dev",
@@ -3497,7 +3497,7 @@
       "category": "Android 原生 · 直接声明",
       "source": "https://dl.google.com/dl/android/maven2/androidx/core/core-ktx/1.13.1/core-ktx-1.13.1.pom",
       "license": "The Apache Software License, Version 2.0",
-      "description": "由 TideBot Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
+      "description": "由 SkyTide Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
       "files": [
         {
           "name": "上游 Maven POM",
@@ -3972,7 +3972,7 @@
       "category": "Android 原生 · 直接声明",
       "source": "https://dl.google.com/dl/android/maven2/androidx/work/work-runtime-ktx/2.10.0/work-runtime-ktx-2.10.0.pom",
       "license": "The Apache Software License, Version 2.0",
-      "description": "由 TideBot Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
+      "description": "由 SkyTide Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
       "files": [
         {
           "name": "上游 Maven POM",
@@ -4018,7 +4018,7 @@
       "category": "Android 原生 · 直接声明",
       "source": "https://repo.maven.apache.org/maven2/com/android/tools/desugar_jdk_libs/2.1.5/desugar_jdk_libs-2.1.5.pom",
       "license": "GNU General Public License, version 2, with the Classpath Exception",
-      "description": "由 TideBot Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
+      "description": "由 SkyTide Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
       "files": [
         {
           "name": "上游 Maven POM",
@@ -4166,7 +4166,7 @@
       "category": "Android 原生 · 直接声明",
       "source": "https://repo.maven.apache.org/maven2/com/google/guava/guava/33.4.0-android/guava-33.4.0-android.pom",
       "license": "Apache License, Version 2.0",
-      "description": "由 TideBot Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
+      "description": "由 SkyTide Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
       "files": [
         {
           "name": "上游 Maven POM",
@@ -4222,7 +4222,7 @@
       "category": "Android 原生 · 直接声明",
       "source": "https://dl.google.com/dl/android/maven2/com/google/mlkit/text-recognition-chinese/16.0.1/text-recognition-chinese-16.0.1.pom",
       "license": "ML Kit Terms of Service",
-      "description": "由 TideBot Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
+      "description": "由 SkyTide Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
       "files": [
         {
           "name": "上游 Maven POM",
@@ -4250,7 +4250,7 @@
       "category": "Android 原生 · 直接声明",
       "source": "https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.20.0/onnxruntime-android-1.20.0.pom",
       "license": "MIT License",
-      "description": "由 TideBot Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
+      "description": "由 SkyTide Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
       "files": [
         {
           "name": "ONNX Runtime v1.20.0 / LICENSE",
@@ -4278,7 +4278,7 @@
       "category": "Android 原生 · 直接声明",
       "source": "https://repo.maven.apache.org/maven2/com/squareup/okhttp3/okhttp/4.12.0/okhttp-4.12.0.pom",
       "license": "The Apache Software License, Version 2.0",
-      "description": "由 TideBot Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
+      "description": "由 SkyTide Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
       "files": [
         {
           "name": "上游 Maven POM",
@@ -4375,7 +4375,7 @@
       "category": "Android 原生 · 直接声明",
       "source": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-android/1.7.3/kotlinx-coroutines-android-1.7.3.pom",
       "license": "The Apache Software License, Version 2.0",
-      "description": "由 TideBot Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
+      "description": "由 SkyTide Android 引入。版本为声明值，未进行 Gradle 构建或发布包解析。",
       "files": [
         {
           "name": "上游 Maven POM",

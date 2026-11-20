@@ -1,6 +1,6 @@
-import 'package:tide_bot/plugin_contract.dart';
-import 'package:tide_bot/plugin_config_ui.dart';
-import 'package:tide_bot/plugin_ai.dart';
+import 'package:skytide/plugin_contract.dart';
+import 'package:skytide/plugin_config_ui.dart';
+import 'package:skytide/plugin_ai.dart';
 
 void main() {
   var checks = 0;

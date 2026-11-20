@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/tool_completion.dart';
+import 'package:skytide/tool_completion.dart';
 
 void main() {
   test('continuation emits text before the SSE response ends', () async {

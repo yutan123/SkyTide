@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:tide_bot/video_request.dart';
+import 'package:skytide/video_request.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

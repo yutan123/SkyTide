@@ -33,7 +33,7 @@ class ChatListPageState extends State<ChatListPage> {
   static String? _lastCacheJson;
   static Future<void> _cacheWrite = Future<void>.value();
   List<Map<String, dynamic>> _bots = [];
-  String _qqUserName = 'TideBot';
+  String _qqUserName = 'SkyTide';
   String? _qqUserAvatar;
   bool _hasLoaded = false;
   bool _loadFailed = false;
@@ -88,7 +88,7 @@ class ChatListPageState extends State<ChatListPage> {
       final avatar = await db.getKV('user_avatar');
       if (!mounted || revision != UserProfileChanges.revision.value) return;
       setState(() {
-        _qqUserName = name?.trim().isNotEmpty == true ? name! : 'TideBot';
+        _qqUserName = name?.trim().isNotEmpty == true ? name! : 'SkyTide';
         _qqUserAvatar = avatar;
       });
     } catch (error) {
@@ -104,7 +104,7 @@ class ChatListPageState extends State<ChatListPage> {
           children: [
             InkWell(
               onTap: _openSidebar,
-              child: TideBotAvatar(
+              child: SkyTideAvatar(
                 name: _qqUserName,
                 path: _qqUserAvatar,
                 size: 38,
@@ -500,7 +500,7 @@ class ChatListPageState extends State<ChatListPage> {
                     child: GestureDetector(
                       onTap: _openSidebar,
                       child: Text(
-                        'TideBot',
+                        'SkyTide',
                         style: TextStyle(
                           fontSize: 25,
                           fontWeight: FontWeight.w700,
@@ -531,11 +531,11 @@ class ChatListPageState extends State<ChatListPage> {
                       Expanded(
                         child: Semantics(
                           button: true,
-                          label: '打开 TideBot 侧栏',
+                          label: '打开 SkyTide 侧栏',
                           child: GestureDetector(
                             onTap: _openSidebar,
                             child: Text(
-                              'TideBot',
+                              'SkyTide',
                               style: TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w600,
@@ -572,11 +572,11 @@ class ChatListPageState extends State<ChatListPage> {
                     alignment: Alignment.centerLeft,
                     child: Semantics(
                       button: true,
-                      label: '打开 TideBot 侧栏',
+                      label: '打开 SkyTide 侧栏',
                       child: GestureDetector(
                         onTap: _openSidebar,
                         child: Text(
-                          'TideBot',
+                          'SkyTide',
                           style: TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.w800,
@@ -821,7 +821,7 @@ class ChatListPageState extends State<ChatListPage> {
                       ? (theme.isTelegram ? 28 : 26)
                       : 5,
                 ),
-                child: TideBotAvatar(
+                child: SkyTideAvatar(
                   name: bot['name']?.toString() ?? '',
                   path: bot['avatar']?.toString(),
                   size: (theme.isQq || theme.isTelegram)
@@ -929,7 +929,7 @@ class ChatListPageState extends State<ChatListPage> {
           Stack(
             clipBehavior: Clip.none,
             children: [
-              TideBotAvatar(
+              SkyTideAvatar(
                 name: bot['name'] as String? ?? '',
                 path: av,
                 size: 56,

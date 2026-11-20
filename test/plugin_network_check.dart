@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:tide_bot/plugin_network.dart';
-import 'package:tide_bot/plugin_error.dart';
-import 'package:tide_bot/plugin_operation.dart';
+import 'package:skytide/plugin_network.dart';
+import 'package:skytide/plugin_error.dart';
+import 'package:skytide/plugin_operation.dart';
 
 Future<void> main() async {
   var checks = 0;

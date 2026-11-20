@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/log_session_detail_page.dart';
+import 'package:skytide/log_session_detail_page.dart';
 
 void main() {
   testWidgets(

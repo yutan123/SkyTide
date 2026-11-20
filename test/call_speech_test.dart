@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/call_speech.dart';
-import 'package:tide_bot/assistant_output_guard.dart';
+import 'package:skytide/call_speech.dart';
+import 'package:skytide/assistant_output_guard.dart';
 
 void main() {
   test('call JSON survives chat guard and metadata stays out of spoken text',

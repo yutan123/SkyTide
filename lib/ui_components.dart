@@ -115,13 +115,13 @@ class _BouncyTapState extends State<BouncyTap>
 }
 
 // ========== 机器人默认头像 ==========
-class TideBotAvatar extends StatelessWidget {
+class SkyTideAvatar extends StatelessWidget {
   final String name;
   final String? path;
   final double size;
   final double? radius;
 
-  const TideBotAvatar({
+  const SkyTideAvatar({
     super.key,
     required this.name,
     this.path,

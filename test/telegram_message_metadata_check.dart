@@ -1,4 +1,4 @@
-import 'package:tide_bot/telegram_message_metadata.dart';
+import 'package:skytide/telegram_message_metadata.dart';
 
 void main() {
   var checks = 0;

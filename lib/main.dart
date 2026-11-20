@@ -75,7 +75,7 @@ void main() {
   LinkPreviewService.instance.cacheDirectory = getApplicationSupportDirectory;
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  runApp(const TideBotApp());
+  runApp(const SkyTideApp());
 }
 
 Future<void> _startBackgroundServices() async {
@@ -187,7 +187,7 @@ Future<void> _initPersistentService({
     final service = FlutterBackgroundService();
     const channel = AndroidNotificationChannel(
       'tide_bot_alive',
-      'TideBot Core',
+      'SkyTide Core',
       importance: Importance.low,
     );
     final plugin = FlutterLocalNotificationsPlugin();
@@ -203,8 +203,8 @@ Future<void> _initPersistentService({
         autoStartOnBoot: restoreAfterUserOptIn,
         isForegroundMode: true,
         notificationChannelId: 'tide_bot_alive',
-        initialNotificationTitle: 'TideBot 正在运行中',
-        initialNotificationContent: 'TideBot正在运行中',
+        initialNotificationTitle: 'SkyTide 正在运行中',
+        initialNotificationContent: 'SkyTide正在运行中',
         foregroundServiceNotificationId: 888,
       ),
       iosConfiguration: IosConfiguration(),
@@ -438,11 +438,11 @@ void onStart(ServiceInstance service) async {
   });
 
   service
-      .on('com.yutan123.tidebot.ACTION_TASK_ALARM')
+      .on('com.yutan123.skytide.ACTION_TASK_ALARM')
       .listen((_) => unawaited(tick()));
 
   // Handle periodic WorkManager wake to ensure background tasks run even when app is killed
-  service.on('com.yutan123.tidebot.ACTION_PERIODIC_QUEUE_WAKE').listen((
+  service.on('com.yutan123.skytide.ACTION_PERIODIC_QUEUE_WAKE').listen((
     _,
   ) async {
     debugPrint('[service] WorkManager periodic wake received');
@@ -827,13 +827,13 @@ class FlowGlassBg extends StatelessWidget {
   );
 }
 
-class TideBotApp extends StatefulWidget {
-  const TideBotApp({super.key});
+class SkyTideApp extends StatefulWidget {
+  const SkyTideApp({super.key});
   @override
-  State<TideBotApp> createState() => _TideBotAppState();
+  State<SkyTideApp> createState() => _SkyTideAppState();
 }
 
-class _TideBotAppState extends State<TideBotApp> with WidgetsBindingObserver {
+class _SkyTideAppState extends State<SkyTideApp> with WidgetsBindingObserver {
   bool _servicesReady = false;
   @override
   void initState() {
@@ -896,14 +896,14 @@ class _TideBotAppState extends State<TideBotApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return TideBotThemeProvider(
+    return SkyTideThemeProvider(
       theme: tideTheme,
       child: ListenableBuilder(
         listenable: tideTheme,
         builder: (context, _) => MaterialApp(
           navigatorKey: appNavigatorKey,
           navigatorObservers: [AppState.chatRouteObserver],
-          title: 'TideBot',
+          title: 'SkyTide',
           debugShowCheckedModeBanner: false,
           themeMode: tideTheme.mode,
           theme: ThemeData(

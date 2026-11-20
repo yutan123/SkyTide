@@ -38,7 +38,7 @@ extension _TelegramChat on _ChatRoomPageState {
                     children: [
                       Positioned(
                         left: 3,
-                        child: TideBotAvatar(
+                        child: SkyTideAvatar(
                           name: _bot['name']?.toString() ?? '',
                           path: _bot['avatar']?.toString(),
                           size: 42,

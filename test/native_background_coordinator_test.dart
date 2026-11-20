@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/native_background_coordinator.dart';
+import 'package:skytide/native_background_coordinator.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

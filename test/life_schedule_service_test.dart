@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/life_schedule_service.dart';
+import 'package:skytide/life_schedule_service.dart';
 
 void main() {
   group('life schedule response parsing', () {

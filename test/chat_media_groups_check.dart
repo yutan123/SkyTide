@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:tide_bot/chat_media_groups.dart';
+import 'package:skytide/chat_media_groups.dart';
 
 int _checks = 0;
 void check(bool value, String message) {

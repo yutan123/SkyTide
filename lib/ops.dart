@@ -50,7 +50,7 @@ class OpsManager {
   Future<void> _initializeNotifications() async {
     const channel = AndroidNotificationChannel(
       messageChannelId,
-      'TideBot 消息提醒',
+      'SkyTide 消息提醒',
       description: '机器人回复与未读消息提醒',
       importance: Importance.high,
       playSound: true,
@@ -168,7 +168,7 @@ class OpsManager {
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
         messageChannelId,
-        'TideBot 消息提醒',
+        'SkyTide 消息提醒',
         channelDescription: '机器人回复与未读消息提醒',
         importance: Importance.high,
         priority: Priority.high,

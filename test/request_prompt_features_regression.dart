@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:tide_bot/ai_request_task.dart';
-import 'package:tide_bot/bot_vital_model.dart';
-import 'package:tide_bot/call_speech.dart';
-import 'package:tide_bot/proactive_contact.dart';
-import 'package:tide_bot/request_prompt_features.dart';
-import 'package:tide_bot/voice_message_speech.dart';
+import 'package:skytide/ai_request_task.dart';
+import 'package:skytide/bot_vital_model.dart';
+import 'package:skytide/call_speech.dart';
+import 'package:skytide/proactive_contact.dart';
+import 'package:skytide/request_prompt_features.dart';
+import 'package:skytide/voice_message_speech.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

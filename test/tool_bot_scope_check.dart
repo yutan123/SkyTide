@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'package:tide_bot/tool_bot_scope.dart';
-import 'package:tide_bot/tool_package_catalog.dart';
-import 'package:tide_bot/tool_package_runtime.dart';
+import 'package:skytide/tool_bot_scope.dart';
+import 'package:skytide/tool_package_catalog.dart';
+import 'package:skytide/tool_package_runtime.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

@@ -3,7 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/theme.dart';
+import 'package:skytide/theme.dart';
 
 void main() {
   for (final brightness in Brightness.values) {

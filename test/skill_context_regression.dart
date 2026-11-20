@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:tide_bot/skill_context.dart';
-import 'package:tide_bot/tool_bot_scope.dart';
+import 'package:skytide/skill_context.dart';
+import 'package:skytide/tool_bot_scope.dart';
 
 void main() {
   final fullInstructions = List.generate(

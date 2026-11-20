@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/skill_package.dart';
+import 'package:skytide/skill_package.dart';
 
 List<int> zip(Map<String, String> files) {
   final archive = Archive();

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_content.dart';
-import 'package:tide_bot/chat_message_display.dart';
+import 'package:skytide/chat_content.dart';
+import 'package:skytide/chat_message_display.dart';
 
 const leakedReply =
     '''Given the time (around 3:28 AM) and the established sleep schedule, the appropriate response aligns with the persona's resting state. The user's query ("睡着了吗") indicates a casual, friendly interaction. Considering the context, a gentle and brief reply reflecting the character's sleep would be suitable.

@@ -13,7 +13,7 @@ class FutureTaskScheduler {
       return await _channel.invokeMethod<bool>('scheduleFutureTask', {
             'taskId': id,
             'triggerAt': runAt,
-            'title': task['title']?.toString() ?? 'TideBot 提醒',
+            'title': task['title']?.toString() ?? 'SkyTide 提醒',
           }) ??
           false;
     } on PlatformException {

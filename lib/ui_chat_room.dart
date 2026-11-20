@@ -3183,7 +3183,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         GlobalNotice.show('没有相册保存权限');
         return;
       }
-      final dir = Directory('/storage/emulated/0/Pictures/TideBot');
+      final dir = Directory('/storage/emulated/0/Pictures/SkyTide');
       await dir.create(recursive: true);
       final ext = path.toLowerCase().endsWith('.png') ? 'png' : 'jpg';
       final target = File(
@@ -5008,8 +5008,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
 
   Widget _wechatMessageAvatar(bool isUser) => Padding(
     padding: EdgeInsets.only(left: isUser ? 8 : 0, right: isUser ? 0 : 8),
-    child: TideBotAvatar(
-      name: isUser ? '我' : (_bot['name']?.toString() ?? 'TideBot'),
+    child: SkyTideAvatar(
+      name: isUser ? '我' : (_bot['name']?.toString() ?? 'SkyTide'),
       path: isUser ? _userAvatar : _bot['avatar']?.toString(),
       size: TideTheme.of(context).isQq ? 38 : 40,
       radius: TideTheme.of(context).isQq ? 19 : 5,
@@ -5171,8 +5171,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
 
   Widget _tideMessageAvatar(bool isUser) => Padding(
     padding: const EdgeInsets.only(bottom: 4),
-    child: TideBotAvatar(
-      name: isUser ? '我' : (_bot['name']?.toString() ?? 'TideBot'),
+    child: SkyTideAvatar(
+      name: isUser ? '我' : (_bot['name']?.toString() ?? 'SkyTide'),
       path: isUser ? _userAvatar : _bot['avatar']?.toString(),
       size: 28,
     ),

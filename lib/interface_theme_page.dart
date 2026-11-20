@@ -15,9 +15,9 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
   static const _styles = [
     (
       id: 'default',
-      asset: 'tidebot',
+      asset: 'skytide',
       aspectRatio: 1264 / 859,
-      name: 'TideBot',
+      name: 'SkyTide',
       color: Color(0xFF378463),
     ),
     (
@@ -206,7 +206,7 @@ class _InterfaceThemePageState extends State<InterfaceThemePage> {
                             _saving
                                 ? '正在保存…'
                                 : applied
-                                ? (canApply ? '恢复 TideBot 风格' : '使用中')
+                                ? (canApply ? '恢复 SkyTide 风格' : '使用中')
                                 : '应用此风格',
                           ),
                         ),

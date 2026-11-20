@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:tide_bot/chat_content.dart';
-import 'package:tide_bot/video_response.dart';
+import 'package:skytide/chat_content.dart';
+import 'package:skytide/video_response.dart';
 
 void check(bool value, String message) {
   if (!value) throw StateError(message);

@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/app_state.dart';
+import 'package:skytide/app_state.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

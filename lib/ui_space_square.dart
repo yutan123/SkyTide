@@ -1025,7 +1025,7 @@ class SquarePageState extends State<SquarePage>
           ),
           ...bots.map(
             (bot) => ListTile(
-              leading: TideBotAvatar(
+              leading: SkyTideAvatar(
                 name: bot['name']?.toString() ?? 'TA',
                 path: bot['avatar']?.toString(),
                 size: 42,
@@ -1374,7 +1374,7 @@ class SquarePageState extends State<SquarePage>
           children: [
             Row(
               children: [
-                TideBotAvatar(
+                SkyTideAvatar(
                   name: isSelf
                       ? _qqUserName
                       : (feed['user']?.toString() ?? '用户'),
@@ -1580,7 +1580,7 @@ class SquarePageState extends State<SquarePage>
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TideBotAvatar(
+              SkyTideAvatar(
                 name: feed['user']?.toString() ?? '用户',
                 path: feed['is_bot'] == true
                     ? feed['bot_avatar']?.toString()
@@ -1710,7 +1710,7 @@ class SquarePageState extends State<SquarePage>
                     child: Row(
                       children: [
                         f['is_bot'] == true
-                            ? TideBotAvatar(
+                            ? SkyTideAvatar(
                                 name: f['user']?.toString() ?? 'TA',
                                 path: f['bot_avatar']?.toString(),
                                 size: 36,
@@ -1932,7 +1932,7 @@ class SquarePageState extends State<SquarePage>
             const SizedBox(height: 10),
             ...bots.map(
               (bot) => ListTile(
-                leading: TideBotAvatar(
+                leading: SkyTideAvatar(
                   name: bot['name']?.toString() ?? '未命名机器人',
                   path: bot['avatar']?.toString(),
                   size: 44,
@@ -2636,7 +2636,7 @@ class _FeedDetailPageState extends State<_FeedDetailPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           avatar?.isNotEmpty == true
-              ? TideBotAvatar(name: authorName, path: avatar, size: 30)
+              ? SkyTideAvatar(name: authorName, path: avatar, size: 30)
               : CircleAvatar(
                   radius: 15,
                   backgroundColor: theme.primary.withValues(alpha: .12),
@@ -2727,7 +2727,7 @@ class _FeedDetailPageState extends State<_FeedDetailPage> {
                   Row(
                     children: [
                       feed['is_bot'] == true
-                          ? TideBotAvatar(
+                          ? SkyTideAvatar(
                               name: feed['user']?.toString() ?? 'TA',
                               path: feed['bot_avatar']?.toString(),
                               size: 44,

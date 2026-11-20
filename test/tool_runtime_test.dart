@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:tide_bot/bot_state.dart';
-import 'package:tide_bot/skill_runtime.dart';
+import 'package:skytide/bot_state.dart';
+import 'package:skytide/skill_runtime.dart';
 
 void main() {
   group('isBotDisabled', () {

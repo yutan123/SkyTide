@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_typing_state.dart';
+import 'package:skytide/chat_typing_state.dart';
 
 void main() {
   late ChatTypingState state;

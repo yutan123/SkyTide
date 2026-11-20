@@ -1,6 +1,6 @@
 import 'dart:isolate';
 
-import 'package:tide_bot/chat_message_display.dart';
+import 'package:skytide/chat_message_display.dart';
 
 Future<void> main() async {
   final rows = List.generate(

@@ -1,4 +1,4 @@
-import 'package:tide_bot/plugin_contract.dart';
+import 'package:skytide/plugin_contract.dart';
 
 // Runs with `dart test/plugin_contract_check.dart`; no Flutter build needed.
 void main() {

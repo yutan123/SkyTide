@@ -9,9 +9,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:tide_bot/plugin_archive.dart';
-import 'package:tide_bot/plugin_contract.dart';
-import 'package:tide_bot/plugin_transport.dart';
+import 'package:skytide/plugin_archive.dart';
+import 'package:skytide/plugin_contract.dart';
+import 'package:skytide/plugin_transport.dart';
 
 // ---------------------------------------------------------------------------
 // Fake JS worker that handles the same message protocol as _pluginWorker.

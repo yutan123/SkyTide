@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/ota_release.dart';
+import 'package:skytide/ota_release.dart';
 
 void main() {
   Map<String, dynamic> release({
@@ -8,8 +8,8 @@ void main() {
     bool prerelease = false,
     List<Map<String, String>> assets = const [
       {
-        'name': 'TideBot.apk',
-        'browser_download_url': 'https://example.com/TideBot.apk',
+        'name': 'SkyTide.apk',
+        'browser_download_url': 'https://example.com/SkyTide.apk',
       },
     ],
   }) {
@@ -29,7 +29,7 @@ void main() {
       );
     });
 
-    test('prefers TideBot.apk over other apk assets', () {
+    test('accepts only SkyTide.apk', () {
       final urls = OtaReleasePicker.apkUrls({
         'assets': [
           {
@@ -37,12 +37,12 @@ void main() {
             'browser_download_url': 'https://example.com/other.apk',
           },
           {
-            'name': 'TideBot.apk',
-            'browser_download_url': 'https://example.com/TideBot.apk',
+            'name': 'SkyTide.apk',
+            'browser_download_url': 'https://example.com/SkyTide.apk',
           },
         ],
       });
-      expect(urls.first, 'https://example.com/TideBot.apk');
+      expect(urls, ['https://example.com/SkyTide.apk']);
     });
 
     test('skips drafts, prereleases and releases without apk', () {

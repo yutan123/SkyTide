@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:tide_bot/permission_management_page.dart';
-import 'package:tide_bot/theme.dart';
+import 'package:skytide/permission_management_page.dart';
+import 'package:skytide/theme.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -46,7 +46,7 @@ void main() {
   Future<void> show(WidgetTester tester) async {
     final theme = TideTheme();
     addTearDown(theme.dispose);
-    await tester.pumpWidget(TideBotThemeProvider(
+    await tester.pumpWidget(SkyTideThemeProvider(
         theme: theme,
         child: const MaterialApp(home: PermissionManagementPage())));
     await tester.pumpAndSettle();

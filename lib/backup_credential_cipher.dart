@@ -77,7 +77,7 @@ class BackupCredentialCipher {
           decoded['algorithm'] != 'AES-256-GCM' ||
           keyId is! String ||
           !_keys.containsKey(keyId)) {
-        throw const FormatException('不支持的备份凭据加密版本，请更新 TideBot');
+        throw const FormatException('不支持的备份凭据加密版本，请更新 SkyTide');
       }
       List<int> bytes(String field) {
         final value = decoded[field];

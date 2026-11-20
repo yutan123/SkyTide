@@ -5,7 +5,7 @@ import 'dart:async';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/video_call_overlay.dart';
+import 'package:skytide/video_call_overlay.dart';
 
 class FakeCallCamera extends CameraPlatform {
   final opened = <String>[];

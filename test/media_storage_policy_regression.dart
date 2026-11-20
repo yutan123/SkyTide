@@ -1,4 +1,4 @@
-import 'package:tide_bot/media_storage_policy.dart';
+import 'package:skytide/media_storage_policy.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

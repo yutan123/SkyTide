@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_cache_diagnostics.dart';
+import 'package:skytide/chat_cache_diagnostics.dart';
 
 Map<String, dynamic> tool(String name, {String description = 'fixed'}) => {
       'type': 'function',

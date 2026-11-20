@@ -38,7 +38,7 @@ def main():
                 raise ValueError('Broken local link: ' + filename + ' -> ' + target)
     for filename in ['LICENSE', 'COPYRIGHT', 'README.md', 'lib/legal_pages.dart']:
         text = (root/filename).read_text()
-        if 'Copyright (C) 2025-2026 yutan123.' not in text or 'TideBot contributors' in text:
+        if 'Copyright (C) 2025-2026 yutan123.' not in text or 'SkyTide contributors' in text:
             raise ValueError('Incorrect project ownership: ' + filename)
     print(f'PASS: {count} file hashes, locked package coverage, local links and ownership')
     print('Categories:', dict(Counter(item['category'].split(' · ')[0] for item in manifest['entries'])))

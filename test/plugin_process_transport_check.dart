@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:tide_bot/plugin_process_transport.dart';
+import 'package:skytide/plugin_process_transport.dart';
 
 // Exercises the production session/RPC state machine with an injected IPC edge.
 // Does not execute Kotlin, Binder, FlutterEngine or QuickJS.

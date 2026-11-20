@@ -1,8 +1,8 @@
 import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/bot_vital_model.dart';
-import 'package:tide_bot/bot_data_page.dart';
-import 'package:tide_bot/bot_vital_signs_service.dart';
+import 'package:skytide/bot_vital_model.dart';
+import 'package:skytide/bot_data_page.dart';
+import 'package:skytide/bot_vital_signs_service.dart';
 
 void main() {
   test('data pages use latest recorded hour until the next record arrives', () {

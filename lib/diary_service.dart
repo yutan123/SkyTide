@@ -31,7 +31,7 @@ class DiaryService {
       final success = await OpsManager().setSystemAlarm(
         nextRun.hour,
         nextRun.minute,
-        'TideBot 日记补写',
+        'SkyTide 日记补写',
         repeating: true,
       );
       if (success) {

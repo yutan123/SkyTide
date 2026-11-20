@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:tide_bot/deepseek_search.dart';
+import 'package:skytide/deepseek_search.dart';
 
 void check(bool ok, String message) {
   if (!ok) throw StateError(message);

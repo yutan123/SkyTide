@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'package:tide_bot/public_image_http.dart';
-import 'package:tide_bot/model_credential_codec.dart';
+import 'package:skytide/public_image_http.dart';
+import 'package:skytide/model_credential_codec.dart';
 
 void check(bool value, String reason) {
   if (!value) throw StateError(reason);

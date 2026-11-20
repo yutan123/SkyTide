@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
-import 'package:tide_bot/bot_image_request.dart';
-import 'package:tide_bot/image_upload_codec.dart';
-import 'package:tide_bot/image_upload_format.dart';
+import 'package:skytide/bot_image_request.dart';
+import 'package:skytide/image_upload_codec.dart';
+import 'package:skytide/image_upload_format.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

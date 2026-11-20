@@ -16,6 +16,6 @@ also unchanged. Every bundled PNG and the JSON catalog was verified against
 the Git blob hashes in that source snapshot. Moving the PNG files into this
 directory did not alter their contents. No artwork modifications were made.
 
-This attribution does not imply endorsement of TideBot by the original authors.
+This attribution does not imply endorsement of SkyTide by the original authors.
 When publishing an app-store listing or other distribution description,
 retain the EmojiTwo / EmojiOne attribution and license links there as well.

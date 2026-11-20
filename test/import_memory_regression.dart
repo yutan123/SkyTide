@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:archive/archive_io.dart' hide ZLibEncoder;
-import 'package:tide_bot/json_records.dart';
-import 'package:tide_bot/transfer_archive.dart';
+import 'package:skytide/json_records.dart';
+import 'package:skytide/transfer_archive.dart';
 
 void check(bool value, String message) {
   if (!value) throw StateError(message);

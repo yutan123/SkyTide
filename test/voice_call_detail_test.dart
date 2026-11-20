@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:tide_bot/chat_event_bus.dart';
-import 'package:tide_bot/db.dart';
-import 'package:tide_bot/theme.dart';
-import 'package:tide_bot/voice_call_card.dart';
-import 'package:tide_bot/voice_call_detail_page.dart';
+import 'package:skytide/chat_event_bus.dart';
+import 'package:skytide/db.dart';
+import 'package:skytide/theme.dart';
+import 'package:skytide/voice_call_card.dart';
+import 'package:skytide/voice_call_detail_page.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -67,7 +67,7 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  Widget app(Widget child) => TideBotThemeProvider(
+  Widget app(Widget child) => SkyTideThemeProvider(
         theme: TideTheme(),
         child: MaterialApp(home: child),
       );

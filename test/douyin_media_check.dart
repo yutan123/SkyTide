@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:tide_bot/douyin_detail.dart';
-import 'package:tide_bot/link_page_utils.dart';
-import 'package:tide_bot/link_preview_service.dart';
-import 'package:tide_bot/platform_media_parser.dart';
+import 'package:skytide/douyin_detail.dart';
+import 'package:skytide/link_page_utils.dart';
+import 'package:skytide/link_preview_service.dart';
+import 'package:skytide/platform_media_parser.dart';
 
 http.Response jsonResponse(Object value) =>
     http.Response.bytes(utf8.encode(jsonEncode(value)), 200,

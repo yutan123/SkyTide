@@ -1,4 +1,4 @@
-import 'package:tide_bot/plugin_operation.dart';
+import 'package:skytide/plugin_operation.dart';
 
 void require(bool condition, String message) {
   if (!condition) throw StateError(message);

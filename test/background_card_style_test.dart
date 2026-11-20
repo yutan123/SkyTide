@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/theme.dart';
-import 'package:tide_bot/ui_components.dart';
-import 'package:tide_bot/tide_liquid_glass.dart';
+import 'package:skytide/theme.dart';
+import 'package:skytide/ui_components.dart';
+import 'package:skytide/tide_liquid_glass.dart';
 
 class _TestTheme extends TideTheme {
   _TestTheme(
@@ -27,7 +27,7 @@ void main() {
       Future<List<Decoration?>> decorations(bool background) async {
         final theme =
             _TestTheme(background: background, glassEnabled: false, dark: dark);
-        await tester.pumpWidget(TideBotThemeProvider(
+        await tester.pumpWidget(SkyTideThemeProvider(
           theme: theme,
           child: const MaterialApp(
             home: Column(children: [

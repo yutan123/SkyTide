@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:tide_bot/platform_video_resolver.dart';
-import 'package:tide_bot/platform_media_parser.dart';
-import 'package:tide_bot/link_preview_service.dart';
+import 'package:skytide/platform_video_resolver.dart';
+import 'package:skytide/platform_media_parser.dart';
+import 'package:skytide/link_preview_service.dart';
 
 http.Response page(String html) => http.Response.bytes(utf8.encode(html), 200,
     headers: {'content-type': 'text/html; charset=utf-8'});

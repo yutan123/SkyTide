@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/ai_request_task.dart';
-import 'package:tide_bot/diary_output.dart';
+import 'package:skytide/ai_request_task.dart';
+import 'package:skytide/diary_output.dart';
 
 void main() {
   test('task policies keep appointments history and isolate content generators',

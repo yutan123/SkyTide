@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/memory_prompt_policy.dart';
-import 'package:tide_bot/cognition_review.dart';
+import 'package:skytide/memory_prompt_policy.dart';
+import 'package:skytide/cognition_review.dart';
 
 void main() {
   test('recent reference includes IDs and excludes cognition before limiting',

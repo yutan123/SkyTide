@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/glass_motion_repaint.dart';
+import 'package:skytide/glass_motion_repaint.dart';
 
 class MotionNotifier extends ValueNotifier<int> {
   MotionNotifier() : super(0);

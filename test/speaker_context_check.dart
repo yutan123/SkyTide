@@ -1,7 +1,7 @@
 // Run with: dart run test/speaker_context_check.dart
 // Pure Dart checks; no Flutter engine or Android build is required.
-import 'package:tide_bot/chat_content.dart';
-import 'package:tide_bot/chat_request_context.dart';
+import 'package:skytide/chat_content.dart';
+import 'package:skytide/chat_request_context.dart';
 
 void check(bool condition, String description) {
   if (!condition) throw StateError(description);

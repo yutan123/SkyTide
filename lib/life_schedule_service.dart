@@ -254,7 +254,7 @@ class LifeScheduleService {
       final success = await OpsManager().setSystemAlarm(
         nextRun.hour,
         nextRun.minute,
-        'TideBot 日程生成',
+        'SkyTide 日程生成',
         repeating: true,
       );
       if (success) {

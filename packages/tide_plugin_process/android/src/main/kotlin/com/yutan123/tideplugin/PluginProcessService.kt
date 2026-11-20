@@ -57,7 +57,7 @@ open class PluginProcessService : Service() {
                     }
                 }
                 flutter.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint(
-                    loader.findAppBundlePath(), "package:tide_bot/main.dart", "tidePluginProcessMain"))
+                    loader.findAppBundlePath(), "package:skytide/main.dart", "tidePluginProcessMain"))
             }
             "close" -> terminate()
             else -> channel?.invokeMethod("command", text)

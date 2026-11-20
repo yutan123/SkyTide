@@ -1,5 +1,5 @@
 // Standalone regression checks: dart --packages=.dart_tool/package_config.json test/minimax_tts_check.dart
-import 'package:tide_bot/minimax_tts.dart';
+import 'package:skytide/minimax_tts.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

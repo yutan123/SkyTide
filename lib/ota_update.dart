@@ -21,11 +21,11 @@ class _DownloadCancelled implements Exception {}
 class OtaUpdate {
   static const _channel = MethodChannel('tidebot.native.channel');
   static const _releaseApi =
-      'https://api.github.com/repos/yutan123/TideBot/releases';
+      'https://api.github.com/repos/yutan123/TideBot-Dev/releases';
   static const _releaseApiFallbacks = <String>[
-    'https://ghproxy.net/https://api.github.com/repos/yutan123/TideBot/releases',
-    'https://mirror.ghproxy.com/https://api.github.com/repos/yutan123/TideBot/releases',
-    'https://gh-proxy.com/https://api.github.com/repos/yutan123/TideBot/releases',
+    'https://ghproxy.net/$_releaseApi',
+    'https://mirror.ghproxy.com/$_releaseApi',
+    'https://gh-proxy.com/$_releaseApi',
   ];
 
   static Future<void> checkOncePerDay() async {
@@ -89,7 +89,7 @@ class OtaUpdate {
           Uri.parse(endpoint),
           headers: const {
             'Accept': 'application/vnd.github+json',
-            'User-Agent': 'TideBot',
+            'User-Agent': 'SkyTide',
           },
         ).timeout(const Duration(seconds: 12));
         if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -126,13 +126,13 @@ class OtaUpdate {
   ) async {
     final urls = OtaReleasePicker.apkUrls(release);
     if (urls.isEmpty) {
-      GlobalNotice.show('该版本没有 TideBot.apk 安装包',
+      GlobalNotice.show('该版本没有 SkyTide.apk 安装包',
           color: const Color(0xFFE74C3C));
       return;
     }
     final notes = (release['body']?.toString().trim().isNotEmpty == true)
         ? release['body'].toString().trim()
-        : '有新的 TideBot 版本可用。';
+        : '有新的 SkyTide 版本可用。';
     final action = await TideDialogs.show<String>(
       context: context,
       barrierDismissible: true,
@@ -192,7 +192,7 @@ class OtaUpdate {
     if (action != 'update') return;
     try {
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/TideBot.apk');
+      final file = File('${dir.path}/SkyTide.apk');
       final selectedUrls = await _rankUrls(urls);
       await _showDownloadProgress(context, selectedUrls, file);
       await _channel.invokeMethod('installApk', {'path': file.path});
@@ -343,7 +343,7 @@ class OtaUpdate {
           final response = await client
               .send(http.Request('GET', Uri.parse(url))
                 ..headers.addAll({
-                  'User-Agent': 'TideBot',
+                  'User-Agent': 'SkyTide',
                   'Range': 'bytes=0-3',
                 }))
               .timeout(const Duration(seconds: 8));
@@ -390,7 +390,7 @@ class OtaUpdate {
       try {
         if (await destination.exists()) await destination.delete();
         final request = http.Request('GET', Uri.parse(url))
-          ..headers['User-Agent'] = 'TideBot';
+          ..headers['User-Agent'] = 'SkyTide';
         final response =
             await client.send(request).timeout(const Duration(seconds: 30));
         if (response.statusCode < 200 || response.statusCode >= 300) {

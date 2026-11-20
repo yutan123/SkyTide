@@ -99,7 +99,7 @@ class _IncomingCallBannerState extends State<IncomingCallBanner> {
                                     color:
                                         theme.primary.withValues(alpha: .30)),
                               ),
-                              child: TideBotAvatar(
+                              child: SkyTideAvatar(
                                 name: name,
                                 path: bot['avatar']?.toString(),
                                 size: 42,

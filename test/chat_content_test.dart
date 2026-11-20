@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_content.dart';
+import 'package:skytide/chat_content.dart';
 
 void main() {
   test('code fence keeps preceding live bubbles stable', () {

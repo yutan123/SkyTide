@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_request_context.dart';
+import 'package:skytide/chat_request_context.dart';
 
 void main() {
   test('persisted window survives full history reload across consecutive turns',

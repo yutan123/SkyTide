@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/link_preview_cards.dart';
-import 'package:tide_bot/link_preview_models.dart';
-import 'package:tide_bot/theme.dart';
+import 'package:skytide/link_preview_cards.dart';
+import 'package:skytide/link_preview_models.dart';
+import 'package:skytide/theme.dart';
 
 void main() {
   testWidgets('分享卡片只展示预览，不再提供原文折叠入口', (tester) async {
@@ -29,7 +29,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       final theme = TideTheme();
       addTearDown(theme.dispose);
-      await tester.pumpWidget(TideBotThemeProvider(
+      await tester.pumpWidget(SkyTideThemeProvider(
         theme: theme,
         child: MaterialApp(
             home: Scaffold(

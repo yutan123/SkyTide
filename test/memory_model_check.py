@@ -66,7 +66,7 @@ def check_model(folder):
     import onnxruntime as ort
     from tokenizers import Tokenizer
     ort.set_default_logger_severity(3)
-    native = (ROOT / 'android/app/src/main/kotlin/com/yutan123/tidebot/TideMemoryEmbeddingEngine.kt').read_text()
+    native = (ROOT / 'android/app/src/main/kotlin/com/yutan123/skytide/TideMemoryEmbeddingEngine.kt').read_text()
     for name, size, digest in re.findall(r'Triple\("([^"]+)", (\d+)L, "([0-9a-f]+)"\)', native):
         data = (folder / name.split('/')[-1]).read_bytes()
         assert len(data) == int(size)

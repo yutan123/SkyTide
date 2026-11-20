@@ -1,4 +1,4 @@
-import 'package:tide_bot/video_source_context.dart';
+import 'package:skytide/video_source_context.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

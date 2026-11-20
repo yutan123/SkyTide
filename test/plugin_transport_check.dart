@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:isolate';
 
-import 'package:tide_bot/plugin_transport.dart';
+import 'package:skytide/plugin_transport.dart';
 
 void worker(List<dynamic> initial) {
   final parent = initial[0] as SendPort;

@@ -41,7 +41,7 @@ class _GameArenaPageState extends State<GameArenaPage> {
   bool _questionSolved = false;
 
   String get _botId => widget.bot['id']?.toString() ?? '';
-  String get _botName => widget.bot['name']?.toString() ?? 'TideBot';
+  String get _botName => widget.bot['name']?.toString() ?? 'SkyTide';
 
   String get _activeGame {
     const games = <String, String>{

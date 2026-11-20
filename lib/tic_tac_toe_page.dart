@@ -2,7 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'theme.dart';
 
-/// A complete local game: human plays X, TideBot plays O with a defensive AI.
+/// A complete local game: human plays X, SkyTide plays O with a defensive AI.
 class TicTacToePage extends StatefulWidget {
   const TicTacToePage({super.key});
 
@@ -46,7 +46,7 @@ class _TicTacToePageState extends State<TicTacToePage> {
     if (_complete()) return;
     setState(() {
       _thinking = true;
-      _status = 'TideBot 正在思考…';
+      _status = 'SkyTide 正在思考…';
     });
     await Future<void>.delayed(const Duration(milliseconds: 360));
     if (!mounted) return;
@@ -70,7 +70,7 @@ class _TicTacToePageState extends State<TicTacToePage> {
           ? '平局，再来一局吧'
           : result == 'X'
               ? '你赢了！'
-              : 'TideBot 赢了！';
+              : 'SkyTide 赢了！';
     });
     return true;
   }
@@ -123,7 +123,7 @@ class _TicTacToePageState extends State<TicTacToePage> {
           child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Text('你是 X · TideBot 是 O',
+                Text('你是 X · SkyTide 是 O',
                     style: TextStyle(
                         color: theme.textWeak, fontFamily: 'TideFont')),
                 const SizedBox(height: 12),

@@ -3,10 +3,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:tide_bot/link_page_utils.dart';
-import 'package:tide_bot/link_preview_models.dart';
-import 'package:tide_bot/link_preview_service.dart';
-import 'package:tide_bot/platform_video_resolver.dart';
+import 'package:skytide/link_page_utils.dart';
+import 'package:skytide/link_preview_models.dart';
+import 'package:skytide/link_preview_service.dart';
+import 'package:skytide/platform_video_resolver.dart';
 
 http.Response _response(
   String body,

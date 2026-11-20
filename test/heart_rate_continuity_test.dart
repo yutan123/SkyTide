@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/bot_vital_model.dart';
+import 'package:skytide/bot_vital_model.dart';
 
 void main() {
   int advance(

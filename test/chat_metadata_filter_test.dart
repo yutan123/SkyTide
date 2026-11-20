@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_content.dart';
-import 'package:tide_bot/chat_request_context.dart';
-import 'package:tide_bot/chat_message_display.dart';
+import 'package:skytide/chat_content.dart';
+import 'package:skytide/chat_request_context.dart';
+import 'package:skytide/chat_message_display.dart';
 
 void main() {
   test('removes complete metadata regardless of value or colon width', () {

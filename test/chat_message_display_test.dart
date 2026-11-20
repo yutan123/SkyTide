@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_message_display.dart';
+import 'package:skytide/chat_message_display.dart';
 
 Map<String, dynamic> text(String id, String group, int time) => {
       'id': id,

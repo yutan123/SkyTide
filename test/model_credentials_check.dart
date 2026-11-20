@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:tide_bot/model_credential_codec.dart';
+import 'package:skytide/model_credential_codec.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

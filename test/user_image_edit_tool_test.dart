@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:tide_bot/bot_image_request.dart';
-import 'package:tide_bot/user_image_edit_tool.dart';
+import 'package:skytide/bot_image_request.dart';
+import 'package:skytide/user_image_edit_tool.dart';
 
 void main() {
   const current = {1: '/current-photo.png', 2: '/second-photo.png'};

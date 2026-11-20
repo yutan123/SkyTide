@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/chat_context_window.dart';
+import 'package:skytide/chat_context_window.dart';
 
 void main() {
   Map<String, dynamic> message(int tokens) =>

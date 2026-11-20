@@ -1,4 +1,4 @@
-package com.yutan123.tidebot
+package com.yutan123.skytide
 
 /** Standalone regression checks: compile with TideRequestLeases.kt and run on the JVM. */
 fun main() {

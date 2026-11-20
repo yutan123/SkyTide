@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:tide_bot/plugin_package_files.dart';
-import 'package:tide_bot/plugin_web_server.dart';
-import 'package:tide_bot/plugin_archive.dart';
+import 'package:skytide/plugin_package_files.dart';
+import 'package:skytide/plugin_web_server.dart';
+import 'package:skytide/plugin_archive.dart';
 
 int checks = 0;
 void check(bool value, String label) {

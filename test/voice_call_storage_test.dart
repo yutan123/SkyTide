@@ -5,8 +5,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:tide_bot/db.dart';
-import 'package:tide_bot/voice_call_state_service.dart';
+import 'package:skytide/db.dart';
+import 'package:skytide/voice_call_state_service.dart';
 
 // Exercise the real Dart database methods and SQL using Python's SQLite driver.
 // No Android build, SQLite mock, or additional application dependency is needed.

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/native_selectable_text.dart';
+import 'package:skytide/native_selectable_text.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

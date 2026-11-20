@@ -238,7 +238,7 @@ class McpClient {
     final result = await _request('initialize', {
       'protocolVersion': '2025-03-26',
       'capabilities': const {},
-      'clientInfo': {'name': 'TideBot', 'version': '1.0'},
+      'clientInfo': {'name': 'SkyTide', 'version': '1.0'},
     });
     negotiatedProtocolVersion = result['protocolVersion']?.toString();
     await _notify('notifications/initialized', const {});

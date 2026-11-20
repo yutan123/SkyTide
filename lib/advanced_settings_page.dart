@@ -210,7 +210,7 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
             'scroll_down': '向下滚动',
             'open_app': '打开应用',
             'close_app': '关闭应用后台进程',
-            'jump_tidebot': '跳转 TideBot',
+            'jump_tidebot': '跳转 SkyTide',
           };
     values.removeWhere((value) => !labels.containsKey(value));
     values.addAll(defaults);
@@ -317,14 +317,14 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
       }
       if (selected.contains('app_usage') && state['usageAccess'] != true) {
         await explain(
-          '请在系统页面允许 TideBot 查看使用情况访问权限',
+          '请在系统页面允许 SkyTide 查看使用情况访问权限',
           capability.openUsageAccessSettings,
         );
       }
       if (selected.contains('notifications') &&
           state['notificationAccess'] != true) {
         await explain(
-          '请在系统页面开启 TideBot 通知使用权',
+          '请在系统页面开启 SkyTide 通知使用权',
           capability.openNotificationListenerSettings,
         );
       }
@@ -333,7 +333,7 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
         selected.contains('new_notification') &&
         state['notificationAccess'] != true) {
       await explain(
-        '请在系统页面开启 TideBot 通知使用权',
+        '请在系统页面开启 SkyTide 通知使用权',
         capability.openNotificationListenerSettings,
       );
     }
@@ -526,7 +526,7 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   title: const Text(
-                    '同步到 TideBot 聊天记录',
+                    '同步到 SkyTide 聊天记录',
                     style: TextStyle(fontFamily: 'TideFont'),
                   ),
                   subtitle: const Text(
@@ -793,7 +793,7 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '开启后，使用 TideBot 的按钮和卡片时会有轻微震动。',
+                    '开启后，使用 SkyTide 的按钮和卡片时会有轻微震动。',
                     style: TextStyle(
                       fontFamily: 'TideFont',
                       color: theme.textWeak,

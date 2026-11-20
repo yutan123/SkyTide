@@ -8,21 +8,15 @@ class OtaReleasePicker {
   static List<String> apkUrls(Map<String, dynamic> release) {
     final assets = release['assets'];
     if (assets is! List) return const [];
-    final preferred = <String>[];
-    final fallback = <String>[];
+    final urls = <String>[];
     for (final raw in assets.whereType<Map>()) {
       final name = raw['name']?.toString() ?? '';
       final url = raw['browser_download_url']?.toString() ?? '';
-      if (!url.startsWith('https://') || !name.toLowerCase().endsWith('.apk')) {
-        continue;
-      }
-      if (name.toLowerCase() == 'tidebot.apk') {
-        preferred.add(url);
-      } else {
-        fallback.add(url);
+      if (name.toLowerCase() == 'skytide.apk' && url.startsWith('https://')) {
+        urls.add(url);
       }
     }
-    return [...preferred, ...fallback];
+    return urls;
   }
 
   static int compareVersions(String a, String b) {

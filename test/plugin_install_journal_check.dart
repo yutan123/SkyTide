@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
-import 'package:tide_bot/plugin_install_journal.dart';
+import 'package:skytide/plugin_install_journal.dart';
 
 int checks = 0;
 void check(bool value) {

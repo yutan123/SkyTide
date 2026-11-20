@@ -77,7 +77,7 @@ def main():
         packages[package['name']] = (Path(urllib.parse.unquote(urllib.parse.urlparse(uri).path))
             if uri.startswith('file:') else (root/'.dart_tool'/uri).resolve())
     sdk = packages['flutter'].parent.parent
-    own = entry('TideBot', 'AGPL-3.0-only', '项目',
+    own = entry('SkyTide', 'AGPL-3.0-only', '项目',
                 'https://github.com/yutan123/TideBot-Dev', 'AGPL-3.0-only',
                 'Copyright (C) 2025-2026 yutan123. 第三方版权和许可证不随项目版权人变更。')
     for name in ['LICENSE', 'COPYRIGHT']:
@@ -143,7 +143,7 @@ def main():
     # Read declared native coordinates from the app and locked Android plugins.
     # A static POM graph is deliberately not called a Gradle resolved classpath.
     seeds = {}
-    gradle_files = [(root/'android/app/build.gradle', 'TideBot Android')]
+    gradle_files = [(root/'android/app/build.gradle', 'SkyTide Android')]
     gradle_files += [(f, name) for name, path in packages.items() if name != 'tide_bot'
                      for f in (path/'android').glob('build.gradle*')]
     global_vars = {'kotlin_version': '2.2.20'}

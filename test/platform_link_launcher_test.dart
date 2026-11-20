@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/link_preview_models.dart';
-import 'package:tide_bot/platform_link_launcher.dart';
+import 'package:skytide/link_preview_models.dart';
+import 'package:skytide/platform_link_launcher.dart';
 
 void main() {
   for (final entry in [

@@ -7,12 +7,12 @@ import 'main.dart';
 import 'ota_update.dart';
 import 'theme.dart';
 
-const String tideBotLegalText = '''TideBot 用户协议与免责声明
+const String tideBotLegalText = '''SkyTide 用户协议与免责声明
 
 请在使用前阅读本协议，尤其是数据传输、工具权限与责任限制条款。首次使用时，请明确勾选同意并确认已满 18 周岁；不同意时可退出应用。
 
 一、应用定位与使用资格
-TideBot 是本地优先的 AI 伴侣与智能交互工具，提供角色对话、记忆、日程、语音、图片、视频和可扩展工具等功能。当前面向年满 18 周岁的用户。虚拟角色与 AI 回复不是真人的承诺，也不能替代现实中的人际支持或专业服务。
+SkyTide 是本地优先的 AI 伴侣与智能交互工具，提供角色对话、记忆、日程、语音、图片、视频和可扩展工具等功能。当前面向年满 18 周岁的用户。虚拟角色与 AI 回复不是真人的承诺，也不能替代现实中的人际支持或专业服务。
 
 二、模型与第三方服务
 聊天、语音识别、语音合成、生图、搜索等能力依赖您配置或启用的服务。您需要自行取得合法的服务访问权限，核对服务地址、费用、配额、使用条款和隐私政策。相关调用可能产生费用，能力与可用性会受提供方、网络及设备限制影响。
@@ -100,7 +100,7 @@ class _LegalAgreementPageState extends State<LegalAgreementPage> {
         widget.onAccepted!();
       } else {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TideBotApp()),
+          MaterialPageRoute(builder: (_) => const SkyTideApp()),
           (_) => false,
         );
       }
@@ -224,8 +224,8 @@ class _LegalAgreementPageState extends State<LegalAgreementPage> {
   }
 }
 
-class TideBotAboutPage extends StatelessWidget {
-  const TideBotAboutPage({super.key});
+class SkyTideAboutPage extends StatelessWidget {
+  const SkyTideAboutPage({super.key});
   @override
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
@@ -233,7 +233,7 @@ class TideBotAboutPage extends StatelessWidget {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text('关于 TideBot'),
+          title: const Text('关于 SkyTide'),
           backgroundColor: Colors.transparent,
         ),
         body: SafeArea(
@@ -254,7 +254,7 @@ class TideBotAboutPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'TideBot',
+                        'SkyTide',
                         style: TextStyle(
                           fontFamily: 'TideFont',
                           fontWeight: FontWeight.w800,

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/daily_launch_animation.dart';
+import 'package:skytide/daily_launch_animation.dart';
 
 void main() {
   testWidgets('the first tap reaches the destination during launch', (

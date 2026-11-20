@@ -1,12 +1,12 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/bot_vital_model.dart';
-import 'package:tide_bot/bot_data_page.dart';
-import 'package:tide_bot/daily_quote_output.dart';
-import 'package:tide_bot/sleep_timeline.dart';
-import 'package:tide_bot/theme.dart';
-import 'package:tide_bot/world_book_preview_window.dart';
+import 'package:skytide/bot_vital_model.dart';
+import 'package:skytide/bot_data_page.dart';
+import 'package:skytide/daily_quote_output.dart';
+import 'package:skytide/sleep_timeline.dart';
+import 'package:skytide/theme.dart';
+import 'package:skytide/world_book_preview_window.dart';
 
 void main() {
   group('single daily quote', () {
@@ -108,7 +108,7 @@ void main() {
       expect(metricPoints(data, 3, body: 'weight').length, 1);
     });
   });
-  Widget host(Widget child, {double scale = 1}) => TideBotThemeProvider(
+  Widget host(Widget child, {double scale = 1}) => SkyTideThemeProvider(
         theme: TideTheme(),
         child: MaterialApp(
             home: MediaQuery(

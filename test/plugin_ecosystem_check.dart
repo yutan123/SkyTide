@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:tide_bot/plugin_ai.dart';
-import 'package:tide_bot/plugin_worker_policy.dart';
-import 'package:tide_bot/plugin_data_policy.dart';
-import 'package:tide_bot/plugin_event_policy.dart';
+import 'package:skytide/plugin_ai.dart';
+import 'package:skytide/plugin_worker_policy.dart';
+import 'package:skytide/plugin_data_policy.dart';
+import 'package:skytide/plugin_event_policy.dart';
 
 int checks = 0;
 void expect(bool value, String label) {

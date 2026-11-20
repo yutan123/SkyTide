@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:tide_bot/ai_request_task.dart';
+import 'package:skytide/ai_request_task.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

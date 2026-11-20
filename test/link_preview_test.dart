@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/link_preview_service.dart';
-import 'package:tide_bot/link_preview_models.dart';
+import 'package:skytide/link_preview_service.dart';
+import 'package:skytide/link_preview_models.dart';
 
 void main() {
   group('LinkPreviewService', () {

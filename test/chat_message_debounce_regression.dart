@@ -1,4 +1,4 @@
-import 'package:tide_bot/chat_message_debounce.dart';
+import 'package:skytide/chat_message_debounce.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

@@ -42,7 +42,7 @@ class TelegramGlass extends StatelessWidget {
   }
 }
 
-/// Uses the same anchor geometry as TideBot popovers, including reverse travel.
+/// Uses the same anchor geometry as SkyTide popovers, including reverse travel.
 Future<T?> showTelegramMenu<T>({
   required BuildContext context,
   required WidgetBuilder builder,

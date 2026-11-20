@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tide_bot/log_session_detail_page.dart';
-import 'package:tide_bot/log_text.dart';
+import 'package:skytide/log_session_detail_page.dart';
+import 'package:skytide/log_text.dart';
 
 void main() {
   const menu = MethodChannel('tidebot/selection_menu');

@@ -59,7 +59,7 @@ class _ProfilePageState extends State<ProfilePage> {
       'page': 'permissions',
     },
     {'icon': Icons.analytics_rounded, 'title': '数据大盘', 'page': 'dashboard'},
-    {'icon': Icons.info_rounded, 'title': '关于 TideBot', 'page': 'about'},
+    {'icon': Icons.info_rounded, 'title': '关于 SkyTide', 'page': 'about'},
     {'icon': Icons.storage_rounded, 'title': '数据管理', 'page': 'data'},
     {'icon': Icons.favorite_rounded, 'title': '支持我们', 'page': 'support'},
     {'icon': Icons.feedback_rounded, 'title': '反馈与建议', 'page': 'feedback'},
@@ -395,7 +395,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           ...bots.map(
             (bot) => ListTile(
-              leading: TideBotAvatar(
+              leading: SkyTideAvatar(
                 name: bot['name']?.toString() ?? '未命名',
                 path: bot['avatar']?.toString(),
                 size: 42,
@@ -653,7 +653,7 @@ class _ProfilePageState extends State<ProfilePage> {
       case 'about':
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const TideBotAboutPage()),
+          MaterialPageRoute(builder: (_) => const SkyTideAboutPage()),
         );
         break;
       case 'data':
@@ -737,7 +737,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     style: TextStyle(fontFamily: 'TideFont'),
                   ),
                   subtitle: const Text(
-                    '支持 TideBot 导出的 ZIP 或 JSON 文件',
+                    '支持 SkyTide 导出的 ZIP 或 JSON 文件',
                     style: TextStyle(fontFamily: 'TideFont', fontSize: 12),
                   ),
                   onTap: () async {
@@ -799,7 +799,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'TideBot 采用纯本地架构：',
+                  'SkyTide 采用纯本地架构：',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -2454,7 +2454,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                   ),
                   SwitchListTile(
                     title: const Text(
-                      'TideBot 正在运行中',
+                      'SkyTide 正在运行中',
                       style: TextStyle(fontFamily: 'TideFont'),
                     ),
                     subtitle: const Text(
