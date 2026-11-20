@@ -106,6 +106,7 @@ class PluginMarket extends ChangeNotifier {
   }
 
   List<MarketPlugin> plugins = [];
+  bool hasIndex = false;
   bool loading = false;
   String? error;
   List<Map<String, dynamic>> _revocations = [];
@@ -136,9 +137,10 @@ class PluginMarket extends ChangeNotifier {
     try {
       final db = DBManager();
       final cache = await db.getKV('plugin_market_index');
-      if (plugins.isEmpty && cache != null) {
+      if (!hasIndex && cache != null) {
         try {
           plugins = _parse(cache);
+          hasIndex = true;
           notifyListeners();
         } catch (_) {}
       }
@@ -148,12 +150,12 @@ class PluginMarket extends ChangeNotifier {
         indexUrl,
         acceptedStatusCodes: {200, 304},
         configure: (request) {
-          if (cache != null && etag != null) {
+          if (hasIndex && cache != null && etag != null && etag.isNotEmpty) {
             request.headers.set('If-None-Match', etag);
           }
         },
       );
-      if (response.statusCode == 304 && cache != null) return;
+      if (response.statusCode == 304 && hasIndex) return;
       final bytes = <int>[];
       await for (final chunk in response.timeout(const Duration(seconds: 20))) {
         bytes.addAll(chunk);
@@ -168,6 +170,7 @@ class PluginMarket extends ChangeNotifier {
         response.headers.value('etag') ?? '',
       );
       plugins = parsed;
+      hasIndex = true;
     } catch (e) {
       error = e.toString();
     } finally {

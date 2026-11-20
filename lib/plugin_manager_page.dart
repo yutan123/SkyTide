@@ -1422,11 +1422,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
               controller: _marketScrollController,
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-              itemCount: entries.isEmpty
-                  ? 1
-                  : entries.length +
-                        (hasMore ? 1 : 0) +
-                        (market.error == null ? 0 : 1),
+              itemCount: entries.isEmpty ? 1 : entries.length + (hasMore ? 1 : 0),
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (_, index) {
                 if (entries.isEmpty)
@@ -1442,16 +1438,16 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                           ),
                           const SizedBox(height: 14),
                           Text(
-                            market.loading
+                            market.loading && !market.hasIndex
                                 ? '正在加载插件市场…'
-                                : market.error != null
+                                : market.error != null && !market.hasIndex
                                 ? '暂时无法获取插件市场'
                                 : _query.isNotEmpty
                                 ? '没有找到匹配的插件'
                                 : '暂无上架插件',
                             style: TextStyle(color: theme.textWeak),
                           ),
-                          if (market.error != null)
+                          if (!market.loading && market.error != null && !market.hasIndex)
                             TextButton(
                               onPressed: _refreshAll,
                               child: const Text('重新加载'),
@@ -1475,11 +1471,6 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                     ),
                   );
                 }
-                if (index >= entries.length)
-                  return Text(
-                    '刷新失败，当前显示缓存内容',
-                    style: TextStyle(color: theme.textWeak),
-                  );
                 final plugin = entries[index];
                 final installed = _plugins
                     .where((r) => r['id'] == plugin.id)
