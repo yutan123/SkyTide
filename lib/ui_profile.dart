@@ -1175,6 +1175,7 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
   bool _adaptiveSilence = true;
   bool _innerThought = true;
   bool _segmentedReply = true;
+  bool _autoRemoveChineseFullStop = true;
   bool _randomReplyDelay = false;
   bool _timeAwareness = true;
   bool _proactiveReply = true;
@@ -1258,6 +1259,9 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
     final stream =
         await db.getKV('streaming_output') ?? await db.getKV('streaming_input');
     final segmentedReply = await db.getKV('segmented_reply_enabled');
+    final autoRemoveChineseFullStop = await db.getKV(
+      'auto_remove_chinese_full_stop',
+    );
     final innerThought = await db.getKV('inner_thought_enabled');
     final adaptiveSilence = await db.getKV('adaptive_silence_enabled');
     final randomReplyDelay = await db.getKV('random_reply_delay_enabled');
@@ -1305,6 +1309,7 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
       _showAvatar = avatar == 'true';
       _streaming = stream != 'false';
       _segmentedReply = segmentedReply != 'false';
+      _autoRemoveChineseFullStop = autoRemoveChineseFullStop != 'false';
       _randomReplyDelay = randomReplyDelay == 'true';
       _replyDelayMinController.text = (int.tryParse(replyDelayMin ?? '') ?? 0)
           .clamp(0, 60)
@@ -1832,6 +1837,16 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                     onChanged: (v) {
                       setState(() => _segmentedReply = v);
                       _save('segmented_reply_enabled', '$v');
+                    },
+                  ),
+                  _settingSwitch(
+                    theme: theme,
+                    title: '自动删除句号',
+                    help: '仅隐藏 AI 回复末尾及分段末尾的中文句号，建议搭配分段回复使用。',
+                    value: _autoRemoveChineseFullStop,
+                    onChanged: (v) {
+                      setState(() => _autoRemoveChineseFullStop = v);
+                      _save('auto_remove_chinese_full_stop', '$v');
                     },
                   ),
                   _settingSwitch(

@@ -39,12 +39,12 @@ jobs:
         run: |
           set -euo pipefail
           case "$GITHUB_REPOSITORY" in
-            yutan123/TideBot-Dev)
+            yutan123/SkyTide-Dev)
               echo 'KEY_ALIAS=skytide-dev' >> "$GITHUB_ENV"
               echo 'KEY_DN=CN=SkyTide Dev, OU=Development, O=SkyTide, C=CN' >> "$GITHUB_ENV"
               echo 'KEYSTORE_NAME=skytide-dev.keystore' >> "$GITHUB_ENV"
               ;;
-            yutan123/TideBot)
+            yutan123/SkyTide)
               echo 'KEY_ALIAS=skytide-release' >> "$GITHUB_ENV"
               echo 'KEY_DN=CN=SkyTide, OU=Release, O=SkyTide, C=CN' >> "$GITHUB_ENV"
               echo 'KEYSTORE_NAME=skytide-release.keystore' >> "$GITHUB_ENV"

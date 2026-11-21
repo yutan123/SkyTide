@@ -20,7 +20,7 @@ permissions:
 jobs:
   build-release:
     name: Android APK 构建
-    if: github.repository == 'yutan123/TideBot-Dev' || github.repository == 'yutan123/TideBot'
+    if: github.repository == 'yutan123/SkyTide-Dev' || github.repository == 'yutan123/SkyTide'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -127,6 +127,6 @@ jobs:
       - name: 上传已验证的 APK
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.repository == 'yutan123/TideBot-Dev' && 'SkyTide-Dev-APK' || 'Android-Release-APK' }}
+          name: ${{ github.repository == 'yutan123/SkyTide-Dev' && 'SkyTide-Dev-APK' || 'Android-Release-APK' }}
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error

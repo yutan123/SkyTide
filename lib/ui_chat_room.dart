@@ -303,6 +303,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   void _updateTelegram(VoidCallback change) => setState(change);
   String _telegramEmojiSearch = '';
   bool _typing = false;
+  bool _autoRemoveChineseFullStop = true;
   bool _msgsLoading = true;
   static const _historyPreviewSize = 80;
   bool _historyReading = false;
@@ -595,6 +596,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         'dim_parenthetical_text',
         'show_chat_avatar',
         'show_web_search_sources',
+        'auto_remove_chinese_full_stop',
       ]);
       if (!mounted) return;
       setState(() {
@@ -603,6 +605,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         _dimParentheticalText = settings['dim_parenthetical_text'] != 'false';
         _showChatAvatar = settings['show_chat_avatar'] == 'true';
         _showSearchSources = settings['show_web_search_sources'] == 'true';
+        _autoRemoveChineseFullStop =
+            settings['auto_remove_chinese_full_stop'] != 'false';
       });
     } catch (error) {
       AppLogService.instance.add('ERROR', '读取聊天显示设置失败：$error');
@@ -5457,7 +5461,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     // 表情包和固定 emoji 的 content 都是模型语义，绝不能作为正文显示。
     final pluginCard = m['type'] == 'card';
     final hasSummary = m['type'] == 'call_summary';
-    final txt = (isSticker || isEmoji) ? '' : ((m['content'] as String?) ?? '');
+    final rawText = (isSticker || isEmoji)
+        ? ''
+        : ((m['content'] as String?) ?? '');
+    final txt =
+        _autoRemoveChineseFullStop &&
+            m['role'] == 'assistant' &&
+            type == 'text'
+        ? hideTrailingChineseFullStop(rawText)
+        : rawText;
     final sharedPost = _sharedPostPayload(m);
     final replyId = m['reply_to_id']?.toString();
     final telegramInlineStamp =

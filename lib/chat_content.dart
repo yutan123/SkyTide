@@ -217,6 +217,16 @@ class ChatReplyStream {
   }
 }
 
+/// Hides a trailing Chinese full stop from a displayed chat segment.
+String hideTrailingChineseFullStop(String text) {
+  final trimmed = text.trimRight();
+  if (!trimmed.endsWith('。')) return text;
+  final end = trimmed.length;
+  // An open code fence can occur while a reply is streaming.
+  if ('```'.allMatches(text).length.isOdd) return text;
+  return text.replaceRange(end - 1, end, '');
+}
+
 List<String> splitChatReplySegments(String content, {bool live = false}) {
   // A partial opening fence should not attach to the preceding prose.
   final source = live
