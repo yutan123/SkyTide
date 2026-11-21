@@ -1225,17 +1225,50 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                         runSpacing: 4,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Text(
-                            '${_author(row)} · 版本:${row['version']}',
+                          Text.rich(
+                            TextSpan(
+                              text: '${_author(row)} · 版本:',
+                              children: [
+                                TextSpan(
+                                  text: '${row['version']}',
+                                  style: update == null
+                                      ? null
+                                      : const TextStyle(
+                                          decoration:
+                                              TextDecoration.lineThrough,
+                                        ),
+                                ),
+                                if (update != null) ...[
+                                  const TextSpan(text: ' → '),
+                                  WidgetSpan(
+                                    alignment: PlaceholderAlignment.middle,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _updateHighlight,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        update.version,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: _updateForeground,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                             style: TextStyle(
                               fontSize: 11,
                               color: theme.textWeak,
                             ),
                           ),
-                          if (update != null) ...[
-                            Text('→', style: TextStyle(color: theme.textWeak)),
-                            _versionBadge(update.version),
-                          ],
                         ],
                       ),
                     ),
@@ -1269,15 +1302,21 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                     ),
                   ],
                 ),
-                if (update != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: _marketUpdateButton(update),
-                  ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const SizedBox(width: 56),
+                    SizedBox(
+                      width: 56,
+                      child: update == null
+                          ? null
+                          : Align(
+                              alignment: Alignment.centerRight,
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: _marketUpdateButton(update),
+                              ),
+                            ),
+                    ),
                     Container(
                       width: 5,
                       height: 5,
@@ -1353,32 +1392,16 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     );
   }
 
-  Widget _versionBadge(String version) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-    decoration: BoxDecoration(
-      color: const Color(0xFFFFD76A),
-      borderRadius: BorderRadius.circular(7),
-    ),
-    child: Text(
-      version,
-      style: const TextStyle(
-        fontSize: 11,
-        color: Color(0xFF624400),
-        fontWeight: FontWeight.w700,
-      ),
-    ),
-  );
+  static const _updateHighlight = Color(0xFFFFD76A);
+  static const _updateForeground = Color(0xFF624400);
 
-  Widget _marketUpdateButton(MarketPlugin plugin) => FilledButton.icon(
-    style: FilledButton.styleFrom(
-      minimumSize: const Size(76, 34),
-      visualDensity: VisualDensity.standard,
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      textStyle: const TextStyle(fontSize: 12),
-      backgroundColor: const Color(0xFFFFD76A),
-      foregroundColor: const Color(0xFF624400),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  Widget _marketUpdateButton(MarketPlugin plugin) => IconButton.filled(
+    tooltip: '在线更新插件',
+    style: IconButton.styleFrom(
+      backgroundColor: _updateHighlight,
+      foregroundColor: _updateForeground,
+      minimumSize: const Size.square(32),
+      padding: EdgeInsets.zero,
     ),
     onPressed: _busy
         ? null
@@ -1387,8 +1410,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
             cancellable: true,
             label: '正在下载并更新插件…',
           ),
-    icon: const Icon(Icons.error_outline_rounded, size: 17),
-    label: const Text('更新'),
+    icon: const Icon(Icons.system_update_alt_rounded, size: 19),
   );
 
   Widget _marketBody() {
@@ -1501,9 +1523,6 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                 final installed = _plugins
                     .where((r) => r['id'] == plugin.id)
                     .firstOrNull;
-                final update = installed == null
-                    ? null
-                    : _marketUpdate(installed);
                 final downloading = _downloadingId == plugin.id;
                 return Material(
                   color: theme.surface,
@@ -1581,45 +1600,39 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                                 color: theme.primary,
                               ),
                             ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              if (update != null)
-                                _marketUpdateButton(plugin)
-                              else
-                                FilledButton.icon(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: theme.primary,
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size(76, 34),
-                                    visualDensity: VisualDensity.standard,
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(11),
-                                    ),
-                                    textStyle: const TextStyle(fontSize: 12),
-                                  ),
-                                  onPressed: _busy || installed != null
-                                      ? null
-                                      : () => _operate(
-                                          () => _installMarket(plugin),
-                                          cancellable: true,
-                                          label: '正在下载插件…',
-                                        ),
-                                  icon: Icon(
-                                    installed == null
-                                        ? Icons.download_rounded
-                                        : Icons.check_rounded,
-                                    size: 16,
-                                  ),
-                                  label: Text(installed == null ? '下载' : '已安装'),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: theme.primary,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size(76, 34),
+                                visualDensity: VisualDensity.standard,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
                                 ),
-                            ],
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(11),
+                                ),
+                                textStyle: const TextStyle(fontSize: 12),
+                              ),
+                              onPressed: _busy || installed != null
+                                  ? null
+                                  : () => _operate(
+                                      () => _installMarket(plugin),
+                                      cancellable: true,
+                                      label: '正在下载插件…',
+                                    ),
+                              icon: Icon(
+                                installed == null
+                                    ? Icons.download_rounded
+                                    : Icons.check_rounded,
+                                size: 16,
+                              ),
+                              label: Text(installed == null ? '下载' : '已安装'),
+                            ),
                           ),
                         ],
                       ),
@@ -1636,6 +1649,9 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
 
   Widget _tabs() {
     final theme = TideTheme.of(context);
+    final updateCount = _plugins
+        .where((row) => _marketUpdate(row) != null)
+        .length;
     return Container(
       height: 48,
       padding: const EdgeInsets.all(4),
@@ -1705,9 +1721,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(index == 0 ? '插件列表' : '插件市场'),
-                                if (_plugins.any(
-                                  (row) => _marketUpdate(row) != null,
-                                )) ...[
+                                if (index == 0 && updateCount > 0) ...[
                                   const SizedBox(width: 5),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
@@ -1719,7 +1733,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Text(
-                                      '${_plugins.where((row) => _marketUpdate(row) != null).length}',
+                                      '$updateCount',
                                       style: const TextStyle(
                                         fontSize: 10,
                                         color: Color(0xFF624400),

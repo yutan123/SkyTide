@@ -4,26 +4,54 @@ import 'package:http/http.dart' as http;
 
 /// Translates the internal chat envelope to the official vendor API.
 enum NativeChatApi {
-  claude('Claude', 'api.anthropic.com'),
-  gemini('Gemini', 'generativelanguage.googleapis.com');
+  claude('Claude', 'v1'),
+  gemini('Gemini', 'v1beta');
 
-  const NativeChatApi(this.preset, this.host);
+  const NativeChatApi(this.preset, this.defaultVersion);
   final String preset;
-  final String host;
+  final String defaultVersion;
 
   static NativeChatApi? resolve(Map provider, String url) {
-    final uri = Uri.tryParse(url);
+    final uri = Uri.tryParse(url.trim());
     if (provider['is_custom'] == true ||
-        uri?.scheme != 'https' ||
-        uri?.port != 443 ||
-        uri?.userInfo.isNotEmpty == true)
+        uri == null ||
+        (uri.scheme != 'https' && uri.scheme != 'http') ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.path
+            .replaceFirst(RegExp(r'/+$'), '')
+            .endsWith('/chat/completions')) {
       return null;
+    }
+    final preset = provider['preset_name'];
     for (final api in values) {
-      if (provider['preset_name'] == api.preset && uri?.host == api.host) {
-        return api;
-      }
+      if (preset == api.preset) return api;
     }
     return null;
+  }
+
+  Uri _endpoint(String baseUrl, String resource, {bool sse = false}) {
+    final base = Uri.parse(baseUrl.trim());
+    var path = base.path.replaceFirst(RegExp(r'/+$'), '');
+    path = path
+        .replaceFirst(
+          this == claude
+              ? RegExp(r'/messages$')
+              : RegExp(
+                  r'/models/[^/]+:(?:streamGenerateContent|generateContent)$',
+                ),
+          '',
+        )
+        .replaceFirst(RegExp(r'/models$'), '');
+    if (!RegExp(r'/v[0-9]+(?:(?:alpha|beta)[0-9]*)?$').hasMatch(path)) {
+      path = '$path/$defaultVersion';
+    }
+    final uri = base.replace(path: '$path/$resource').removeFragment();
+    return sse
+        ? uri.replace(
+            queryParameters: {...uri.queryParametersAll, 'alt': 'sse'},
+          )
+        : uri;
   }
 
   Map<String, String> headers(String key) => {
@@ -35,10 +63,8 @@ enum NativeChatApi {
       'x-goog-api-key': key,
   };
 
-  Uri get modelsUrl =>
-      Uri.https(host, this == claude ? '/v1/models' : '/v1beta/models');
-
-  Future<List<String>> listModels(String key) async {
+  Future<List<String>> listModels(String key, {required String baseUrl}) async {
+    final modelsUrl = _endpoint(baseUrl, 'models');
     final client = http.Client();
     try {
       final models = <String>{};
@@ -72,7 +98,10 @@ enum NativeChatApi {
             : body['nextPageToken'];
         if (next is! String || next.isEmpty || !seen.add(next)) break;
         url = modelsUrl.replace(
-          queryParameters: {this == claude ? 'after_id' : 'pageToken': next},
+          queryParameters: {
+            ...modelsUrl.queryParametersAll,
+            this == claude ? 'after_id' : 'pageToken': next,
+          },
         );
       }
       return models.toList()..sort();
@@ -81,14 +110,18 @@ enum NativeChatApi {
     }
   }
 
-  Future<Map<String, dynamic>> testConnection(String key, String model) async {
+  Future<Map<String, dynamic>> testConnection(
+    String key,
+    String model, {
+    required String baseUrl,
+  }) async {
     final started = DateTime.now();
     final client = http.Client();
     try {
-      final request = http.Request('POST', modelsUrl)
+      final request = http.Request('POST', _endpoint(baseUrl, 'models'))
         ..headers['Authorization'] = 'Bearer $key'
         ..body = jsonEncode({
-          'model': model,
+          'model': model.split(',').first.trim(),
           'max_tokens': 256,
           'messages': [
             {'role': 'user', 'content': 'Reply with OK.'},
@@ -97,6 +130,7 @@ enum NativeChatApi {
       final response = await send(
         client,
         request,
+        baseUrl: baseUrl,
       ).then(http.Response.fromStream).timeout(const Duration(seconds: 30));
       if (response.statusCode != 200)
         return {'passed': false, 'error': 'HTTP ${response.statusCode}'};
@@ -411,19 +445,20 @@ enum NativeChatApi {
 
   Future<http.StreamedResponse> send(
     http.Client client,
-    http.Request request,
-  ) async {
+    http.Request request, {
+    required String baseUrl,
+  }) async {
     final p = jsonDecode(request.body) as Map;
     final model = '${p['model']}'.replaceFirst(RegExp(r'^models/'), '');
     if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(model))
       throw const FormatException('Invalid native chat model ID');
     final stream = p['stream'] == true;
     final url = this == claude
-        ? Uri.https(host, '/v1/messages')
-        : Uri.https(
-            host,
-            '/v1beta/models/$model:${stream ? 'streamGenerateContent' : 'generateContent'}',
-            stream ? {'alt': 'sse'} : null,
+        ? _endpoint(baseUrl, 'messages')
+        : _endpoint(
+            baseUrl,
+            'models/$model:${stream ? 'streamGenerateContent' : 'generateContent'}',
+            sse: stream,
           );
     final key = (request.headers['Authorization'] ?? '').replaceFirst(
       'Bearer ',

@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 enum ChatProviderCache {
   compatible,
   gpt,
+  grok,
   claude,
   gemini,
   deepSeek,
@@ -16,38 +17,38 @@ enum ChatProviderCache {
   gitee;
 
   static const _presets = {
-    'Claude': (claude, 'api.anthropic.com'),
-    'Gemini': (gemini, 'generativelanguage.googleapis.com'),
-    'ChatGPT': (gpt, 'api.openai.com'),
-    'DeepSeek': (deepSeek, 'api.deepseek.com'),
-    'Mimo': (mimo, 'api.xiaomimimo.com'),
-    'MiniMax': (miniMax, 'api.minimax.cn'),
-    'SiliconFlow': (siliconFlow, 'api.siliconflow.cn'),
-    '阿里云百炼': (dashScope, 'dashscope.aliyuncs.com'),
-    'Kimi': (kimi, 'api.moonshot.cn'),
-    'Gitee AI': (gitee, 'ai.gitee.com'),
+    'ChatGPT': gpt,
+    'Grok': grok,
+    'Claude': claude,
+    'Gemini': gemini,
+    'DeepSeek': deepSeek,
+    'Mimo': mimo,
+    'MiniMax': miniMax,
+    'SiliconFlow': siliconFlow,
+    '阿里云百炼': dashScope,
+    'Kimi': kimi,
+    'Gitee AI': gitee,
   };
 
   static ChatProviderCache resolve(Map provider) {
     if (provider['is_custom'] == true) return compatible;
-    final preset = _presets[provider['preset_name'] ?? provider['name']];
-    final url = Uri.tryParse('${provider['base_url'] ?? ''}');
-    if (preset == null || url?.host != preset.$2) return compatible;
-    if (const {gpt, claude, gemini}.contains(preset.$1) &&
-        (provider['preset_name'] == null ||
-            url?.scheme != 'https' ||
-            url?.port != 443 ||
-            url?.userInfo.isNotEmpty == true)) {
-      return compatible;
-    }
-    return preset.$1;
+    return _presets[provider['preset_name'] ?? provider['name']] ?? compatible;
   }
+
+  Map<String, String> requestHeaders(String scope) => {
+    if (this == grok)
+      'x-grok-conv-id': sha256.convert(utf8.encode(scope)).toString(),
+  };
 
   Map<String, dynamic> requestOptions(String scope, {required bool stream}) {
     return {
       if (this == gpt)
         'prompt_cache_key': sha256.convert(utf8.encode(scope)).toString(),
-      if (stream && (this == compatible || this == gpt || this == dashScope))
+      if (stream &&
+          (this == compatible ||
+              this == gpt ||
+              this == grok ||
+              this == dashScope))
         'stream_options': {'include_usage': true},
     };
   }
@@ -62,6 +63,7 @@ enum ChatProviderCache {
       miniMax => standard ?? tokens(usage['cache_read_input_tokens']),
       compatible ||
       gpt ||
+      grok ||
       claude ||
       gemini ||
       mimo ||
@@ -75,7 +77,9 @@ enum ChatProviderCache {
       miss: this == deepSeek
           ? tokens(usage['prompt_cache_miss_tokens'])
           : (total != null && hit != null && hit <= total ? total - hit : null),
-      written: this == miniMax || this == claude
+      written: this == gpt && details is Map
+          ? tokens(details['cache_write_tokens'])
+          : this == miniMax || this == claude
           ? tokens(usage['cache_creation_input_tokens'])
           : null,
     );

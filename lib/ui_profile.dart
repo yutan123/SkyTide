@@ -2553,6 +2553,12 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
       'models': '',
     },
     {
+      'name': 'Grok',
+      'key_url': 'https://console.x.ai/',
+      'url': 'https://api.x.ai/v1',
+      'models': '',
+    },
+    {
       'name': 'MiniMax',
       'key_url': 'https://platform.minimaxi.com/',
       'url': 'https://api.minimax.cn/v1',
@@ -3365,7 +3371,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     if (normalizedRoot.isEmpty) throw Exception('请先填写 API Base URL');
     if (apiKey.trim().isEmpty) throw Exception('请先填写 API Key');
     final native = NativeChatApi.resolve(provider ?? const {}, root);
-    if (native != null) return native.listModels(apiKey.trim());
+    if (native != null) return native.listModels(apiKey.trim(), baseUrl: root);
     final cacheKey = '$normalizedRoot|${apiKey.trim()}';
     final cached = _modelListCache[cacheKey];
     if (cached != null && cached.isNotEmpty) return List<String>.from(cached);
@@ -3376,9 +3382,10 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     Object? lastError;
     for (final candidate in candidates.toSet()) {
       try {
+        final uri = Uri.parse(candidate);
         final response = await http
             .get(
-              Uri.parse('$candidate/models'),
+              uri.replace(path: '${uri.path}/models'),
               headers: {
                 'Authorization': 'Bearer ${apiKey.trim()}',
                 if (Uri.parse(candidate).host == 'api.xiaomimimo.com')
@@ -4161,6 +4168,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
           : await native.testConnection(
               p['key']?.toString() ?? '',
               p['model']?.toString() ?? '',
+              baseUrl: p['url']?.toString() ?? '',
             );
       if (result['passed'] == true) {
         final latency = result['fastest_latency'];

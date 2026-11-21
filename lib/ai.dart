@@ -766,7 +766,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       try {
         await cancellationToken?.checkRequestAllowed();
         final native = NativeChatApi.resolve(provider, baseUrl);
-        streamed = await (native?.send(client, request) ?? client.send(request))
+        streamed = await (native?.send(client, request, baseUrl: baseUrl) ?? client.send(request))
             .timeout(const Duration(seconds: 30));
         response = await http.Response.fromStream(streamed);
         cancellationToken?.throwIfCancelled();
@@ -985,6 +985,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     // 优先用统一的聊天链路读取，兼容 API 设置页的 provider_list
     final provider = await db.getChatProviderById(providerId);
     if (provider == null) return {'error': '映射的模型已被删除，请重新配置'};
+    final cachePolicy = ChatProviderCache.resolve(provider);
+    final useOpenAIChatCache =
+        task == AIRequestTask.chat && cachePolicy == ChatProviderCache.gpt;
+    final keepProfileAfterHistory = useOpenAIChatCache ||
+        (task == AIRequestTask.chat && cachePolicy == ChatProviderCache.grok);
+    var stableHistoryEnd = 0;
     print(
       '[ai] provider resolved id=$providerId name=${provider['name']} base=${provider['base_url']}',
     );
@@ -1274,15 +1280,14 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           ],
           skillContext,
           toolContext,
-          profileContext,
+          if (!keepProfileAfterHistory) profileContext,
         ],
       ].where((part) => part.trim().isNotEmpty).join('\n\n');
 
       // Keep turn-specific context after the reusable transcript prefix.
       final dynamicContext = [
-        if (diaryTask || quoteTask)
-          profileContext
-        else if (activeGame == null)
+        if (diaryTask || quoteTask || keepProfileAfterHistory) profileContext,
+        if (!diaryTask && !quoteTask && activeGame == null)
           recentMemoryReference(recentMemories),
         if (randomVoice && features.has('request_voice_reply'))
           features.voiceInstructions(voiceMessageSpeechPrompt),
@@ -1414,6 +1419,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           currentHistoryMessage?.remove('local_timestamp') ??
           DateTime.now().millisecondsSinceEpoch;
       messages.addAll(historyMessages);
+      stableHistoryEnd = messages.length;
 
       if (pluginContext.isNotEmpty) {
         messages.add({'role': 'system', 'content': pluginContext});
@@ -1594,7 +1600,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           '';
       if (baseUrl.isEmpty) return {'error': '模型提供商缺少 Base URL，请在 API 设置中补充'};
       print(
-        '[ai] request bot=$botId provider=$providerId model=$modelName url=$baseUrl/chat/completions',
+        '[ai] request bot=$botId provider=$providerId model=$modelName base_url=$baseUrl',
       );
       AppLogService.instance.add(
         'AI',
@@ -1603,26 +1609,28 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final toolCallingEnabled = allowTools && tools.isNotEmpty;
 
       final cacheScope = '$baseUrl|$botId|$providerId|$modelName|${task.name}';
-      final cachePolicy = ChatProviderCache.resolve(provider);
       final nativeApi = NativeChatApi.resolve(provider, baseUrl);
       final cacheOptions = cachePolicy.requestOptions(
         cacheScope,
         stream: onDelta != null,
       );
-      final markFixedPrefix =
-          task == AIRequestTask.chat &&
-          cachePolicy == ChatProviderCache.gpt &&
-          supportsGptChatCacheBreakpoint(modelName) &&
-          messages.isNotEmpty &&
-          messages.first['role'] == 'system' &&
-          messages.first['content'] is String &&
-          (messages.first['content'] as String).trim().isNotEmpty;
+      var breakpoints = useOpenAIChatCache &&
+              supportsGptChatCacheBreakpoint(modelName)
+          ? gptChatCacheBreakpoints(messages, stableHistoryEnd: stableHistoryEnd)
+          : const <int>[];
+      if (useOpenAIChatCache) {
+        windowDiagnostic.addAll({
+          'stable_history_end_exclusive': stableHistoryEnd,
+          'explicit_breakpoint_message_indices': breakpoints,
+        });
+      }
       final payload = prepareChatCompletionPayload({
         ...cacheOptions,
+        if (breakpoints.isNotEmpty) 'prompt_cache_options': {'mode': 'explicit'},
         'model': modelName,
         'messages': prepareOpenAIChatCompletionMessages(
           messages,
-          markFixedPrefix: markFixedPrefix,
+          breakpoints: breakpoints,
         ),
         if (cachePolicy == ChatProviderCache.gpt)
           'max_completion_tokens': maxContext
@@ -1706,6 +1714,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         ..headers.addAll({
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${provider['api_key']}',
+          ...cachePolicy.requestHeaders(cacheScope),
         })
         ..body = jsonEncode(payload);
       void cancelRequest() => client.close();
@@ -1713,25 +1722,33 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       token?.addOnCancel(cancelRequest);
       AppLogService.instance.add(
         'AI_TRACE',
-        'HTTP 请求开始 model=$modelName url=$baseUrl/chat/completions stream=${onDelta != null}',
+        'HTTP 请求开始 model=$modelName base_url=$baseUrl stream=${onDelta != null}',
       );
       final httpStarted = DateTime.now();
       await token?.checkRequestAllowed();
       var streamedResponse =
-          await (nativeApi?.send(client, request) ??
+          await (nativeApi?.send(client, request, baseUrl: baseUrl) ??
               _sendCompatibleChat(client, request, cachePolicy));
-      if (markFixedPrefix &&
+      if (breakpoints.isNotEmpty &&
           (streamedResponse.statusCode == 400 ||
               streamedResponse.statusCode == 422)) {
         final rejected = await http.Response.fromStream(streamedResponse);
         token?.throwIfCancelled();
         if (rejectsGptChatCacheBreakpoint(rejected.body)) {
+          AppLogService.instance.addJson('CACHE', 'OpenAI 拒绝缓存断点，改用隐式缓存重试', {
+            'request_id': requestId,
+            'model': modelName,
+            'status_code': rejected.statusCode,
+          });
           await token?.checkRequestAllowed();
+          breakpoints = const [];
+          final retryPayload = Map<String, dynamic>.of(payload)
+            ..remove('prompt_cache_options');
           final retry = http.Request('POST', request.url)
             ..headers.addAll(request.headers)
             ..body = jsonEncode(
               prepareChatCompletionPayload({
-                ...payload,
+                ...retryPayload,
                 'messages': prepareOpenAIChatCompletionMessages(messages),
               }),
             );
@@ -1912,6 +1929,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             baseUrl: baseUrl,
             cachePolicy: cachePolicy,
             cacheScope: cacheScope,
+            cacheBreakpoints: breakpoints,
             nativeApi: nativeApi,
             requestId: requestId,
             modelName: modelName,
@@ -2035,6 +2053,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               baseUrl: baseUrl,
               cachePolicy: cachePolicy,
               cacheScope: cacheScope,
+              cacheBreakpoints: breakpoints,
               nativeApi: nativeApi,
               requestId: requestId,
               modelName: modelName,
@@ -2751,7 +2770,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         late final http.Response response;
         try {
           response =
-              await (native?.send(client, request) ?? client.send(request))
+              await (native?.send(client, request, baseUrl: baseUrl) ?? client.send(request))
                   .then(http.Response.fromStream)
                   .timeout(const Duration(seconds: 40));
         } finally {
@@ -2940,7 +2959,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               'Authorization': 'Bearer $apiKey',
             })
             ..body = jsonEncode(payload);
-          return (native?.send(client, request) ?? client.send(request))
+          return (native?.send(client, request, baseUrl: baseUrl) ?? client.send(request))
               .then(http.Response.fromStream)
               .timeout(const Duration(seconds: 45));
         });
@@ -3188,7 +3207,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     ChatProviderCache policy,
   ) async {
     final response = await client.send(request);
-    if (policy != ChatProviderCache.compatible ||
+    if ((policy != ChatProviderCache.compatible &&
+            policy != ChatProviderCache.grok) ||
         (response.statusCode != 400 && response.statusCode != 422)) {
       return response;
     }
@@ -4088,6 +4108,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     required String baseUrl,
     required ChatProviderCache cachePolicy,
     required String cacheScope,
+    required List<int> cacheBreakpoints,
     NativeChatApi? nativeApi,
     required String requestId,
     required String modelName,
@@ -4234,8 +4255,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final followUpId = '${requestId}_tool_${round + 1}';
       final followUpPayload = prepareChatCompletionPayload({
         ...cachePolicy.requestOptions(cacheScope, stream: onDelta != null),
+        if (cacheBreakpoints.isNotEmpty) 'prompt_cache_options': {'mode': 'explicit'},
         'model': modelName,
-        'messages': prepareOpenAIChatCompletionMessages(messages),
+        'messages': prepareOpenAIChatCompletionMessages(messages, breakpoints: cacheBreakpoints),
         if (cachePolicy == ChatProviderCache.gpt)
           'max_completion_tokens': maxTokens
         else
@@ -4267,10 +4289,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                 ..headers.addAll({
                   'Content-Type': 'application/json',
                   'Authorization': 'Bearer $apiKey',
+                  ...cachePolicy.requestHeaders(cacheScope),
                 })
                 ..body = jsonEncode(followUpPayload);
           final response =
-              await (nativeApi?.send(client, request) ??
+              await (nativeApi?.send(client, request, baseUrl: baseUrl) ??
                   _sendCompatibleChat(client, request, cachePolicy));
           if (response.statusCode != 200) {
             return (

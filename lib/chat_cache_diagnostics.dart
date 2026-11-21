@@ -14,7 +14,8 @@ Object? canonicalChatValue(Object? value) {
 }
 
 Map<String, dynamic> prepareChatCompletionPayload(
-    Map<String, dynamic> payload) {
+  Map<String, dynamic> payload,
+) {
   final prepared = Map<String, dynamic>.from(payload);
   final tools = prepared['tools'];
   if (tools is List) {
@@ -33,6 +34,24 @@ Map<String, dynamic> prepareChatCompletionPayload(
 }
 
 String _digest(String value) => sha256.convert(utf8.encode(value)).toString();
+// OpenAI text breakpoints change the wire shape but not the prompt text.
+String _messageContentDigest(Object? message) {
+  if (message is Map && message['content'] is List) {
+    final parts = message['content'] as List;
+    if (parts.length == 1 &&
+        parts.first is Map &&
+        parts.first['type'] == 'text' &&
+        parts.first.containsKey('prompt_cache_breakpoint')) {
+      return _digest(
+        jsonEncode(
+          canonicalChatValue({...message, 'content': parts.first['text']}),
+        ),
+      );
+    }
+  }
+  return _digest(jsonEncode(message));
+}
+
 int _commonPrefix(String a, String b) {
   var i = 0;
   while (i < a.length && i < b.length && a.codeUnitAt(i) == b.codeUnitAt(i)) {
@@ -64,6 +83,9 @@ class ChatCacheDiagnostics {
     final messages = (payload['messages'] as List? ?? const [])
         .map((m) => jsonEncode(m))
         .toList();
+    final messageContents = (payload['messages'] as List? ?? const [])
+        .map(_messageContentDigest)
+        .toList();
     final roles = (payload['messages'] as List? ?? const [])
         .map((m) => m is Map ? m['role']?.toString() : null)
         .toList();
@@ -88,8 +110,18 @@ class ChatCacheDiagnostics {
         commonMessages++;
       }
     }
+    var commonContents = 0;
+    if (previous != null) {
+      while (commonContents < previous.messageContents.length &&
+          commonContents < messageContents.length &&
+          previous.messageContents[commonContents] ==
+              messageContents[commonContents]) {
+        commonContents++;
+      }
+    }
     final changed = commonMessages;
-    final hasChangedMessage = previous != null &&
+    final hasChangedMessage =
+        previous != null &&
         (changed < messages.length || changed < previous.messages.length);
     final names = {...?previous?.tools.keys, ...tools.keys}.toList()..sort();
     final report = <String, dynamic>{
@@ -108,20 +140,24 @@ class ChatCacheDiagnostics {
           if (roles[i] == 'system') i,
       ],
       'common_full_messages': previous == null ? null : commonMessages,
+      'common_messages_ignoring_breakpoints': previous == null
+          ? null
+          : commonContents,
       'common_message_json_prefix_chars': previous == null
           ? null
           : _commonPrefix(previous.messageBody, messageBody),
       'first_changed_message_index': hasChangedMessage ? changed : null,
-      'first_changed_message_role':
-          hasChangedMessage && changed < roles.length ? roles[changed] : null,
+      'first_changed_message_role': hasChangedMessage && changed < roles.length
+          ? roles[changed]
+          : null,
       'first_changed_message_previous_role':
           hasChangedMessage && changed < previous.roles.length
-              ? previous.roles[changed]
-              : null,
+          ? previous.roles[changed]
+          : null,
       'fixed_changed': previous == null
           ? null
           : (messages.isEmpty ? null : messages.first) !=
-              (previous.messages.isEmpty ? null : previous.messages.first),
+                (previous.messages.isEmpty ? null : previous.messages.first),
       'tools_changed': previous == null ? null : previous.toolBody != toolBody,
       'changed_tool_names': previous == null
           ? null
@@ -129,8 +165,9 @@ class ChatCacheDiagnostics {
               for (final name in names)
                 if (previous.tools[name] != tools[name]) name,
             ],
-      'request_settings_changed':
-          previous == null ? null : previous.settings != jsonEncode(settings),
+      'request_settings_changed': previous == null
+          ? null
+          : previous.settings != jsonEncode(settings),
       'snapshot_retained': body.length <= maxSnapshotChars && maxEntries > 0,
       'note': '比较实际发送的全部消息与工具；字符数不是缓存 token。相同前缀不保证上游缓存命中。',
     };
@@ -138,19 +175,38 @@ class ChatCacheDiagnostics {
       while (_snapshots.length >= maxEntries) {
         _snapshots.remove(_snapshots.keys.first);
       }
-      _snapshots[scope] = _RequestSnapshot(requestId, now, messages, roles,
-          messageBody, toolBody, tools, jsonEncode(settings));
+      _snapshots[scope] = _RequestSnapshot(
+        requestId,
+        now,
+        messages,
+        roles,
+        messageBody,
+        toolBody,
+        tools,
+        jsonEncode(settings),
+        messageContents,
+      );
     }
     return report;
   }
 }
 
 class _RequestSnapshot {
-  const _RequestSnapshot(this.requestId, this.at, this.messages, this.roles,
-      this.messageBody, this.toolBody, this.tools, this.settings);
+  const _RequestSnapshot(
+    this.requestId,
+    this.at,
+    this.messages,
+    this.roles,
+    this.messageBody,
+    this.toolBody,
+    this.tools,
+    this.settings,
+    this.messageContents,
+  );
   final String requestId;
   final DateTime at;
   final List<String> messages;
+  final List<String> messageContents;
   final List<String?> roles;
   final String messageBody;
   final String toolBody;
@@ -160,8 +216,8 @@ class _RequestSnapshot {
 
 /// Public response identity only; never collect arbitrary response headers.
 Map<String, dynamic> cacheResponseMetadata(Map response) => {
-      if (response['id'] != null) 'response_id': response['id'],
-      if (response['model'] != null) 'returned_model': response['model'],
-      if (response['system_fingerprint'] != null)
-        'system_fingerprint': response['system_fingerprint'],
-    };
+  if (response['id'] != null) 'response_id': response['id'],
+  if (response['model'] != null) 'returned_model': response['model'],
+  if (response['system_fingerprint'] != null)
+    'system_fingerprint': response['system_fingerprint'],
+};

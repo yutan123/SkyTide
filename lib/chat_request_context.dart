@@ -79,32 +79,68 @@ int? cachedPromptTokens(Map usage) {
   return value is num ? value.toInt() : null;
 }
 
-/// Prepare Chat Completions messages without Anthropic-specific cache controls.
-/// Supported GPT models can mark the end of the fixed initial system prompt.
+/// Marks up to four OpenAI cache boundaries: the fixed instructions and the
+/// latest reusable user turns, before any per-request context.
+List<int> gptChatCacheBreakpoints(
+  List<Map<String, dynamic>> messages, {
+  required int stableHistoryEnd,
+}) {
+  bool canMark(int index) {
+    final content = messages[index]['content'];
+    return content is String && content.trim().isNotEmpty;
+  }
+
+  if (messages.isEmpty) return const [];
+  final history = <int>[];
+  for (var i = stableHistoryEnd - 1; i > 0 && history.length < 3; i--) {
+    final role = messages[i]['role'];
+    final endsTurn =
+        i == stableHistoryEnd - 1 || messages[i + 1]['role'] == 'user';
+    if (endsTurn && (role == 'user' || role == 'assistant') && canMark(i)) {
+      history.add(i);
+    }
+  }
+  return [
+    if (messages.first['role'] == 'system' && canMark(0)) 0,
+    ...history.reversed,
+  ];
+}
+
+/// Prepares Chat Completions messages without Anthropic-specific controls.
 List<Map<String, dynamic>> prepareOpenAIChatCompletionMessages(
   List<Map<String, dynamic>> messages, {
   bool markFixedPrefix = false,
+  List<int> breakpoints = const [],
 }) {
-  final prepared = [
-    for (final message in messages)
-      Map<String, dynamic>.from(message)..remove('cache_control'),
+  final indices = {
+    ...breakpoints,
+    if (markFixedPrefix &&
+        messages.isNotEmpty &&
+        messages.first['role'] == 'system')
+      0,
+  };
+  return [
+    for (var i = 0; i < messages.length; i++)
+      Map<String, dynamic>.from(messages[i])
+        ..remove('cache_control')
+        ..updateAll((key, content) {
+          final role = messages[i]['role'];
+          if (key != 'content' ||
+              !indices.contains(i) ||
+              (role != 'system' && role != 'user' && role != 'assistant') ||
+              content is! String ||
+              content.trim().isEmpty) {
+            return content;
+          }
+          return [
+            {
+              'type': 'text',
+              'text': content,
+              'prompt_cache_breakpoint': {'mode': 'explicit'},
+            },
+          ];
+        }),
   ];
-  if (markFixedPrefix && prepared.isNotEmpty) {
-    final first = prepared.first;
-    final content = first['content'];
-    if (first['role'] == 'system' &&
-        content is String &&
-        content.trim().isNotEmpty) {
-      first['content'] = [
-        {
-          'type': 'text',
-          'text': content,
-          'prompt_cache_breakpoint': {'mode': 'explicit'},
-        },
-      ];
-    }
-  }
-  return prepared;
 }
 
 bool supportsGptChatCacheBreakpoint(String model) => RegExp(
@@ -114,6 +150,7 @@ bool supportsGptChatCacheBreakpoint(String model) => RegExp(
 bool rejectsGptChatCacheBreakpoint(String body) {
   final error = body.toLowerCase();
   return error.contains('prompt_cache_breakpoint') ||
+      error.contains('prompt_cache_options') ||
       (error.contains('messages') &&
           error.contains('content') &&
           error.contains('string') &&
