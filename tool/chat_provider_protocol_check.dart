@@ -34,13 +34,14 @@ Future<void> main() async {
         .containsKey('prompt_cache_key'),
     'custom cache isolation',
   );
+  const geminiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta';
   const gemini = NativeChatApi.gemini;
   const claude = NativeChatApi.claude;
   check(
     NativeChatApi.resolve({
           'preset_name': 'Gemini',
           'is_custom': true,
-        }, gemini.modelsUrl.toString()) ==
+        }, geminiBaseUrl) ==
         null,
     'custom Gemini isolation',
   );
@@ -118,9 +119,10 @@ Future<void> main() async {
   try {
     final response = await gemini.send(
       client,
-      http.Request('POST', gemini.modelsUrl)
+      http.Request('POST', Uri.parse(geminiBaseUrl))
         ..headers['Authorization'] = 'Bearer test'
         ..body = jsonEncode(payload),
+      baseUrl: geminiBaseUrl,
     );
     final (decoded, streamed) = await readToolCompletion(response.stream);
     final assistant = toolAssistantMessage(decoded['choices'].first['message']);

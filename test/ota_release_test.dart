@@ -21,15 +21,51 @@ void main() {
     };
   }
 
-  group('OtaReleasePicker', () {
-    test('strips v prefixes and build metadata', () {
+  group('OTA manifest', () {
+    final manifest = <String, dynamic>{
+      'versionCode': 7,
+      'versionName': '1.2.0',
+      'downloadUrl': 'https://example.com/share/123',
+      'releaseNotes': '更新说明',
+    };
+
+    test('compares build codes and accepts an HTTPS share page', () {
+      final release = OtaRelease.fromManifest(manifest)!;
+      expect(release.isNewerThan('1.2.0', '6'), isTrue);
+      expect(release.isNewerThan('1.0.0', '7'), isFalse);
+      expect(release.downloadUrl.path, '/share/123');
+      expect(release.releaseNotes, '更新说明');
+    });
+
+    test('recognizes no release without treating it as an error', () {
       expect(
-        OtaReleasePicker.versionOf({'tag_name': 'v1.0.2+3'}),
-        '1.0.2',
+        OtaRelease.fromManifest(<String, dynamic>{
+          'versionCode': null,
+          'versionName': null,
+          'downloadUrl': null,
+          'releaseNotes': '',
+        }),
+        isNull,
       );
     });
 
-    test('accepts only SkyTide.apk', () {
+    test('rejects invalid update links', () {
+      expect(
+        () => OtaRelease.fromManifest({
+          ...manifest,
+          'downloadUrl': 'file:///app.apk',
+        }),
+        throwsFormatException,
+      );
+    });
+  });
+
+  group('OtaReleasePicker', () {
+    test('strips v prefixes and build metadata', () {
+      expect(OtaReleasePicker.versionOf({'tag_name': 'v1.0.2+3'}), '1.0.2');
+    });
+
+    test('accepts current and legacy release APK names', () {
       final urls = OtaReleasePicker.apkUrls({
         'assets': [
           {
@@ -43,6 +79,20 @@ void main() {
         ],
       });
       expect(urls, ['https://example.com/SkyTide.apk']);
+      expect(
+        OtaReleasePicker.apkUrls(
+          release(
+            tag: 'v1.1.0',
+            assets: const [
+              {
+                'name': 'TideBot.apk',
+                'browser_download_url': 'https://example.com/TideBot.apk',
+              },
+            ],
+          ),
+        ),
+        ['https://example.com/TideBot.apk'],
+      );
     });
 
     test('skips drafts, prereleases and releases without apk', () {

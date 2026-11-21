@@ -442,6 +442,22 @@ class MainActivity: FlutterActivity() {
                     startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                     result.success(null)
                 }
+                "openUpdateInBrowser" -> {
+                    val uri = call.argument<String>("url")?.let { Uri.parse(it) }
+                    if (uri == null || uri.scheme != "https" || uri.host.isNullOrBlank()) {
+                        result.error("invalid_url", "无效的更新地址", null)
+                    } else {
+                        try {
+                            val browser = Intent(Intent.ACTION_VIEW, uri).apply {
+                                selector = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER)
+                            }
+                            startActivity(browser)
+                            result.success(null)
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            result.error("browser_unavailable", "无法打开浏览器", null)
+                        }
+                    }
+                }
                 "installApk" -> {
                     val path = call.argument<String>("path")
                     if (path.isNullOrBlank()) {

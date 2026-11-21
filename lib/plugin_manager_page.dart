@@ -439,7 +439,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                   if (sourceChanged)
                     Text(
                       previousRepository is String &&
-                              previousRepository != market?.repository
+                              previousRepository != market.repository
                           ? '更新仓库已变更。原记录：$previousRepository，请确认新来源。'
                           : '无法确认已安装版本的市场来源，请确认更新来源。',
                     ),
