@@ -63,6 +63,49 @@ String messageTimeContext(String content, Object? timestamp) {
       '${two(time.hour)}:${two(time.minute)}:${two(time.second)}]\n$content';
 }
 
+/// Annotates current and historical messages with the same wire representation.
+Map<String, dynamic> annotateChatMessage(
+  Map<String, dynamic> message,
+  Object? timestamp,
+) {
+  final content = message['content'];
+  return messageWithSpeaker({
+    ...message,
+    if (content is String) 'content': messageTimeContext(content, timestamp),
+    if (content is List)
+      'content': [
+        {'type': 'text', 'text': messageTimeContext('', timestamp)},
+        ...content,
+      ],
+  });
+}
+
+/// Returns the timestamp of the last persisted user row in the current batch.
+Object? savedUserBatchTimestamp(
+  List<Map<String, dynamic>> chronologicalRows,
+  Set<String> currentMessageIds,
+) {
+  if (currentMessageIds.isEmpty) return null;
+  for (final row in chronologicalRows.reversed) {
+    if (row['role'] == 'user' &&
+        currentMessageIds.contains(row['id']?.toString())) {
+      return row['timestamp'];
+    }
+  }
+  return null;
+}
+
+/// Keeps the current user message in the same position when it joins history.
+/// Turn-specific system messages retain their roles and order.
+void moveUserBeforeTurnContext(
+  List<Map<String, dynamic>> messages,
+  int historyEnd,
+) {
+  if (historyEnd < messages.length - 1 && messages.last['role'] == 'user') {
+    messages.insert(historyEnd, messages.removeLast());
+  }
+}
+
 String stickerModelContext({required String role, required String type}) {
   final actor = role == 'assistant' ? '你' : '对方';
   final label = type.trim().isEmpty ? '未分类' : type.trim();
@@ -71,7 +114,9 @@ String stickerModelContext({required String role, required String type}) {
 
 int? cachedPromptTokens(Map usage) {
   final details = usage['prompt_tokens_details'];
+  final inputDetails = usage['input_tokens_details'];
   final value =
+      (inputDetails is Map ? inputDetails['cached_tokens'] : null) ??
       (details is Map ? details['cached_tokens'] : null) ??
       usage['cached_tokens'] ??
       usage['prompt_cache_hit_tokens'] ??
@@ -79,83 +124,9 @@ int? cachedPromptTokens(Map usage) {
   return value is num ? value.toInt() : null;
 }
 
-/// Marks up to four OpenAI cache boundaries: the fixed instructions and the
-/// latest reusable user turns, before any per-request context.
-List<int> gptChatCacheBreakpoints(
-  List<Map<String, dynamic>> messages, {
-  required int stableHistoryEnd,
-}) {
-  bool canMark(int index) {
-    final content = messages[index]['content'];
-    return content is String && content.trim().isNotEmpty;
-  }
-
-  if (messages.isEmpty) return const [];
-  final history = <int>[];
-  for (var i = stableHistoryEnd - 1; i > 0 && history.length < 3; i--) {
-    final role = messages[i]['role'];
-    final endsTurn =
-        i == stableHistoryEnd - 1 || messages[i + 1]['role'] == 'user';
-    if (endsTurn && (role == 'user' || role == 'assistant') && canMark(i)) {
-      history.add(i);
-    }
-  }
-  return [
-    if (messages.first['role'] == 'system' && canMark(0)) 0,
-    ...history.reversed,
-  ];
-}
-
-/// Prepares Chat Completions messages without Anthropic-specific controls.
 List<Map<String, dynamic>> prepareOpenAIChatCompletionMessages(
-  List<Map<String, dynamic>> messages, {
-  bool markFixedPrefix = false,
-  List<int> breakpoints = const [],
-}) {
-  final indices = {
-    ...breakpoints,
-    if (markFixedPrefix &&
-        messages.isNotEmpty &&
-        messages.first['role'] == 'system')
-      0,
-  };
-  return [
-    for (var i = 0; i < messages.length; i++)
-      Map<String, dynamic>.from(messages[i])
-        ..remove('cache_control')
-        ..updateAll((key, content) {
-          final role = messages[i]['role'];
-          if (key != 'content' ||
-              !indices.contains(i) ||
-              (role != 'system' && role != 'user' && role != 'assistant') ||
-              content is! String ||
-              content.trim().isEmpty) {
-            return content;
-          }
-          return [
-            {
-              'type': 'text',
-              'text': content,
-              'prompt_cache_breakpoint': {'mode': 'explicit'},
-            },
-          ];
-        }),
-  ];
-}
-
-bool supportsGptChatCacheBreakpoint(String model) => RegExp(
-  r'^gpt-(?:5\.(?:[6-9]|[1-9][0-9]+)|(?:[6-9]|[1-9][0-9]+)(?:\.[0-9]+)?)(?:-[a-z0-9]+)*$',
-).hasMatch(model.trim().toLowerCase());
-
-bool rejectsGptChatCacheBreakpoint(String body) {
-  final error = body.toLowerCase();
-  return error.contains('prompt_cache_breakpoint') ||
-      error.contains('prompt_cache_options') ||
-      (error.contains('messages') &&
-          error.contains('content') &&
-          error.contains('string') &&
-          (error.contains('array') || error.contains('list')));
-}
+  List<Map<String, dynamic>> messages,
+) => [for (final message in messages) Map.of(message)..remove('cache_control')];
 
 String memoryRecordedTime(Map<String, dynamic> memory) {
   final stamp = memory['timestamp'] ?? memory['created_at'];

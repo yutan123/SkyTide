@@ -42,13 +42,7 @@ enum ChatProviderCache {
 
   Map<String, dynamic> requestOptions(String scope, {required bool stream}) {
     return {
-      if (this == gpt)
-        'prompt_cache_key': sha256.convert(utf8.encode(scope)).toString(),
-      if (stream &&
-          (this == compatible ||
-              this == gpt ||
-              this == grok ||
-              this == dashScope))
+      if (stream && (this == compatible || this == grok || this == dashScope))
         'stream_options': {'include_usage': true},
     };
   }
@@ -57,12 +51,16 @@ enum ChatProviderCache {
     int? tokens(Object? value) => value is int && value >= 0 ? value : null;
     final details = usage['prompt_tokens_details'];
     final standard = details is Map ? tokens(details['cached_tokens']) : null;
+    final inputDetails = usage['input_tokens_details'];
+    final responses = inputDetails is Map
+        ? tokens(inputDetails['cached_tokens'])
+        : null;
     final hit = switch (this) {
       deepSeek => tokens(usage['prompt_cache_hit_tokens']),
       kimi => standard ?? tokens(usage['cached_tokens']),
       miniMax => standard ?? tokens(usage['cache_read_input_tokens']),
+      gpt => responses ?? standard ?? tokens(usage['cached_tokens']),
       compatible ||
-      gpt ||
       grok ||
       claude ||
       gemini ||
@@ -71,14 +69,18 @@ enum ChatProviderCache {
       siliconFlow ||
       gitee => standard,
     };
-    final total = tokens(usage['prompt_tokens']);
+    final total =
+        tokens(usage['prompt_tokens']) ?? tokens(usage['input_tokens']);
     return (
       hit: hit,
       miss: this == deepSeek
           ? tokens(usage['prompt_cache_miss_tokens'])
           : (total != null && hit != null && hit <= total ? total - hit : null),
-      written: this == gpt && details is Map
-          ? tokens(details['cache_write_tokens'])
+      written: this == gpt
+          ? (inputDetails is Map
+                    ? tokens(inputDetails['cache_write_tokens'])
+                    : null) ??
+                (details is Map ? tokens(details['cache_write_tokens']) : null)
           : this == miniMax || this == claude
           ? tokens(usage['cache_creation_input_tokens'])
           : null,

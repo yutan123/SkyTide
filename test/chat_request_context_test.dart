@@ -114,34 +114,4 @@ void main() {
     expect(messages.first.containsKey('cache_control'), isTrue);
     expect(prepared.last, {'role': 'user', 'content': 'hello'});
   });
-
-  test('OpenAI breakpoints follow stable turns, not the dynamic tail', () {
-    final messages = <Map<String, dynamic>>[
-      {'role': 'system', 'content': 'fixed'},
-      for (var turn = 0; turn < 4; turn++) ...[
-        {'role': 'user', 'content': 'question $turn'},
-        {'role': 'assistant', 'content': 'answer $turn part 1'},
-        {'role': 'assistant', 'content': 'answer $turn part 2'},
-      ],
-      {'role': 'system', 'content': 'dynamic'},
-      {'role': 'user', 'content': 'current'},
-    ];
-    final previous = gptChatCacheBreakpoints(messages, stableHistoryEnd: 10);
-    final current = gptChatCacheBreakpoints(messages, stableHistoryEnd: 13);
-    expect(previous, [0, 3, 6, 9]);
-    expect(current, [0, 6, 9, 12]);
-    final prepared = prepareOpenAIChatCompletionMessages(
-      messages,
-      breakpoints: current,
-    );
-    expect(prepared[9]['content'], [
-      {
-        'type': 'text',
-        'text': 'answer 2 part 2',
-        'prompt_cache_breakpoint': {'mode': 'explicit'},
-      },
-    ]);
-    expect(prepared.skip(13), messages.skip(13));
-    expect(messages[9]['content'], 'answer 2 part 2');
-  });
 }

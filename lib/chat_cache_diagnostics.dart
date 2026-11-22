@@ -80,27 +80,29 @@ class ChatCacheDiagnostics {
   }) {
     final now = at ?? DateTime.now();
     final previous = _snapshots.remove(scope);
-    final messages = (payload['messages'] as List? ?? const [])
-        .map((m) => jsonEncode(m))
-        .toList();
-    final messageContents = (payload['messages'] as List? ?? const [])
-        .map(_messageContentDigest)
-        .toList();
-    final roles = (payload['messages'] as List? ?? const [])
+    final wireInput = payload['input'] ?? payload['messages'];
+    final input = wireInput as List? ?? const [];
+    final messages = input.map((m) => jsonEncode(m)).toList();
+    final messageContents = input.map(_messageContentDigest).toList();
+    final roles = input
         .map((m) => m is Map ? m['role']?.toString() : null)
         .toList();
     final tools = <String, String>{};
     for (final tool in (payload['tools'] as List? ?? const [])) {
       if (tool is Map) {
-        final name = (tool['function'] as Map?)?['name']?.toString() ?? '';
+        final function = tool['function'];
+        final name =
+            (function is Map ? function['name'] : tool['name'])?.toString() ??
+            '';
         tools[name] = _digest(jsonEncode(tool));
       }
     }
     final settings = Map<String, dynamic>.from(payload)
       ..remove('messages')
+      ..remove('input')
       ..remove('tools');
     final body = jsonEncode(payload);
-    final messageBody = jsonEncode(payload['messages']);
+    final messageBody = jsonEncode(wireInput);
     final toolBody = jsonEncode(payload['tools']);
     var commonMessages = 0;
     if (previous != null) {
@@ -137,7 +139,7 @@ class ChatCacheDiagnostics {
       'message_count': messages.length,
       'system_message_indices': [
         for (var i = 0; i < roles.length; i++)
-          if (roles[i] == 'system') i,
+          if (roles[i] == 'system' || roles[i] == 'developer') i,
       ],
       'common_full_messages': previous == null ? null : commonMessages,
       'common_messages_ignoring_breakpoints': previous == null

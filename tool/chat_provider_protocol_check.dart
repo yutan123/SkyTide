@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:skytide/chat_provider_cache.dart';
+import 'package:skytide/chat_gpt_responses.dart';
 import 'package:skytide/native_chat_api.dart';
 import 'package:skytide/tool_completion.dart';
 
@@ -22,18 +23,9 @@ Future<void> main() async {
     'base_url': url,
     'is_custom': true,
   });
-  check(
-    official
-        .requestOptions('scope', stream: true)
-        .containsKey('prompt_cache_key'),
-    'official cache key',
-  );
-  check(
-    !custom
-        .requestOptions('scope', stream: true)
-        .containsKey('prompt_cache_key'),
-    'custom cache isolation',
-  );
+  check(official == ChatProviderCache.gpt, 'ChatGPT preset routing');
+  check(custom == ChatProviderCache.compatible, 'custom cache isolation');
+  await checkResponses();
   const geminiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta';
   const gemini = NativeChatApi.gemini;
   const claude = NativeChatApi.claude;
@@ -159,4 +151,191 @@ Future<void> main() async {
     client.close();
   }
   print('Provider protocol checks passed');
+}
+
+Future<void> checkResponses() async {
+  const root = 'https://gateway.example/proxy/v1';
+  final endpoint = ChatGptResponses.endpoint('$root/chat/completions');
+  check(endpoint.toString() == '$root/responses', 'Responses endpoint');
+  check(
+    ChatGptResponses.endpoint('$root/responses/') == endpoint,
+    'full Responses endpoint',
+  );
+  final adapter = ChatGptResponses('bot/provider/model');
+  final chat = <String, dynamic>{
+    'model': 'gpt-test',
+    'messages': [
+      {'role': 'system', 'content': 'fixed instructions'},
+      {'role': 'user', 'content': 'history'},
+      {'role': 'system', 'content': 'dynamic clock'},
+      {'role': 'user', 'content': 'question'},
+    ],
+    'tools': [
+      {
+        'type': 'function',
+        'function': {
+          'name': 'lookup',
+          'parameters': {'type': 'object'},
+        },
+      },
+    ],
+    'tool_choice': 'auto',
+    'reasoning_effort': 'high',
+    'max_completion_tokens': 512,
+    'stream': true,
+    'stream_options': {'include_usage': true},
+    'prompt_cache_options': {'mode': 'explicit'},
+  };
+  final initial = adapter.payload(chat);
+  final next = ChatGptResponses('bot/provider/model').payload({
+    ...chat,
+    'messages': [
+      ...chat['messages'].take(2),
+      {'role': 'user', 'content': 'question'},
+      {'role': 'assistant', 'content': 'answer'},
+      {'role': 'system', 'content': 'new clock'},
+      {'role': 'user', 'content': 'next question'},
+    ],
+  });
+  check(
+    initial['prompt_cache_key'] == next['prompt_cache_key'],
+    'stable cross-turn routing key',
+  );
+  for (var i = 0; i < 2; i++) {
+    check(
+      jsonEncode(initial['input'][i]) == jsonEncode(next['input'][i]),
+      'stable wire prefix $i',
+    );
+  }
+  const metering = {
+    'input_tokens': 1200,
+    'input_tokens_details': {'cached_tokens': 1024},
+    'output_tokens': 12,
+  };
+  final client = MockClient((request) async {
+    check(request.url == endpoint, 'Responses HTTP URL');
+    final body = jsonDecode(request.body) as Map;
+    check(
+      !body.containsKey('messages') &&
+          !body.containsKey('stream_options') &&
+          !jsonEncode(body).contains('prompt_cache_options') &&
+          !jsonEncode(body).contains('prompt_cache_breakpoint'),
+      'no unsupported cache parameters',
+    );
+    check(
+      body['input'][0]['role'] == 'developer' &&
+          body['input'][0]['content'][0]['type'] == 'input_text',
+      'developer input',
+    );
+    check(
+      body['tools'][0]['name'] == 'lookup' &&
+          body['reasoning']['effort'] == 'high' &&
+          body['max_output_tokens'] == 512,
+      'tool and reasoning schema',
+    );
+    final continuation = body['stream'] != true;
+    if (continuation) {
+      final input = body['input'] as List;
+      check(
+        input.any((item) => item['encrypted_content'] == 'encrypted'),
+        'stateless reasoning replay',
+      );
+      check(
+        input[input.length - 2]['call_id'] == 'call_1' &&
+            input.last['type'] == 'function_call_output' &&
+            input.last['call_id'] == 'call_1',
+        'paired tool callback',
+      );
+      check(
+        body['prompt_cache_key'] == initial['prompt_cache_key'],
+        'same tool continuation cache key',
+      );
+    }
+    final result = {
+      'status': 'completed',
+      'usage': metering,
+      'output': continuation
+          ? [
+              {
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': '完成'},
+                ],
+              },
+            ]
+          : [
+              {
+                'type': 'reasoning',
+                'id': 'rs_1',
+                'encrypted_content': 'encrypted',
+                'summary': [],
+              },
+              {
+                'type': 'function_call',
+                'id': 'fc_1',
+                'call_id': 'call_1',
+                'name': 'lookup',
+                'arguments': '{}',
+              },
+            ],
+    };
+    return continuation
+        ? http.Response(
+            jsonEncode(result),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          )
+        : http.Response(
+            'data: ${jsonEncode({'type': 'response.completed', 'response': result})}\n\n',
+            200,
+            headers: {'content-type': 'text/event-stream'},
+          );
+  });
+  Future<(Map<String, dynamic>, bool)> send(
+    Map<String, dynamic> payload,
+  ) async {
+    final request = http.Request('POST', endpoint)..body = jsonEncode(payload);
+    final result = await adapter.send(client, request);
+    return readToolCompletion(result.stream);
+  }
+
+  try {
+    final (first, streamed) = await send(initial);
+    final message = first['choices'][0]['message'] as Map;
+    check(
+      streamed && message['tool_calls'][0]['id'] == 'call_1',
+      'SSE tool event',
+    );
+    const cache = ChatProviderCache.gpt;
+    check(
+      cache.usage(first['usage']).hit == 1024 &&
+          cache.usage(first['usage']).miss == 176,
+      'Responses cache metering',
+    );
+    check(
+      cache.usage({
+                'input_tokens_details': {'cached_tokens': 0},
+              }).hit ==
+              0 &&
+          cache.usage({}).hit == null,
+      'explicit zero differs from missing usage',
+    );
+    final (last, finalStream) = await send(
+      adapter.payload({
+        ...chat,
+        'stream': false,
+        'messages': [
+          ...chat['messages'],
+          toolAssistantMessage(message),
+          {'role': 'tool', 'tool_call_id': 'call_1', 'content': 'tool result'},
+        ],
+      }),
+    );
+    check(
+      !finalStream && last['choices'][0]['message']['content'] == '完成',
+      'JSON response',
+    );
+  } finally {
+    client.close();
+  }
 }

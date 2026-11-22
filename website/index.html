@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="在自己的手机上，建立有记忆、有日常的 AI 陪伴。">
+  <title>SkyTide · 本地优先的 AI 陪伴</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --transition: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      background: radial-gradient(ellipse at top, #e0f7f5, #d4f5f1 30%, #a3e9dd 60%, #5eead4 80%, #2dd4bf);
+      background-attachment: fixed;
+      color: #ffffff;
+      line-height: 1.6;
+      font-size: 16px;
+      min-height: 100vh;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+      transition: opacity var(--transition);
+    }
+
+    a:hover {
+      opacity: 0.7;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    /* Header */
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 0.75rem 1.5rem;
+      transition: all var(--transition);
+    }
+
+    header.scrolled {
+      padding: 0.5rem 1.5rem;
+    }
+
+    nav {
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(40px) saturate(180%);
+      -webkit-backdrop-filter: blur(40px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 1.25rem;
+      padding: 0.7rem 1.2rem;
+      transition: all var(--transition);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+    }
+
+    header.scrolled nav {
+      padding: 0.6rem 1.2rem;
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .logo img {
+      width: 30px;
+      height: 30px;
+      border-radius: 0.6rem;
+    }
+
+    nav ul {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    nav a {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .btn-download {
+      background: linear-gradient(135deg, #ffffff, #e0f7f5);
+      color: #0d9488;
+      padding: 0.6rem 1.2rem;
+      border-radius: 0.7rem;
+      font-weight: 600;
+      font-size: 0.9rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .btn-download:hover {
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+      transform: translateY(-1px);
+    }
+
+    @media (max-width: 768px) {
+      nav ul {
+        display: none;
+      }
+
+      .logo {
+        font-size: 1rem;
+      }
+
+      .logo img {
+        width: 28px;
+        height: 28px;
+      }
+    }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 7rem 1.5rem 4rem;
+      gap: 2rem;
+    }
+
+    .hero h1 {
+      font-size: 3.5rem;
+      line-height: 1.12;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    .hero p {
+      font-size: 1.2rem;
+      color: rgba(255, 255, 255, 0.85);
+      max-width: 520px;
+      margin: 0 auto;
+      line-height: 1.6;
+      font-weight: 400;
+    }
+
+    .hero-cta {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-top: 1.5rem;
+    }
+
+    .btn {
+      padding: 0.95rem 1.8rem;
+      border-radius: 0.75rem;
+      font-size: 1rem;
+      font-weight: 600;
+      transition: all var(--transition);
+      cursor: pointer;
+      border: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #ffffff, #e0f7f5);
+      color: #0d9488;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(20px);
+      border: 1.5px solid rgba(255, 255, 255, 0.3);
+      color: #ffffff;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.2);
+      transform: translateY(-2px);
+    }
+
+    @media (max-width: 768px) {
+      .hero {
+        padding-top: 6rem;
+      }
+
+      .hero h1 {
+        font-size: 2.5rem;
+      }
+
+      .hero p {
+        font-size: 1.1rem;
+      }
+
+      .hero-cta {
+        flex-direction: column;
+        width: 100%;
+      }
+
+      .btn {
+        width: 100%;
+      }
+    }
+
+    /* Sections */
+    section {
+      padding: 5rem 1.5rem;
+    }
+
+    .section-title {
+      font-size: 2.5rem;
+      line-height: 1.2;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 3.5rem;
+      text-align: center;
+    }
+
+    /* Glass Cards */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(40px) saturate(180%);
+      -webkit-backdrop-filter: blur(40px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 1.5rem;
+      padding: 2.5rem;
+      transition: all var(--transition);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+    }
+
+    .glass-card:hover {
+      background: rgba(255, 255, 255, 0.18);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-6px);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.1);
+    }
+
+    .glass-card h3 {
+      font-size: 1.3rem;
+      margin-bottom: 0.9rem;
+      font-weight: 700;
+    }
+
+    .glass-card p {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 0.95rem;
+      line-height: 1.7;
+    }
+
+    /* Two Column */
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3rem;
+      align-items: center;
+    }
+
+    .content-text h2 {
+      font-size: 2.2rem;
+      line-height: 1.25;
+      margin-bottom: 1.5rem;
+      font-weight: 700;
+    }
+
+    .content-text p {
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      margin-bottom: 1.5rem;
+    }
+
+    .feature-list {
+      list-style: none;
+      margin-top: 2rem;
+    }
+
+    .feature-list li {
+      padding: 1rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.9);
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+
+    .feature-list li:last-child {
+      border-bottom: none;
+    }
+
+    .feature-list li::before {
+      content: '✓';
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+
+    @media (max-width: 1024px) {
+      .content-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .section-title {
+        font-size: 2rem;
+      }
+    }
+
+    /* Footer */
+    footer {
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 3.5rem 1.5rem;
+      margin-top: 4rem;
+    }
+
+    .footer-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 2rem;
+      margin-bottom: 2rem;
+    }
+
+    .footer-section h4 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .footer-section ul {
+      list-style: none;
+    }
+
+    .footer-section li {
+      margin-bottom: 0.75rem;
+    }
+
+    .footer-section a {
+      color: rgba(255, 255, 255, 0.75);
+      font-size: 0.9rem;
+    }
+
+    .footer-bottom {
+      max-width: 1200px;
+      margin: 0 auto;
+      border-top: 1px solid rgba(255, 255, 255, 0.15);
+      padding-top: 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 768px) {
+      .footer-bottom {
+        flex-direction: column;
+        text-align: center;
+        gap: 1rem;
+      }
+    }
+
+    body {
+      color: #152d25;
+      background: linear-gradient(180deg, #e2f3e9 0, #d1eadd 52svh, #edf6ef 112svh, #edf6ef 100%);
+      background-repeat: no-repeat;
+    }
+    header {top:12px; padding:0 16px; pointer-events:none;}
+    nav {pointer-events:auto; max-width:760px; min-height:54px; padding:5px 7px 5px 12px; border-radius:999px; gap:12px;}
+    nav,.glass-card,.btn-secondary {background:linear-gradient(145deg,#ffffffa8,#f6fff444); border:1px solid #ffffffc9; box-shadow:inset 0 1px 0 #fff,0 10px 28px #254e331a; -webkit-backdrop-filter:blur(18px) saturate(125%); backdrop-filter:blur(18px) saturate(125%);}
+    nav a,.hero p,.glass-card p,.content-text p,.feature-list li,.footer-section a,.footer-bottom {color:#325448;}
+    .logo img {display:block;border-radius:9px;}
+    .btn-download {font-family:inherit; font-size:.875rem; font-weight:600; border:0; border-radius:999px; min-height:42px; padding:0 16px; white-space:nowrap; background:#d1e9db; color:#355a49; box-shadow:none;}
+    .btn-download:hover {transform:none;box-shadow:none;}
+    .hero {min-height:100svh; gap:1.25rem;}
+    .hero h1 {font-size:clamp(44px,8vw,106px); line-height:1.06; letter-spacing:-.045em;}
+    .hero p {max-width:32ch; margin:0 auto;}
+    .hero-cta {margin-top:.5rem; flex-flow:row wrap; width:auto; gap:10px;}
+    .btn-secondary,.btn-secondary:hover {width:auto; border-radius:999px; color:#183a2b;}
+    .glass-card:hover {background:linear-gradient(145deg,#ffffffbe,#f6fff466); transform:translateY(-2px);}
+    .feature-grid {grid-template-columns:repeat(auto-fit,minmax(min(100%,248px),1fr));}
+    .feature-list li {display:block; border-color:#254e3326;}
+    .feature-list li::before {content:none;}
+    .glass-card strong {color:#152d25!important;}
+    section[id] {scroll-margin-top:80px;}
+    :focus-visible {outline:2px solid #245a40;outline-offset:4px;}
+    @supports (animation-timeline:scroll()) {
+      header:not(:focus-within) {animation:retract linear both; animation-timeline:scroll(root block);animation-range:70px 155px;}
+      @keyframes retract {to {transform:translateY(-85px);visibility:hidden;}}
+    }
+    @media(max-width:768px) {
+      .hero {align-items:flex-start;text-align:left;padding-inline:24px;min-height:83svh;}
+      .hero h1,.hero p {margin-inline:0;}
+      section {padding-inline:0;}
+      .glass-card {padding:1.35rem;}
+    }
+    @media(prefers-reduced-motion:reduce) {html{scroll-behavior:auto;} *,*::before,*::after{transition:none!important;animation:none!important;}}
+    nav,.glass-card {
+      border-color: #ffffff96;
+      box-shadow: inset 0 1px 0 #ffffff78, 0 5px 20px #254e330c;
+    }
+    .hero { min-height: 82svh; }
+    .hero-cta { align-items: center; gap: 18px; }
+    .hero-primary { width: auto; border-radius: 999px; background: #285b44; color: #fff; padding: .72rem 1.2rem; }
+    .hero-primary:hover { opacity: 1; background: #214d3a; }
+    .hero-link { color: #285b44; text-underline-offset: .25em; }
+    .hero-link:hover,.chapter-next:hover { opacity: 1; text-decoration: underline; }
+    .chapter-intro { color: #325448; margin: 0 auto 1.7rem; text-align: center; }
+    #features .section-title { margin-bottom: .55rem; }
+    .feature-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
+    .feature-group { padding: clamp(1rem,2.4vw,2rem); }
+    .glass-card:hover { transform: none; box-shadow: inset 0 1px 0 #ffffff78, 0 5px 20px #254e330c; }
+    .feature-group dl > div { padding: .72rem 0; border-top: 1px solid #254e331b; }
+    .feature-group dt { font-weight: 650; }
+    .feature-group dd { color: #325448; font-size: .94rem; }
+    .chapter-next { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: clamp(1.75rem,4vw,3rem); border-top: 1px solid #254e3326; padding-top: .85rem; color: #285b44; font-size: .94rem; }
+    #features,#privacy,#start { padding-block: clamp(2.8rem,6vw,5rem); }
+    @media (max-width: 768px) {
+      .hero { min-height: 73svh; padding-bottom: 2rem; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .chapter-intro,#features .section-title { text-align: left; }
+    }
+    .hero-line { display: block; }
+    .story-beat { padding-block: clamp(3rem, 10vw, 8rem); }
+    .story-track { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(1rem, 4vw, 3rem); position: relative; padding-top: 1.5rem; }
+    .story-track::before { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: linear-gradient(90deg, #9cd4bc, #39775a); transform-origin: left; }
+    .story-track p { color: #325448; }
+    .story-track strong { display: block; color: #152d25; font-size: clamp(1.25rem, 3.6vw, 2.8rem); line-height: 1.24; margin-bottom: .5rem; }
+    @media (max-width: 600px) {
+      .story-track { grid-template-columns: 1fr; padding: 0 0 0 1.2rem; gap: 1.5rem; }
+      .story-track::before { inset: 0 auto 0 0; height: auto; width: 2px; background: linear-gradient(#9cd4bc, #39775a); transform-origin: top; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .hero-line,.hero > p,.hero-cta { animation: sky-arrive .85s cubic-bezier(.2,.7,.25,1) both; }
+      .hero-line + .hero-line { animation-delay: .12s; }
+      .hero > p { animation-delay: .24s; }
+      .hero-cta { animation-delay: .34s; }
+      @keyframes sky-arrive { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+      @keyframes sky-draw { from { scale: 0 1; } to { scale: 1; } }
+      @supports (animation-timeline: view()) and (animation-range: entry 0% cover 28%) {
+        .story-track { view-timeline-name: --story; }
+        .story-track::before { animation: sky-draw linear both; animation-timeline: --story; animation-range: entry 0% cover 42%; }
+        @keyframes chapter-rise {
+          from { opacity: 0; transform: translateY(40px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .story-track p,#features .section-title,.chapter-intro,.feature-group,#privacy .content-text,#privacy .glass-card,#start .section-title,#start .content-text,#start .glass-card,.chapter-next {
+          animation: chapter-rise linear both;
+          animation-timeline: view(block 0 42%);
+          animation-range: entry 0% entry 92%;
+        }
+        .chapter-next:focus-visible,.content-text:focus-within,.glass-card:focus-within { animation: none; }
+        @media (min-width: 769px) {
+          .feature-group:nth-child(2) { animation-range: entry 5% entry 96%; }
+          .feature-group:nth-child(3) { animation-range: entry 10% entry 100%; }
+        }
+        @media (max-width: 600px) {
+          @keyframes sky-draw { from { scale: 1 0; } to { scale: 1; } }
+        }
+      }
+    }
+  </style>
+</head>
+<body>
+  <header id="header">
+    <nav>
+      <div class="logo">
+        <img src="logo.png" alt="SkyTide">
+        <span>SkyTide</span>
+      </div>
+      <ul>
+        <li><a href="#features">功能</a></li>
+        <li><a href="#privacy">隐私</a></li>
+        <li><a href="#start">开始</a></li>
+      </ul>
+      <button type="button" class="btn-download" disabled title="下载入口暂未开放">下载</button>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <h1><span class="hero-line">有记忆的</span><span class="hero-line">AI 陪伴。</span></h1>
+    <p>为每个角色设定性格、声音和模型。从一条消息开始，把想留下的事写进记忆。</p>
+    <div class="hero-cta"><a class="btn hero-primary" href="#features">浏览功能</a><a class="hero-link" href="#start">安装指南</a></div>
+  </section>
+
+  <section class="story-beat" aria-label="一次对话如何延续">
+    <div class="container story-track">
+      <p><strong>先聊一句。</strong>给角色设定性格和声音，从你想聊的事开始。</p>
+      <p><strong>留下一段记忆。</strong>把值得记住的细节保存下来，也可以随时整理。</p>
+      <p><strong>下次接着聊。</strong>相关记忆可以带进新的对话，不必每次重头介绍。</p>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="container">
+      <h2 class="section-title">核心能力</h2>
+      <p class="chapter-intro">从角色和记忆开始，再按需要加入语音、图片和工具。</p>
+      <div class="feature-grid">
+        <article class="glass-card feature-group">
+          <h3>角色与日常</h3>
+          <dl>
+            <div><dt>多角色对话</dt><dd>创建不同性格的角色，每个拥有独立的记忆、设定和聊天记录</dd></div>
+            <div><dt>长期记忆</dt><dd>对话中的重要信息被持久保存，角色能精准参考过去的细节</dd></div>
+            <div><dt>日记与日程</dt><dd>用日记、生活日程和空间动态延续聊天之外的互动。</dd></div>
+          </dl>
+        </article>
+        <article class="glass-card feature-group">
+          <h3>语音与图像</h3>
+          <dl>
+            <div><dt>语音通话</dt><dd>支持语音识别与合成，实时对话摘要，通话记录随时查看</dd></div>
+            <div><dt>多模态输入</dt><dd>发送图片、音频、视频和文件，原生 OCR 和文档解析</dd></div>
+            <div><dt>生成与编辑</dt><dd>为角色生成参考图，编辑或重新渲染，视觉定制一触即达</dd></div>
+          </dl>
+        </article>
+        <article class="glass-card feature-group">
+          <h3>工具与扩展</h3>
+          <dl>
+            <div><dt>无限扩展</dt><dd>插件市场、技能包、MCP 服务——让角色能力不断升级</dd></div>
+          </dl>
+        </article>
+      </div>
+      <a class="chapter-next" href="#privacy">接下来：数据如何保存 <span aria-hidden="true">↓</span></a>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="container">
+      <div class="content-grid">
+        <div class="content-text">
+          <h2>本地优先，隐私第一</h2>
+          <p>角色设定、聊天记录和记忆保存在设备上。</p>
+          <ul class="feature-list">
+            <li>
+              <strong>数据完全属于你</strong><br>
+              可在设备上管理或删除应用数据
+            </li>
+            <li>
+              <strong>自主选择服务</strong><br>
+              支持 DeepSeek、OpenAI、本地模型等任意兼容 API
+            </li>
+            <li>
+              <strong>随时备份迁移</strong><br>
+              换设备前可导出完整备份，再在新设备上恢复。
+            </li>
+            <li>
+              <strong>开源透明</strong><br>
+              代码开放，任何人都可审计隐私实现
+            </li>
+          </ul>
+        </div>
+        <div class="glass-card">
+          <h3 style="margin-bottom: 1.5rem; font-size: 1.4rem;">你拥有全部数据</h3>
+          <p style="margin-bottom: 2rem;">调用远程模型、语音或图片服务时，完成请求所需的内容会发送给你配置的服务商。</p>
+          <div style="background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 1rem; padding: 1.5rem;">
+            <p style="font-size: 0.9rem; line-height: 1.7;">
+              对话记录 · 角色配置 · 长期记忆 · 日记与日程 · 个人设置<br>
+              <strong style="color: #ffffff;">全部存储在你的设备</strong>
+            </p>
+          </div>
+        </div>
+      </div>
+      <a class="chapter-next" href="#start">接下来：安装与配置 <span aria-hidden="true">↓</span></a>
+    </div>
+  </section>
+
+  <section id="start">
+    <div class="container">
+      <h2 class="section-title">快速开始</h2>
+      <div class="content-grid">
+        <div class="glass-card">
+          <h3 style="margin-bottom: 1.5rem; font-size: 1.3rem;">系统要求</h3>
+          <ul class="feature-list" style="margin-top: 0;">
+            <li style="border: none; padding: 0.7rem 0;">Android 8.0（API 26）或更高</li>
+            <li style="border: none; padding: 0.7rem 0;">至少 400 MB 可用空间</li>
+            <li style="border: none; padding: 0.7rem 0;">网络连接（调用 API 服务）</li>
+            <li style="border: none; padding: 0.7rem 0;">麦克风（语音功能）</li>
+            <li style="border: none; padding: 0.7rem 0;">相机（视频通话）</li>
+          </ul>
+        </div>
+        <div class="content-text">
+          <h3 style="margin-bottom: 1.5rem; font-size: 1.3rem;">1. 安装应用</h3>
+          <p>从 GitHub Releases 获取 APK，安装到你的 Android 设备</p>
+
+          <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.3rem;">2. 配置模型</h3>
+          <p>在设置中添加你的 AI 服务（DeepSeek、OpenAI 等），填写 API Key</p>
+
+          <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.3rem;">3. 创建角色</h3>
+          <p>起个名字、写点人设，选择使用的模型——开始聊天</p>
+
+          <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.3rem;">4. 按需扩展</h3>
+          <p>配置语音、图片服务；安装插件和技能；探索更多可能</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="footer-content">
+      <div class="footer-section">
+        <h4>项目</h4>
+        <ul>
+          <li><a href="https://github.com/yutan123/SkyTide">GitHub 主仓库</a></li>
+          <li><a href="https://github.com/yutan123/SkyTide/releases">版本下载</a></li>
+          <li><a href="https://github.com/yutan123/SkyTide-plugins">插件仓库</a></li>
+        </ul>
+      </div>
+      <div class="footer-section">
+        <h4>文档</h4>
+        <ul>
+          <li><a href="https://github.com/yutan123/SkyTide#开始使用">安装指南</a></li>
+          <li><a href="https://github.com/yutan123/SkyTide#功能概览">功能说明</a></li>
+          <li><a href="https://github.com/yutan123/SkyTide#常见问题">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="footer-section">
+        <h4>法律</h4>
+        <ul>
+          <li><a href="https://github.com/yutan123/SkyTide#版权与许可证">许可证 AGPL-3.0</a></li>
+          <li><a href="https://github.com/yutan123/SkyTide#隐私与数据">隐私政策</a></li>
+          <li><a href="https://github.com/yutan123/SkyTide/blob/main/THIRD_PARTY_NOTICES.md">第三方许可</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2025–2026 SkyTide. AGPL-3.0 License.</span>
+      <span>Made by yutan123</span>
+    </div>
+  </footer>
+
+</body>
+</html>

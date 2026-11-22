@@ -5,6 +5,8 @@ String chatApiBase(String configured) {
   var path = uri.path.replaceFirst(RegExp(r'/+$'), '');
   if (path.endsWith('/chat/completions')) {
     path = path.substring(0, path.length - '/chat/completions'.length);
+  } else if (path.endsWith('/responses')) {
+    path = path.substring(0, path.length - '/responses'.length);
   } else if (path.endsWith('/chat')) {
     path = path.substring(0, path.length - '/chat'.length);
   }

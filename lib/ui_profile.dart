@@ -1,5 +1,6 @@
 import 'builtin_generation_settings.dart';
 import 'chat_api_endpoint.dart';
+import 'chat_provider_cache.dart';
 import 'native_chat_api.dart';
 import 'reasoning_control.dart';
 import 'bot_avatar_crop_page.dart';
@@ -4164,6 +4165,8 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
               p['url']?.toString() ?? '',
               p['key']?.toString() ?? '',
               p['model']?.toString() ?? '',
+              useResponses:
+                  ChatProviderCache.resolve(p) == ChatProviderCache.gpt,
             )
           : await native.testConnection(
               p['key']?.toString() ?? '',

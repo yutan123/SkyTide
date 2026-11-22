@@ -63,6 +63,7 @@ import 'world_book_service.dart';
 import 'tool_call_accumulator.dart';
 import 'tool_completion.dart';
 import 'chat_request_context.dart';
+import 'chat_gpt_responses.dart';
 import 'chat_provider_cache.dart';
 import 'native_chat_api.dart';
 import 'chat_cache_diagnostics.dart';
@@ -197,6 +198,9 @@ class AIManager {
       'cache_creation_input_tokens':
           cache.written ?? usage['cache_creation_input_tokens'],
       'cache_reported': cache.hit != null,
+      'cache_hit_rate': cache.hit != null && prompt is num && prompt > 0
+          ? cache.hit! / prompt
+          : null,
     });
   }
 
@@ -766,8 +770,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       try {
         await cancellationToken?.checkRequestAllowed();
         final native = NativeChatApi.resolve(provider, baseUrl);
-        streamed = await (native?.send(client, request, baseUrl: baseUrl) ?? client.send(request))
-            .timeout(const Duration(seconds: 30));
+        streamed =
+            await (native?.send(client, request, baseUrl: baseUrl) ??
+                    client.send(request))
+                .timeout(const Duration(seconds: 30));
         response = await http.Response.fromStream(streamed);
         cancellationToken?.throwIfCancelled();
       } finally {
@@ -986,10 +992,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     final provider = await db.getChatProviderById(providerId);
     if (provider == null) return {'error': '映射的模型已被删除，请重新配置'};
     final cachePolicy = ChatProviderCache.resolve(provider);
-    final useOpenAIChatCache =
+    final useGptStableHistory =
         task == AIRequestTask.chat && cachePolicy == ChatProviderCache.gpt;
-    final keepProfileAfterHistory = useOpenAIChatCache ||
-        (task == AIRequestTask.chat && cachePolicy == ChatProviderCache.grok);
+    final useGrokStableHistory =
+        task == AIRequestTask.chat && cachePolicy == ChatProviderCache.grok;
+    final keepProfileAfterHistory = useGptStableHistory || useGrokStableHistory;
     var stableHistoryEnd = 0;
     print(
       '[ai] provider resolved id=$providerId name=${provider['name']} base=${provider['base_url']}',
@@ -1050,13 +1057,15 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       ];
     } else {
       final timeAware = (await db.getKV('time_awareness')) != 'false';
+      final savedHistory =
+          requestHistory ??
+          (includeChatHistory
+              ? await db
+                    .getChatHistory(botId)
+                    .timeout(const Duration(seconds: 8))
+              : <Map<String, dynamic>>[]);
       final history = historyBeforeCurrentBatch(
-        requestHistory ??
-            (includeChatHistory
-                ? await db
-                      .getChatHistory(botId)
-                      .timeout(const Duration(seconds: 8))
-                : <Map<String, dynamic>>[]),
+        savedHistory,
         currentMessageIds,
       );
       // 世界书统一管理所有记忆：特殊字段每轮固定注入，普通记忆由关键词匹配激活。
@@ -1375,11 +1384,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       }
       for (var index = 0; index < historyMessages.length; index++) {
         final message = historyMessages[index];
-        message['content'] = messageTimeContext(
-          message['content'].toString(),
-          message.remove('local_timestamp'),
-        );
-        historyMessages[index] = messageWithSpeaker(message);
+        final timestamp = message.remove('local_timestamp');
+        historyMessages[index] = annotateChatMessage(message, timestamp);
       }
       final windowKey =
           'chat_cache_window_v1_${botId}_${providerId}_$maxContext';
@@ -1417,6 +1423,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       currentHistoryMessage?.remove('id');
       final currentTimestamp =
           currentHistoryMessage?.remove('local_timestamp') ??
+          (useGrokStableHistory
+              ? savedUserBatchTimestamp(savedHistory, currentMessageIds)
+              : null) ??
           DateTime.now().millisecondsSinceEpoch;
       messages.addAll(historyMessages);
       stableHistoryEnd = messages.length;
@@ -1520,17 +1529,13 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           task != AIRequestTask.pluginReply &&
           messages.isNotEmpty &&
           messages.last['role'] == 'user') {
-        final current = messages.last;
-        final body = current['content'];
-        if (body is String) {
-          current['content'] = messageTimeContext(body, currentTimestamp);
-        } else if (body is List) {
-          body.insert(0, {
-            'type': 'text',
-            'text': messageTimeContext('', currentTimestamp),
-          });
+        messages[messages.length - 1] = annotateChatMessage(
+          messages.last,
+          currentTimestamp,
+        );
+        if (useGrokStableHistory) {
+          moveUserBeforeTurnContext(messages, stableHistoryEnd);
         }
-        messages[messages.length - 1] = messageWithSpeaker(current);
       }
       if (!isVoiceCall &&
           useJarvis &&
@@ -1614,24 +1619,19 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         cacheScope,
         stream: onDelta != null,
       );
-      var breakpoints = useOpenAIChatCache &&
-              supportsGptChatCacheBreakpoint(modelName)
-          ? gptChatCacheBreakpoints(messages, stableHistoryEnd: stableHistoryEnd)
-          : const <int>[];
-      if (useOpenAIChatCache) {
-        windowDiagnostic.addAll({
-          'stable_history_end_exclusive': stableHistoryEnd,
-          'explicit_breakpoint_message_indices': breakpoints,
-        });
+      final responses = cachePolicy == ChatProviderCache.gpt
+          ? ChatGptResponses(cacheScope)
+          : null;
+      final endpoint = responses == null
+          ? Uri.parse(chatApiEndpoint(baseUrl))
+          : ChatGptResponses.endpoint(baseUrl);
+      if (keepProfileAfterHistory) {
+        windowDiagnostic['stable_history_end_exclusive'] = stableHistoryEnd;
       }
-      final payload = prepareChatCompletionPayload({
+      final chatPayload = prepareChatCompletionPayload({
         ...cacheOptions,
-        if (breakpoints.isNotEmpty) 'prompt_cache_options': {'mode': 'explicit'},
         'model': modelName,
-        'messages': prepareOpenAIChatCompletionMessages(
-          messages,
-          breakpoints: breakpoints,
-        ),
+        'messages': prepareOpenAIChatCompletionMessages(messages),
         if (cachePolicy == ChatProviderCache.gpt)
           'max_completion_tokens': maxContext
         else
@@ -1648,6 +1648,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               : 'auto',
         if (onDelta != null) 'stream': true,
       });
+      final payload = responses?.payload(chatPayload) ?? chatPayload;
       _logRequestPrefix(
         '$cacheScope|initial',
         requestId,
@@ -1664,8 +1665,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       }
       // 过滤payload中的base64图片，避免日志过长
       final filteredPayload = Map<String, dynamic>.from(payload);
-      if (filteredPayload['messages'] is List) {
-        filteredPayload['messages'] = (filteredPayload['messages'] as List).map(
+      final inputField = responses == null ? 'messages' : 'input';
+      if (filteredPayload[inputField] is List) {
+        filteredPayload[inputField] = (filteredPayload[inputField] as List).map(
           (msg) {
             if (msg is! Map) return msg;
             final msgCopy = Map<String, dynamic>.from(msg);
@@ -1681,6 +1683,14 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                         true) {
                   partCopy['image_url'] = {'url': '[图片]'};
                 }
+                if (partCopy['type'] == 'input_image' &&
+                    partCopy['image_url']?.toString().startsWith('data:') ==
+                        true) {
+                  partCopy['image_url'] = '[图片]';
+                }
+                if (partCopy['type'] == 'input_audio') {
+                  partCopy['input_audio'] = '[音频]';
+                }
                 return partCopy;
               }).toList();
             }
@@ -1690,7 +1700,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       }
       AppLogService.instance.addJson('REQUEST', '发往模型提供商的完整请求（已脱敏）', {
         'request_id': requestId,
-        'url': '$baseUrl/chat/completions',
+        'url': endpoint.removeFragment().replace(query: '').toString(),
         'task': task.name,
         'requested_at': DateTime.now().toIso8601String(),
         'payload': filteredPayload,
@@ -1710,7 +1720,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final token = cancellationToken;
       final client = http.Client();
       responseClient = client;
-      final request = http.Request('POST', Uri.parse(chatApiEndpoint(baseUrl)))
+      final request = http.Request('POST', endpoint)
         ..headers.addAll({
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${provider['api_key']}',
@@ -1726,41 +1736,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       );
       final httpStarted = DateTime.now();
       await token?.checkRequestAllowed();
-      var streamedResponse =
-          await (nativeApi?.send(client, request, baseUrl: baseUrl) ??
+      final streamedResponse =
+          await (responses?.send(client, request) ??
+              nativeApi?.send(client, request, baseUrl: baseUrl) ??
               _sendCompatibleChat(client, request, cachePolicy));
-      if (breakpoints.isNotEmpty &&
-          (streamedResponse.statusCode == 400 ||
-              streamedResponse.statusCode == 422)) {
-        final rejected = await http.Response.fromStream(streamedResponse);
-        token?.throwIfCancelled();
-        if (rejectsGptChatCacheBreakpoint(rejected.body)) {
-          AppLogService.instance.addJson('CACHE', 'OpenAI 拒绝缓存断点，改用隐式缓存重试', {
-            'request_id': requestId,
-            'model': modelName,
-            'status_code': rejected.statusCode,
-          });
-          await token?.checkRequestAllowed();
-          breakpoints = const [];
-          final retryPayload = Map<String, dynamic>.of(payload)
-            ..remove('prompt_cache_options');
-          final retry = http.Request('POST', request.url)
-            ..headers.addAll(request.headers)
-            ..body = jsonEncode(
-              prepareChatCompletionPayload({
-                ...retryPayload,
-                'messages': prepareOpenAIChatCompletionMessages(messages),
-              }),
-            );
-          streamedResponse = await client.send(retry);
-        } else {
-          streamedResponse = http.StreamedResponse(
-            Stream.value(rejected.bodyBytes),
-            rejected.statusCode,
-            headers: rejected.headers,
-          );
-        }
-      }
       token?.throwIfCancelled();
       statusCode = streamedResponse.statusCode;
       responseMetadata.addAll({
@@ -1929,7 +1908,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             baseUrl: baseUrl,
             cachePolicy: cachePolicy,
             cacheScope: cacheScope,
-            cacheBreakpoints: breakpoints,
+            responses: responses,
+            reasoningEffort: chatPayload['reasoning_effort'] as String?,
             nativeApi: nativeApi,
             requestId: requestId,
             modelName: modelName,
@@ -2053,7 +2033,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               baseUrl: baseUrl,
               cachePolicy: cachePolicy,
               cacheScope: cacheScope,
-              cacheBreakpoints: breakpoints,
+              responses: responses,
+              reasoningEffort: chatPayload['reasoning_effort'] as String?,
               nativeApi: nativeApi,
               requestId: requestId,
               modelName: modelName,
@@ -2404,6 +2385,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           'success': true,
           'reply': replyText,
           'usage': {
+            if (responses != null) ...usage,
             'prompt_tokens': promptTokens,
             'completion_tokens': completionTokens,
             'total_tokens': totalTokens,
@@ -2770,7 +2752,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         late final http.Response response;
         try {
           response =
-              await (native?.send(client, request, baseUrl: baseUrl) ?? client.send(request))
+              await (native?.send(client, request, baseUrl: baseUrl) ??
+                      client.send(request))
                   .then(http.Response.fromStream)
                   .timeout(const Duration(seconds: 40));
         } finally {
@@ -2959,7 +2942,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               'Authorization': 'Bearer $apiKey',
             })
             ..body = jsonEncode(payload);
-          return (native?.send(client, request, baseUrl: baseUrl) ?? client.send(request))
+          return (native?.send(client, request, baseUrl: baseUrl) ??
+                  client.send(request))
               .then(http.Response.fromStream)
               .timeout(const Duration(seconds: 45));
         });
@@ -4108,7 +4092,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     required String baseUrl,
     required ChatProviderCache cachePolicy,
     required String cacheScope,
-    required List<int> cacheBreakpoints,
+    ChatGptResponses? responses,
+    String? reasoningEffort,
     NativeChatApi? nativeApi,
     required String requestId,
     required String modelName,
@@ -4253,19 +4238,21 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     // stops using tools. A hard limit prevents accidental infinite automation.
     for (var round = 0; round < 12; round++) {
       final followUpId = '${requestId}_tool_${round + 1}';
-      final followUpPayload = prepareChatCompletionPayload({
+      final chatPayload = prepareChatCompletionPayload({
         ...cachePolicy.requestOptions(cacheScope, stream: onDelta != null),
-        if (cacheBreakpoints.isNotEmpty) 'prompt_cache_options': {'mode': 'explicit'},
         'model': modelName,
-        'messages': prepareOpenAIChatCompletionMessages(messages, breakpoints: cacheBreakpoints),
+        'messages': prepareOpenAIChatCompletionMessages(messages),
         if (cachePolicy == ChatProviderCache.gpt)
           'max_completion_tokens': maxTokens
         else
           'max_tokens': maxTokens,
+        if (responses != null && reasoningEffort != null)
+          'reasoning_effort': reasoningEffort,
         if (requestTools.isNotEmpty) 'tools': requestTools,
         if (requestTools.isNotEmpty) 'tool_choice': 'auto',
         if (onDelta != null) 'stream': true,
       });
+      final followUpPayload = responses?.payload(chatPayload) ?? chatPayload;
       _logRequestPrefix(
         '$cacheScope|$requestId|tool_chain',
         followUpId,
@@ -4285,7 +4272,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         cancellationToken,
         (client) => (() async {
           final request =
-              http.Request('POST', Uri.parse(chatApiEndpoint(baseUrl)))
+              http.Request(
+                  'POST',
+                  responses == null
+                      ? Uri.parse(chatApiEndpoint(baseUrl))
+                      : ChatGptResponses.endpoint(baseUrl),
+                )
                 ..headers.addAll({
                   'Content-Type': 'application/json',
                   'Authorization': 'Bearer $apiKey',
@@ -4293,7 +4285,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                 })
                 ..body = jsonEncode(followUpPayload);
           final response =
-              await (nativeApi?.send(client, request, baseUrl: baseUrl) ??
+              await (responses?.send(client, request) ??
+                  nativeApi?.send(client, request, baseUrl: baseUrl) ??
                   _sendCompatibleChat(client, request, cachePolicy));
           if (response.statusCode != 200) {
             return (
@@ -6181,8 +6174,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
   Future<Map<String, dynamic>> testProviderCapabilities(
     String baseUrl,
     String apiKey,
-    String model,
-  ) async {
+    String model, {
+    bool useResponses = false,
+  }) async {
     final root = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     final modelName = model.split(',').first.trim();
     if (root.isEmpty || apiKey.trim().isEmpty || modelName.isEmpty) {
@@ -6215,17 +6209,30 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     String lastError = '';
     Future<bool> postJson(String path, Map<String, dynamic> body) async {
       try {
-        final response = await http
-            .post(
-              Uri.parse(
-                path == '/chat/completions'
-                    ? chatApiEndpoint(root)
-                    : '${chatApiBase(root)}$path',
-              ),
-              headers: headers,
-              body: jsonEncode(body),
-            )
-            .timeout(const Duration(seconds: 30));
+        final response = useResponses && path == '/chat/completions'
+            ? await _withCancellableClient(null, (client) async {
+                final adapter = ChatGptResponses('connectivity_probe');
+                final request =
+                    http.Request('POST', ChatGptResponses.endpoint(root))
+                      ..headers.addAll(headers)
+                      ..body = jsonEncode(
+                        adapter.payload({...body, 'max_tokens': 512}),
+                      );
+                return http.Response.fromStream(
+                  await adapter.send(client, request),
+                );
+              }).timeout(const Duration(seconds: 30))
+            : await http
+                  .post(
+                    Uri.parse(
+                      path == '/chat/completions'
+                          ? chatApiEndpoint(root)
+                          : '${chatApiBase(root)}$path',
+                    ),
+                    headers: headers,
+                    body: jsonEncode(body),
+                  )
+                  .timeout(const Duration(seconds: 30));
         final responseText = utf8.decode(
           response.bodyBytes,
           allowMalformed: true,

@@ -9,9 +9,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:path/path.dart' as p;
 
 import 'db.dart';
-import 'plugin_archive.dart';
 import 'plugin_package_files.dart';
-import 'package:crypto/crypto.dart';
 import 'plugin_config_dialog.dart';
 import 'plugin_config_resources.dart';
 import 'plugin_config_ui.dart';
@@ -60,7 +58,6 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     unawaited(PluginMarket.instance.refresh());
   }
 
-  final _marketSources = <String, Map<String, dynamic>>{};
   String _query = '';
   static const _marketPageSize = 20;
   final _marketScrollController = ScrollController(keepScrollOffset: false);
@@ -192,19 +189,16 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
             });
         },
       );
-      final reviewed = await _reviewPackage(
-        file.path,
-        updatingId: row == null ? null : plugin.id,
-        market: plugin,
-      );
-      if (reviewed == null) return;
       _operation!.check();
       if (row == null) {
-        await PluginSystem.instance.installZip(reviewed, operation: _operation);
+        await PluginSystem.instance.installZip(
+          file.path,
+          operation: _operation,
+        );
       } else {
         await PluginService.instance.updateZip(
           plugin.id,
-          reviewed,
+          file.path,
           operation: _operation,
         );
       }
@@ -214,7 +208,6 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       } else {
         _pendingMarketDetails = plugin;
       }
-      if (mounted) _notice(row == null ? '插件已安装，配置后可启用' : '插件已更新');
     } finally {
       if (mounted) setState(() => _downloadingId = null);
       await _cleanTemp();
@@ -247,16 +240,8 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
           }
         }
       }
-      final sources = <String, Map<String, dynamic>>{};
-      for (final row in rows) {
-        final source = await PluginMarket.instance.source(row['id'] as String);
-        if (source != null) sources[row['id'] as String] = source;
-      }
       if (!mounted) return;
       setState(() {
-        _marketSources
-          ..clear()
-          ..addAll(sources);
         if (_loading) {
           _plugins = [
             ...rows.where((row) => row['enabled'] == 1),
@@ -373,121 +358,11 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     }
   }
 
-  Future<String?> _reviewPackage(
-    String path, {
-    String? updatingId,
-    MarketPlugin? market,
-  }) async {
-    final file = File(path);
-    if (await file.length() > PluginArchive.maxCompressed) {
-      throw const FormatException('插件包超过 256 MiB 限制');
-    }
-    final bytes = await file.readAsBytes();
-    final manifest = PluginArchive.decode(bytes).manifest;
-    if (updatingId != null && manifest['id'] != updatingId) {
-      throw const FormatException('更新包的插件 ID 不匹配');
-    }
-    if (market != null) {
-      if (manifest['id'] != market.id ||
-          manifest['version'] != market.version) {
-        throw const FormatException('插件包与市场信息不匹配');
-      }
-    }
-    final previous = updatingId == null
-        ? null
-        : _packages[updatingId]?.manifest;
-    final previousSource = updatingId == null
-        ? null
-        : _marketSources[updatingId];
-    final previousRepository = previousSource?['repository'];
-    final sourceChanged =
-        market != null &&
-        updatingId != null &&
-        (previousRepository != market.repository ||
-            previousSource?['version'] != previous?['version']);
-    final permissions = (manifest['permissions'] as List? ?? []).cast<String>();
-    final origins = (manifest['networkOrigins'] as List? ?? []).cast<String>();
-    final endpoints = (manifest['networkEndpoints'] as List? ?? [])
-        .cast<String>();
-    final addedEndpoints = endpoints.where(
-      (v) => !(previous?['networkEndpoints'] as List? ?? []).contains(v),
-    );
-    final addedPermissions = permissions.where(
-      (value) => !(previous?['permissions'] as List? ?? []).contains(value),
-    );
-    final addedOrigins = origins.where(
-      (value) => !(previous?['networkOrigins'] as List? ?? []).contains(value),
-    );
-    if (!mounted) return null;
-    final approved =
-        await TideDialogs.show<bool>(
-          context: context,
-          builder: (ctx) => TideDialogSurface(
-            title: Text(updatingId == null ? '导入插件' : '更新插件'),
-            content: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('${manifest['name']}  ${manifest['version']}'),
-                  Text('作者：${manifest['author'] ?? '未填写'}'),
-                  Text(
-                    market == null
-                        ? '来源：本地导入文件'
-                        : '来源：插件市场 · ${market.repository}',
-                  ),
-                  if (sourceChanged)
-                    Text(
-                      previousRepository is String &&
-                              previousRepository != market.repository
-                          ? '更新仓库已变更。原记录：$previousRepository，请确认新来源。'
-                          : '无法确认已安装版本的市场来源，请确认更新来源。',
-                    ),
-                  if (market != null && market.changelog.isNotEmpty)
-                    Text('更新说明：${market.changelog}'),
-                  if (permissions.isNotEmpty)
-                    Text('权限：${permissions.join('、')}'),
-                  if (origins.isNotEmpty) Text('网络域名：${origins.join('、')}'),
-                  if (endpoints.isNotEmpty) Text('连接端点：${endpoints.join('、')}'),
-                  if (previous != null && addedEndpoints.isNotEmpty)
-                    Text('新增端点：${addedEndpoints.join('、')}'),
-                  if (previous != null && addedPermissions.isNotEmpty)
-                    Text('新增权限：${addedPermissions.join('、')}'),
-                  if (previous != null && addedOrigins.isNotEmpty)
-                    Text('新增域名：${addedOrigins.join('、')}'),
-                  const SizedBox(height: 12),
-                  SelectableText('SHA-256：${sha256.convert(bytes)}'),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('取消'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('继续'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    if (!approved || !mounted) return null;
-    _operation?.check();
-    final temporary = await Directory.systemTemp.createTemp('tide-reviewed-');
-    _tempDirs.add(temporary);
-    final snapshot = File(p.join(temporary.path, 'package.zip'));
-    await snapshot.writeAsBytes(bytes, flush: true);
-    return snapshot.path;
-  }
-
   Future<void> _install() async {
     try {
       final path = await _pickZip();
       if (path == null || !mounted) return;
       await PluginSystem.instance.installZip(path, operation: _operation);
-      if (mounted) _notice('插件已安装，默认关闭；配置完成后可启用');
     } finally {
       await _cleanTemp();
     }
@@ -501,7 +376,6 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       final id = row['id'] as String;
       await PluginService.instance.updateZip(id, path, operation: _operation);
       await PluginMarket.instance.clearSource(id);
-      if (mounted) _notice('插件已更新');
     } finally {
       await _cleanTemp();
     }
@@ -1050,10 +924,11 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   }) => _textDialog(
     plugin.name,
     [
-      '${plugin.author} · 版本:${plugin.version}',
+      '作者：${plugin.author} · 版本：${plugin.version}',
       plugin.description,
-      if (showChangelog && plugin.changelog.trim().isNotEmpty)
-        '更新说明\n${plugin.changelog}',
+      if (showChangelog) 'ID：${plugin.id}',
+      if (showChangelog)
+        '更新说明\n${plugin.changelog.trim().isEmpty ? '暂无更新说明' : plugin.changelog}',
     ].join('\n\n'),
     maxHeightFactor: _detailDialogMaxHeightFactor,
   );
