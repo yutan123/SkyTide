@@ -1,22 +1,12 @@
-import 'android_selection_menu.dart';
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'live_log_view.dart';
-
-import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
-import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'app_log_service.dart';
-import 'bot_state.dart';
 import 'db.dart';
 import 'device_capability_service.dart';
-import 'external_api_service.dart';
 import 'global_notice.dart';
 import 'log_session_detail_page.dart';
-import 'persistent_service_coordinator.dart';
 import 'theme.dart';
 import 'ui_components.dart';
 
@@ -31,18 +21,8 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
   bool _imageCompression = true;
   bool _audioCompression = true;
   bool _videoCompression = true;
-  bool _logging = AppLogService.instance.enabled;
   bool _haptics = false;
   bool _extraContext = false;
-  bool _operationProactive = false;
-  bool _externalApiEnabled = false;
-  String _externalApiPort = '6666';
-  String _externalApiKey = '';
-  String _externalApiBotId = '';
-  bool _externalApiSyncMessages = true;
-  List<String> _externalApiUrls = const [];
-  String _externalApiUrl = '';
-  List<Map<String, dynamic>> _bots = const [];
   final Map<String, String> _boundBotNames = {};
 
   @override
@@ -54,23 +34,18 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
   Future<void> _load() async {
     await TideHaptics.load();
     final prefs = await SharedPreferences.getInstance();
-    final enabled = AppLogService.instance.enabled;
     final capability = DeviceCapabilityService.instance;
     final bots = await DBManager().getAllBots();
     final db = DBManager();
     final botNames = <String, String>{};
-    for (final feature in const [
-      DeviceCapabilityService.contextFeature,
-      DeviceCapabilityService.proactiveFeature,
-    ]) {
-      final id = await capability.boundBot(feature);
-      if (id != null && id.isNotEmpty) {
-        final bot = bots.cast<Map<String, dynamic>>().firstWhere(
-          (item) => item['id']?.toString() == id,
-          orElse: () => const {},
-        );
-        botNames[feature] = bot['name']?.toString() ?? id;
-      }
+    const feature = DeviceCapabilityService.contextFeature;
+    final id = await capability.boundBot(feature);
+    if (id != null && id.isNotEmpty) {
+      final bot = bots.cast<Map<String, dynamic>>().firstWhere(
+        (item) => item['id']?.toString() == id,
+        orElse: () => const {},
+      );
+      botNames[feature] = bot['name']?.toString() ?? id;
     }
     final audioCompression =
         await db.getKV('audio_compression_enabled') != 'false';
@@ -78,36 +53,13 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
         await db.getKV('video_compression_enabled') != 'false';
     final imageCompression =
         await db.getKV('image_compression_enabled') != 'false';
-    final externalEnabled = await db.getKV('external_api_enabled') == 'true';
-    final externalPort = await db.getKV('external_api_port') ?? '6666';
-    final externalKey = await db.getKV('external_api_key') ?? '';
-    final externalBotId = await db.getKV('external_api_bot_id') ?? '';
-    final externalSync =
-        await db.getKV('external_api_sync_messages') != 'false';
-    final urls = await ExternalApiService.instance.baseUrls(
-      port: int.tryParse(externalPort),
-    );
-    final externalUrl = await ExternalApiService.instance.preferredBaseUrl(
-      port: int.tryParse(externalPort),
-    );
     if (mounted) {
       setState(() {
         _imageCompression = imageCompression;
         _audioCompression = audioCompression;
         _videoCompression = videoCompression;
-        _logging = enabled;
         _haptics = prefs.getBool('tide_haptics_enabled') ?? true;
         _extraContext = prefs.getBool('extra_context_enabled') ?? false;
-        _operationProactive =
-            prefs.getBool('operation_proactive_enabled') ?? false;
-        _externalApiEnabled = externalEnabled;
-        _externalApiPort = externalPort;
-        _externalApiKey = externalKey;
-        _externalApiBotId = externalBotId;
-        _externalApiSyncMessages = externalSync;
-        _externalApiUrls = urls;
-        _externalApiUrl = externalUrl;
-        _bots = bots.cast<Map<String, dynamic>>();
         _boundBotNames
           ..clear()
           ..addAll(botNames);
@@ -196,8 +148,6 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
             'notifications': '最近通知内容',
             'app_usage': '应用使用时长',
           }
-        : feature == DeviceCapabilityService.proactiveFeature
-        ? const {'new_notification': '收到新通知'}
         : const {
             'back': '返回',
             'home': '回到桌面',
@@ -329,14 +279,6 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
         );
       }
     }
-    if (feature == DeviceCapabilityService.proactiveFeature &&
-        selected.contains('new_notification') &&
-        state['notificationAccess'] != true) {
-      await explain(
-        '请在系统页面开启 SkyTide 通知使用权',
-        capability.openNotificationListenerSettings,
-      );
-    }
   }
 
   Widget _featureFooter(String feature, Set<String> defaults) => Column(
@@ -354,324 +296,6 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
       ),
     ],
   );
-  Future<void> _waitForExternalApi({bool restart = false}) async {
-    final db = DBManager();
-    final port = await db.getKV('external_api_port') ?? '6666';
-    final key = await db.getKV('external_api_key') ?? '';
-    final service = FlutterBackgroundService();
-    final client = http.Client();
-    try {
-      for (var attempt = 0; attempt < 12; attempt++) {
-        service.invoke(
-          restart ? 'restart_external_api' : 'ensure_external_api',
-        );
-        restart = false;
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        try {
-          final response = await client
-              .get(
-                Uri.parse('http://127.0.0.1:$port/v1/models'),
-                headers: {'Authorization': 'Bearer $key'},
-              )
-              .timeout(const Duration(seconds: 1));
-          if (response.statusCode == 200) return;
-        } catch (_) {}
-      }
-      throw StateError('外部 API 未能监听端口 $port，请检查日志');
-    } finally {
-      client.close();
-    }
-  }
-
-  Future<void> _toggleExternalApi(bool value) async {
-    final db = DBManager();
-    final usableBots = _bots
-        .where((bot) => !isBotDisabled(bot['is_disabled']))
-        .toList();
-    if (value && usableBots.isEmpty) {
-      GlobalNotice.show('请先创建并启用一个机器人');
-      return;
-    }
-    String? botId = _externalApiBotId;
-    final boundBot = botId.isEmpty
-        ? null
-        : _bots.cast<Map<String, dynamic>>().firstWhere(
-            (bot) => bot['id']?.toString() == botId,
-            orElse: () => const {},
-          );
-    if (value &&
-        (boundBot == null ||
-            boundBot.isEmpty ||
-            isBotDisabled(boundBot['is_disabled']))) {
-      botId = await _chooseBot('选择对外提供服务的机器人');
-      if (botId == null || botId.isEmpty) return;
-      await db.setKV('external_api_bot_id', botId);
-    }
-    if (value && (await db.getKV('external_api_key') ?? '').trim().isEmpty) {
-      GlobalNotice.show('请先配置外部访问 API Key');
-      return;
-    }
-    await db.setKV('external_api_enabled', '$value');
-
-    // 通知后台服务 isolate 启动或停止外部 API
-    if (value) {
-      // 外部 API 必须运行在后台 isolate，强制启动（忽略"持久通知"开关）
-      try {
-        final started = await PersistentServiceCoordinator.instance
-            .forceStartForDependentFeature();
-        if (!started) {
-          throw StateError('后台服务 isolate 启动失败');
-        }
-        AppLogService.instance.add('EXTERNAL_API', '后台服务 isolate 已启动');
-        await _waitForExternalApi();
-      } catch (error) {
-        AppLogService.instance.add('EXTERNAL_API', '启动后台服务失败：$error');
-        await db.setKV('external_api_enabled', 'false'); // 回滚状态
-        if (mounted) {
-          GlobalNotice.show('外部访问服务启动失败：$error');
-        }
-        return;
-      }
-    } else {
-      FlutterBackgroundService().invoke('stop_external_api');
-      AppLogService.instance.add('EXTERNAL_API', '已通知后台服务停止外部 API');
-    }
-
-    await _load();
-    if (mounted) {
-      GlobalNotice.show(value ? '外部访问服务已启动' : '外部访问服务已停止');
-    }
-  }
-
-  Future<String?> _chooseBot(String title, {String? selectedId}) =>
-      showTideSheet<String>(
-        context: context,
-        child: SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              ListTile(
-                title: Text(
-                  title,
-                  style: const TextStyle(fontFamily: 'TideFont'),
-                ),
-              ),
-              for (final bot in _bots.where(
-                (item) => !isBotDisabled(item['is_disabled']),
-              ))
-                ListTile(
-                  selected: bot['id']?.toString() == selectedId,
-                  title: Text(
-                    bot['name']?.toString() ?? '未命名机器人',
-                    style: const TextStyle(fontFamily: 'TideFont'),
-                  ),
-                  subtitle: Text(bot['id']?.toString() ?? ''),
-                  onTap: () => Navigator.pop(context, bot['id']?.toString()),
-                ),
-            ],
-          ),
-        ),
-      );
-
-  Future<void> _editExternalApi() async {
-    final portController = TextEditingController(text: _externalApiPort);
-    final keyController = TextEditingController(text: _externalApiKey);
-    var botId = _externalApiBotId;
-    var syncMessages = _externalApiSyncMessages;
-    final saved = await TideDialogs.show<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (_, setLocal) => TideDialogSurface(
-          title: const Text('外部访问服务', style: TextStyle(fontFamily: 'TideFont')),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  contextMenuBuilder: androidTextContextMenu,
-                  controller: portController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: '端口',
-                    helperText: '默认 6666；端口占用时启动失败，请更换端口。',
-                  ),
-                ),
-                TextField(
-                  contextMenuBuilder: androidTextContextMenu,
-                  controller: keyController,
-                  decoration: const InputDecoration(labelText: 'API Key'),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    '服务机器人',
-                    style: TextStyle(fontFamily: 'TideFont'),
-                  ),
-                  subtitle: Text(
-                    _bots
-                            .where((bot) => bot['id']?.toString() == botId)
-                            .map((bot) => bot['name']?.toString())
-                            .firstOrNull ??
-                        '请选择',
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () async {
-                    final chosen = await _chooseBot(
-                      '选择对外服务机器人',
-                      selectedId: botId,
-                    );
-                    if (chosen != null) setLocal(() => botId = chosen);
-                  },
-                ),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    '同步到 SkyTide 聊天记录',
-                    style: TextStyle(fontFamily: 'TideFont'),
-                  ),
-                  subtitle: const Text(
-                    '默认开启；关闭后外部请求不写入本地聊天记录。',
-                    style: TextStyle(fontFamily: 'TideFont', fontSize: 12),
-                  ),
-                  value: syncMessages,
-                  onChanged: (value) => setLocal(() => syncMessages = value),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('保存并重启'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (saved != true) return;
-    final port = int.tryParse(portController.text.trim());
-    if (port == null ||
-        port < 1024 ||
-        port > 65535 ||
-        keyController.text.trim().isEmpty ||
-        botId.isEmpty) {
-      if (mounted) GlobalNotice.show('请填写有效端口、API Key 并选择机器人');
-      return;
-    }
-    final db = DBManager();
-    await db.setKV('external_api_port', '$port');
-    await db.setKV('external_api_key', keyController.text.trim());
-    await db.setKV('external_api_bot_id', botId);
-    await db.setKV('external_api_sync_messages', '$syncMessages');
-
-    // 通知后台 isolate 重启外部 API 服务（关键修复：不能在 UI isolate 直接 restart）
-    if (_externalApiEnabled) {
-      await _waitForExternalApi(restart: true);
-      AppLogService.instance.add('EXTERNAL_API', '外部 API 已重启并通过健康检查');
-    }
-
-    await _load();
-  }
-
-  Future<void> _chooseExternalApiUrl() async {
-    if (_externalApiUrls.isEmpty || !mounted) return;
-    final selected = await showTideSheet<String>(
-      context: context,
-      child: SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            const ListTile(title: Text('选择 API 地址')),
-            for (final url in _externalApiUrls)
-              ListTile(
-                selected: url == _externalApiUrl,
-                title: Text(
-                  url,
-                  style: const TextStyle(fontFamily: 'TideFont'),
-                ),
-                trailing: url == _externalApiUrl
-                    ? const Icon(Icons.check_rounded)
-                    : null,
-                onTap: () => Navigator.pop(context, url),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (selected == null) return;
-    await ExternalApiService.instance.setPreferredBaseUrl(selected);
-    if (mounted) setState(() => _externalApiUrl = selected);
-  }
-
-  Future<void> _toggleLog(bool value) async {
-    if (value) {
-      await AppLogService.instance.setEnabled(true);
-      if (mounted) setState(() => _logging = true);
-      return;
-    }
-    if (AppLogService.instance.entries.isNotEmpty && mounted) {
-      final save = await TideDialogs.show<bool>(
-        context: context,
-        builder: (ctx) => TideDialogSurface(
-          backgroundColor: Colors.transparent,
-          contentPadding: EdgeInsets.zero,
-          content: TideDialogs.glassContent(
-            context: ctx,
-            children: [
-              Text(
-                '关闭实时日志',
-                textAlign: TextAlign.start,
-                style: TextStyle(
-                  fontFamily: 'TideFont',
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: TideTheme.of(ctx).textStrong,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '是否保存本次日志到历史记录？',
-                textAlign: TextAlign.start,
-                style: TextStyle(
-                  fontFamily: 'TideFont',
-                  color: TideTheme.of(ctx).textWeak,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: TideDialogs.glassButton(
-                      '不保存',
-                      onTap: () => Navigator.pop(ctx, false),
-                      color: TideTheme.of(ctx).surfaceVariant,
-                      textColor: TideTheme.of(ctx).textStrong,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TideDialogs.glassButton(
-                      '保存',
-                      onTap: () => Navigator.pop(ctx, true),
-                      color: TideTheme.of(ctx).primary,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      );
-      if (save == true) await AppLogService.instance.saveCurrent();
-    }
-    await AppLogService.instance.setEnabled(false);
-    if (mounted) setState(() => _logging = false);
-  }
-
   Widget _settingToggle({
     required String title,
     required String description,
@@ -841,180 +465,6 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
                   _featureFooter(DeviceCapabilityService.contextFeature, const {
                     'battery',
                   }),
-                  const Divider(),
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text(
-                      '操作触发主动回复',
-                      style: TextStyle(fontFamily: 'TideFont'),
-                    ),
-                    subtitle: const Text(
-                      '收到已授权的通知时，可低概率触发已绑定机器人的主动消息。',
-                      style: TextStyle(fontFamily: 'TideFont'),
-                    ),
-                    value: _operationProactive,
-                    onChanged: (value) => _setProtectedToggle(
-                      key: 'operation_proactive_enabled',
-                      feature: DeviceCapabilityService.proactiveFeature,
-                      value: value,
-                      title: '授权操作触发主动回复',
-                      description: '机器人只会收到你允许的触发类型。消息发送仍受主动回复设置、频率限制和绑定机器人约束。',
-                      defaultWhitelist: const {'new_notification'},
-                      update: (v) => _operationProactive = v,
-                    ),
-                  ),
-                  _featureFooter(
-                    DeviceCapabilityService.proactiveFeature,
-                    const {'new_notification'},
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            FrostCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text(
-                      '外部访问服务',
-                      style: TextStyle(fontFamily: 'TideFont'),
-                    ),
-                    subtitle: const Text(
-                      '将选定机器人作为本机 OpenAI 兼容 API 服务提供给同一局域网设备。',
-                      style: TextStyle(fontFamily: 'TideFont', fontSize: 12),
-                    ),
-                    value: _externalApiEnabled,
-                    activeThumbColor: theme.primary,
-                    onChanged: _toggleExternalApi,
-                  ),
-                  if (_externalApiEnabled) ...[
-                    const Divider(),
-                    const Text(
-                      'API Base URL',
-                      style: TextStyle(fontFamily: 'TideFont', fontSize: 12),
-                    ),
-                    const SizedBox(height: 4),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: Text(
-                        _externalApiUrl.isEmpty
-                            ? 'http://127.0.0.1:$_externalApiPort/v1'
-                            : _externalApiUrl,
-                        style: TextStyle(
-                          fontFamily: 'TideFont',
-                          fontSize: 13,
-                          color: theme.primary,
-                        ),
-                      ),
-                      trailing: const Icon(Icons.copy_rounded, size: 18),
-                      onTap: () {
-                        final url = _externalApiUrl.isEmpty
-                            ? 'http://127.0.0.1:$_externalApiPort/v1'
-                            : _externalApiUrl;
-                        Clipboard.setData(ClipboardData(text: url));
-                        GlobalNotice.show('API Base URL 已复制');
-                      },
-                    ),
-                    if (_externalApiUrls.length > 1)
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: _chooseExternalApiUrl,
-                          icon: const Icon(Icons.swap_horiz_rounded, size: 17),
-                          label: const Text('切换地址'),
-                        ),
-                      ),
-                    Text(
-                      '模型可留空；填写时使用机器人名称。API Key：$_externalApiKey；机器人：${_bots.where((bot) => bot['id']?.toString() == _externalApiBotId).map((bot) => bot['name']?.toString()).firstOrNull ?? '未选择'}',
-                      style: TextStyle(
-                        fontFamily: 'TideFont',
-                        color: theme.textWeak,
-                        fontSize: 12,
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        onPressed: _editExternalApi,
-                        icon: const Icon(Icons.settings_outlined, size: 17),
-                        label: const Text('配置'),
-                      ),
-                    ),
-                  ] else
-                    TextButton.icon(
-                      onPressed: _editExternalApi,
-                      icon: const Icon(Icons.settings_outlined),
-                      label: const Text('配置端口、API Key 和机器人'),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            FrostCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '开发日志',
-                              style: TextStyle(
-                                fontFamily: 'TideFont',
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: theme.textStrong,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '仅本次运行有效；退出或重启 App 后自动关闭。',
-                              style: TextStyle(
-                                fontFamily: 'TideFont',
-                                color: theme.textWeak,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Switch.adaptive(
-                        value: _logging,
-                        activeThumbColor: theme.primary,
-                        onChanged: _toggleLog,
-                      ),
-                    ],
-                  ),
-                  if (_logging) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      height: 220,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: theme.surfaceVariant,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: theme.border),
-                      ),
-                      child: LiveLogView(color: theme.textStrong),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  TideDialogs.glassButton(
-                    '查看历史日志',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const LogHistoryPage()),
-                    ),
-                    color: theme.primary,
-                  ),
                 ],
               ),
             ),
