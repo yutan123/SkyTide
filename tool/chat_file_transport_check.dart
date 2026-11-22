@@ -218,13 +218,23 @@ Future<void> main() async {
       'Qwen cleanup deletes each uploaded ID once under the configured base URL',
     );
     final failed = transport(ChatFileProtocol.grok);
-    await reject(
-      () => failed.attach(
-        reference,
-        upload: uploader(gatewayFiles, 'assistants', status: 400),
-      ),
-      'rejected upload',
-    );
+    for (final status in [400, 401, 429, 503]) {
+      try {
+        await failed.attachToUserMessage(
+          {'role': 'user', 'content': '阅读附件'},
+          [reference],
+          upload: uploader(gatewayFiles, 'assistants', status: status),
+          extract: (_) async =>
+              throw StateError('HTTP $status triggered text fallback'),
+        );
+        throw StateError('HTTP $status upload was accepted');
+      } on ChatFileUploadHttpException catch (error) {
+        check(
+          error.status == status && error.detail.isNotEmpty,
+          'upload lost HTTP $status',
+        );
+      }
+    }
     check(!failed.hasAttachments, 'rejected upload is not marked attached');
     await reject(
       () => failed.attach(

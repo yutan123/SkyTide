@@ -41,20 +41,11 @@ enum ChatFileProtocol {
 typedef ChatFileUpload =
     Future<String> Function(Future<String> Function(http.Client) action);
 
-class ChatFileDeliveryException implements Exception {
-  const ChatFileDeliveryException([
-    this.statusCode,
-    this.extractedText = false,
-  ]);
+class ChatFileUploadHttpException implements Exception {
+  const ChatFileUploadHttpException(this.status, this.detail);
 
-  final int? statusCode;
-  final bool extractedText;
-
-  String get message {
-    final input = extractedText ? '附件正文' : '原文件';
-    final status = statusCode == null ? '' : '（HTTP $statusCode）';
-    return '携带$input的请求失败$status，模型未能确认读取。';
-  }
+  final int status;
+  final String detail;
 }
 
 /// Owns the byte budget and uploaded file IDs for one initial/tool request chain.
@@ -174,7 +165,6 @@ class ChatFileTransport {
               .then(http.Response.fromStream);
           final response = await httpResponse.timeout(
             Duration(seconds: protocol == ChatFileProtocol.deepSeek ? 250 : 90),
-            onTimeout: () => throw const FormatException('等待原文件上传超时'),
           );
           if (response.statusCode < 200 || response.statusCode >= 300) {
             final status = response.statusCode;
@@ -183,7 +173,7 @@ class ChatFileTransport {
                     isFileCapabilityErrorBody(response.body))) {
               throw const ChatFileUnsupported('厂商上传接口不支持此原文件');
             }
-            throw FormatException('原文件上传失败（HTTP $status）');
+            throw ChatFileUploadHttpException(status, response.body);
           }
           final Object? body;
           try {

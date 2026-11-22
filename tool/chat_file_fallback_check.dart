@@ -374,12 +374,10 @@ Future<void> checkUploadRejection(
             (part['text'] as String).contains('仅提取文本'),
         'upload rejection produces labeled text for HTTP $status',
       );
-    } on FormatException catch (error) {
+    } on ChatFileUploadHttpException catch (error) {
       check(
-        !fallback &&
-            error is! ChatFileUnsupported &&
-            error.message == '原文件上传失败（HTTP $status）',
-        'unrelated upload errors propagate without exposing the body',
+        !fallback && error.status == status && error.detail == body,
+        'unrelated upload errors retain their HTTP status without text fallback',
       );
     } finally {
       client.close();

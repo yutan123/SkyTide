@@ -835,6 +835,7 @@ class SkyTideApp extends StatefulWidget {
 
 class _SkyTideAppState extends State<SkyTideApp> with WidgetsBindingObserver {
   bool _servicesReady = false;
+  StreamSubscription<bool>? _otaNetworkSubscription;
   @override
   void initState() {
     super.initState();
@@ -860,6 +861,10 @@ class _SkyTideAppState extends State<SkyTideApp> with WidgetsBindingObserver {
   void _activateServices() {
     if (_servicesReady) return;
     _servicesReady = true;
+    _otaNetworkSubscription = InternetReachabilityMonitor.instance.changes
+        .listen((online) {
+          if (online && mounted) unawaited(OtaUpdate.checkOncePerDay());
+        });
     debugPrint(
       '[startup] first home frame built at '
       '${_startupElapsed.elapsedMilliseconds}ms',
@@ -870,6 +875,7 @@ class _SkyTideAppState extends State<SkyTideApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    unawaited(_otaNetworkSubscription?.cancel());
     InternetReachabilityMonitor.instance.setForeground(false);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -882,6 +888,7 @@ class _SkyTideAppState extends State<SkyTideApp> with WidgetsBindingObserver {
       state == AppLifecycleState.resumed,
     );
     if (_servicesReady && state == AppLifecycleState.resumed) {
+      unawaited(OtaUpdate.checkOncePerDay());
       unawaited(DiaryService.instance.catchUp());
       unawaited(CognitionReviewService.instance.runDue());
       unawaited(McpConnectionService.instance.connectAuto());

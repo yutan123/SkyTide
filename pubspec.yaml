@@ -77,7 +77,6 @@ flutter:
   assets:
     - assets/images/
     - assets/fonts/
-    - assets/icons/
     - assets/emojitwo/
     - assets/skills/
     - assets/plugin_sdk.js

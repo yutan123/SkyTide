@@ -10,6 +10,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'app_navigation.dart';
 import 'db.dart';
 import 'global_notice.dart';
+import 'ota_daily_check.dart';
 import 'ota_release.dart';
 import 'theme.dart';
 import 'transfer_progress.dart';
@@ -26,45 +27,61 @@ class OtaUpdate {
     'https://gh-proxy.com/$_releaseApi',
   ];
 
+  static final _dailyCheck = OtaDailyCheck();
+
   static Future<void> checkOncePerDay() async {
-    final db = DBManager();
-    final today = DateTime.now().toIso8601String().substring(0, 10);
-    if (await db.getKV('ota_checked_date') == today) return;
-    await db.setKV('ota_checked_date', today);
-    await _check(showWhenCurrent: false);
-  }
-
-  static Future<void> checkNow(BuildContext context) =>
-      _check(showWhenCurrent: true, context: context);
-
-  static Future<void> _check({
-    required bool showWhenCurrent,
-    BuildContext? context,
-  }) async {
     try {
-      final release = await _latestRelease();
-      final installed = await PackageInfo.fromPlatform();
-      if (release == null ||
-          !release.isNewerThan(installed.version, installed.buildNumber)) {
-        if (showWhenCurrent && context != null && context.mounted) {
-          GlobalNotice.show(release == null ? '暂未发布可用更新' : '当前已是最新版本');
-        }
-        return;
-      }
-      final version = release.versionName;
-      if (await DBManager().getKV('ota_ignored_version') == version &&
-          !showWhenCurrent) {
-        return;
-      }
-      final target = context ?? appNavigatorKey.currentContext;
-      if (target == null || !target.mounted) return;
-      await _showUpdate(target, release);
+      final db = DBManager();
+      await _dailyCheck.run(
+        date: DateTime.now().toIso8601String().substring(0, 10),
+        readDate: () => db.getKV('ota_checked_date'),
+        writeDate: (date) async {
+          await db.setKV('ota_checked_date', date);
+        },
+        probe: _probe,
+        onResult: (result) => _present(result, showWhenCurrent: false),
+      );
     } catch (error) {
       debugPrint('[ota] check failed: $error');
-      if (showWhenCurrent && context != null && context.mounted) {
+    }
+  }
+
+  static Future<void> checkNow(BuildContext context) async {
+    try {
+      final result = await _probe();
+      if (!context.mounted) return;
+      await _present(result, showWhenCurrent: true, context: context);
+    } catch (error) {
+      debugPrint('[ota] check failed: $error');
+      if (context.mounted) {
         GlobalNotice.show(_errorMessage(error), color: const Color(0xFFE74C3C));
       }
     }
+  }
+
+  static Future<(OtaRelease?, PackageInfo)> _probe() async =>
+      (await _latestRelease(), await PackageInfo.fromPlatform());
+
+  static Future<void> _present(
+    (OtaRelease?, PackageInfo) result, {
+    required bool showWhenCurrent,
+    BuildContext? context,
+  }) async {
+    final (release, installed) = result;
+    if (release == null ||
+        !release.isNewerThan(installed.version, installed.buildNumber)) {
+      if (showWhenCurrent && context != null && context.mounted) {
+        GlobalNotice.show(release == null ? '暂未发布可用更新' : '当前已是最新版本');
+      }
+      return;
+    }
+    if (!showWhenCurrent &&
+        await DBManager().getKV('ota_ignored_version') == release.versionName) {
+      return;
+    }
+    final target = context ?? appNavigatorKey.currentContext;
+    if (target == null || !target.mounted) return;
+    await _showUpdate(target, release);
   }
 
   static String _errorMessage(Object error) {

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'db.dart';
 import 'plugin_archive.dart';
 import 'plugin_operation.dart';
+import 'plugin_market_routes.dart';
 
 class MarketPlugin {
   final String id,
@@ -44,14 +45,20 @@ class MarketPlugin {
   Uri? get iconUrl {
     final path = icon;
     if (path == null ||
-        !RegExp(r'^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*\.(?:png|jpe?g|webp)$',
+        !RegExp(
+          r'^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*\.(?:png|jpe?g|webp)$',
           caseSensitive: false,
-        ).hasMatch(path)) return null;
+        ).hasMatch(path))
+      return null;
     final segments = path.split('/');
-    if (segments.any((segment) => segment == '.' || segment == '..')) return null;
-    return Uri.https('raw.githubusercontent.com',
-        '${Uri.parse(repository).path}/$commit/$path');
+    if (segments.any((segment) => segment == '.' || segment == '..'))
+      return null;
+    return Uri.https(
+      'raw.githubusercontent.com',
+      '${Uri.parse(repository).path}/$commit/$path',
+    );
   }
+
   bool newerThan(String installed) {
     final old = installed.split('.').map(int.tryParse).toList();
     final next = version.split('.').map(int.parse).toList();
@@ -71,7 +78,7 @@ class PluginMarket extends ChangeNotifier {
   );
 
   // Ordered from the direct source to public GitHub mirrors. A route is only
-  // considered successful when it returns the expected HTTP status.
+  // accepted only after its response body passes validation.
   static List<Uri> _routes(Uri uri) {
     final encoded = Uri.encodeFull(uri.toString());
     return [
@@ -87,29 +94,6 @@ class PluginMarket extends ChangeNotifier {
     return url == null ? const [] : _routes(url);
   }
 
-  static Future<HttpClientResponse> _getWithFallback(
-    HttpClient client,
-    Uri uri, {
-    required Set<int> acceptedStatusCodes,
-    Duration timeout = const Duration(seconds: 20),
-    void Function(HttpClientRequest)? configure,
-  }) async {
-    Object? lastError;
-    for (final route in _routes(uri)) {
-      try {
-        final request = await client.getUrl(route).timeout(timeout);
-        configure?.call(request);
-        final response = await request.close().timeout(timeout);
-        if (acceptedStatusCodes.contains(response.statusCode)) return response;
-        response.drain<void>();
-        lastError = HttpException('HTTP ${response.statusCode}');
-      } catch (e) {
-        lastError = e;
-      }
-    }
-    throw lastError ?? const HttpException('没有可用的下载线路');
-  }
-
   List<MarketPlugin> plugins = [];
   bool hasIndex = false;
   bool loading = false;
@@ -117,7 +101,9 @@ class PluginMarket extends ChangeNotifier {
   List<Map<String, dynamic>> _revocations = [];
   Future<void>? _refresh;
 
-  List<MarketPlugin> _parse(String text) {
+  ({List<MarketPlugin> plugins, List<Map<String, dynamic>> revocations}) _parse(
+    String text,
+  ) {
     final root = jsonDecode(text) as Map<String, dynamic>;
     final list = (root['plugins'] as List)
         .map((v) => MarketPlugin(Map<String, dynamic>.from(v as Map)))
@@ -125,10 +111,10 @@ class PluginMarket extends ChangeNotifier {
     if (list.map((p) => p.id).toSet().length != list.length) {
       throw const FormatException('市场包含重复插件 ID');
     }
-    _revocations = (root['revocations'] as List? ?? [])
+    final revocations = (root['revocations'] as List? ?? [])
         .map((v) => Map<String, dynamic>.from(v as Map))
         .toList();
-    return list;
+    return (plugins: list, revocations: revocations);
   }
 
   Future<void> refresh() =>
@@ -137,49 +123,60 @@ class PluginMarket extends ChangeNotifier {
     loading = true;
     error = null;
     notifyListeners();
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
     try {
       final db = DBManager();
       final cache = await db.getKV('plugin_market_index');
-      if (!hasIndex && cache != null) {
+      var validCache = false;
+      if (cache != null) {
         try {
-          plugins = _parse(cache);
-          hasIndex = true;
-          notifyListeners();
+          final parsed = _parse(cache);
+          validCache = true;
+          if (!hasIndex) {
+            plugins = parsed.plugins;
+            _revocations = parsed.revocations;
+            hasIndex = true;
+            notifyListeners();
+          }
         } catch (_) {}
       }
       final etag = await db.getKV('plugin_market_etag');
-      final response = await _getWithFallback(
-        client,
-        indexUrl,
-        acceptedStatusCodes: {200, 304},
+      final validateCache = validCache && etag != null && etag.isNotEmpty;
+      final result = await readMarketRoute(
+        routes: _routes(indexUrl),
+        timeout: const Duration(seconds: 20),
+        connectionTimeout: const Duration(seconds: 15),
+        acceptedStatusCodes: {200, if (validateCache) 304},
         configure: (request) {
-          if (hasIndex && cache != null && etag != null && etag.isNotEmpty) {
-            request.headers.set('If-None-Match', etag);
+          if (validateCache) request.headers.set('If-None-Match', etag);
+        },
+        read: (response) async {
+          if (response.statusCode == 304) return null;
+          final bytes = <int>[];
+          await for (final chunk in response.timeout(
+            const Duration(seconds: 20),
+          )) {
+            bytes.addAll(chunk);
+            if (bytes.length > 2 * 1024 * 1024) {
+              throw const FormatException('市场索引过大');
+            }
           }
+          final text = utf8.decode(bytes);
+          return (
+            text: text,
+            parsed: _parse(text),
+            etag: response.headers.value('etag') ?? '',
+          );
         },
       );
-      if (response.statusCode == 304 && hasIndex) return;
-      final bytes = <int>[];
-      await for (final chunk in response.timeout(const Duration(seconds: 20))) {
-        bytes.addAll(chunk);
-        if (bytes.length > 2 * 1024 * 1024)
-          throw const FormatException('市场索引过大');
-      }
-      final text = utf8.decode(bytes);
-      final parsed = _parse(text);
-      await db.setKV('plugin_market_index', text);
-      await db.setKV(
-        'plugin_market_etag',
-        response.headers.value('etag') ?? '',
-      );
-      plugins = parsed;
+      if (result == null) return;
+      await db.setKV('plugin_market_index', result.text);
+      await db.setKV('plugin_market_etag', result.etag);
+      plugins = result.parsed.plugins;
+      _revocations = result.parsed.revocations;
       hasIndex = true;
     } catch (e) {
       error = e.toString();
     } finally {
-      client.close(force: true);
       loading = false;
       notifyListeners();
     }
@@ -213,55 +210,53 @@ class PluginMarket extends ChangeNotifier {
     void Function(int, int) progress,
   ) async {
     if (_revocations.any(
-      (r) => r['id'] is String &&
+      (r) =>
+          r['id'] is String &&
           PluginArchive.marketId(r['id'] as String) == plugin.id &&
           r['commit'] == plugin.commit,
     )) {
       throw const FormatException('该版本已撤销');
     }
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 20);
-    final unlisten = operation.listen(() => client.close(force: true));
-    try {
-      final response = await _getWithFallback(
-        client,
-        plugin.archiveUrl,
-        acceptedStatusCodes: {200},
-        timeout: const Duration(seconds: 30),
-      );
-      if (response.contentLength > PluginArchive.maxCompressed)
-        throw const FormatException('插件包超过大小限制');
-      final bytes = <int>[];
-      await for (final chunk in response.timeout(const Duration(seconds: 30))) {
-        operation.check();
-        bytes.addAll(chunk);
-        if (bytes.length > PluginArchive.maxCompressed)
+    const timeout = Duration(seconds: 30);
+    final package = await readMarketRoute(
+      routes: _routes(plugin.archiveUrl),
+      timeout: timeout,
+      connectionTimeout: const Duration(seconds: 20),
+      checkCancelled: operation.check,
+      listenForCancellation: operation.listen,
+      read: (response) async {
+        if (response.contentLength > PluginArchive.maxCompressed) {
           throw const FormatException('插件包超过大小限制');
-        progress(bytes.length, response.contentLength);
-      }
-      operation.check();
-      final package = PluginArchive.decode(
-        bytes,
-        githubWrapper: true,
-        expectedMarketId: plugin.id,
-      );
-      if (package.manifest['id'] != plugin.id ||
-          package.manifest['version'] != plugin.version) {
-        throw const FormatException('下载插件的 ID 或版本与市场不一致');
-      }
-      final archive = Archive();
-      for (final entry in package.files.entries) {
-        archive.addFile(
-          ArchiveFile(entry.key, entry.value.length, entry.value),
+        }
+        final bytes = <int>[];
+        progress(0, response.contentLength);
+        await for (final chunk in response.timeout(timeout)) {
+          operation.check();
+          bytes.addAll(chunk);
+          if (bytes.length > PluginArchive.maxCompressed) {
+            throw const FormatException('插件包超过大小限制');
+          }
+          progress(bytes.length, response.contentLength);
+        }
+        final package = PluginArchive.decode(
+          bytes,
+          githubWrapper: true,
+          expectedMarketId: plugin.id,
         );
-      }
-      final file = File('${temporary.path}/market.zip');
-      await file.writeAsBytes(ZipEncoder().encode(archive), flush: true);
-      operation.check();
-      return file;
-    } finally {
-      unlisten();
-      client.close(force: true);
+        if (package.manifest['id'] != plugin.id ||
+            package.manifest['version'] != plugin.version) {
+          throw const FormatException('下载插件的 ID 或版本与市场不一致');
+        }
+        return package;
+      },
+    );
+    final archive = Archive();
+    for (final entry in package.files.entries) {
+      archive.addFile(ArchiveFile(entry.key, entry.value.length, entry.value));
     }
+    final file = File('${temporary.path}/market.zip');
+    await file.writeAsBytes(ZipEncoder().encode(archive), flush: true);
+    operation.check();
+    return file;
   }
 }

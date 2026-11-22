@@ -1,10 +1,10 @@
 package com.yutan123.skytide
 
-import android.util.Log
 import kotlinx.coroutines.*
 import kotlin.coroutines.resume
 
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
@@ -18,7 +18,6 @@ import java.util.concurrent.TimeUnit
  * 总超时 5 分钟（整个任务），不是每次重试 5 分钟。
  */
 object TideAiClient {
-    private const val TAG = "TideAiClient"
     private const val TOTAL_TIMEOUT_MS = 5 * 60 * 1000L // 5 分钟
     private const val CONNECT_TIMEOUT_SEC = 30L
     private const val READ_TIMEOUT_SEC = 90L
@@ -31,7 +30,10 @@ object TideAiClient {
         val messages: List<Message>,
         val maxTokens: Int = 2000,
         val stream: Boolean = true,
-        val allowSilence: Boolean = false
+        val allowSilence: Boolean = false,
+        val presetName: String? = null,
+        val providerName: String = "",
+        val isCustom: Boolean = false
     )
 
     data class Message(
@@ -58,6 +60,11 @@ object TideAiClient {
         .readTimeout(READ_TIMEOUT_SEC, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    private val nativeClient = client.newBuilder().followRedirects(false).build()
+
+    private fun resolveProtocol(req: AiRequest) = TideAiProtocol.resolve(
+        req.presetName, req.providerName, req.isCustom, req.baseUrl.trim().toHttpUrl())
 
     /**
      * 发送 AI 请求，支持重试。
@@ -94,29 +101,24 @@ object TideAiClient {
         attempt: Int,
         onRequest: ((String, String, Int) -> Unit)?
     ): Result<AiResponse> {
-        val body = buildRequestBody(req)
-
-        // 规范化 URL：移除尾部 /v1，然后统一添加 /v1/chat/completions
-        val root = req.baseUrl.trim().trimEnd('/')
-        val url = when {
-            root.endsWith("/chat/completions") -> root
-            root.endsWith("/v1") -> "$root/chat/completions"
-            else -> "$root/v1/chat/completions"
+        val protocol: TideAiProtocol
+        val httpRequest: Request
+        try {
+            protocol = resolveProtocol(req)
+            val url = protocol.endpoint(req)
+            val body = buildRequestBody(req, protocol)
+            runCatching { onRequest?.invoke(url.toString(), body, attempt) }
+            httpRequest = Request.Builder()
+                .url(url)
+                .apply { protocol.headers(req.apiKey).forEach { (name, value) -> addHeader(name, value) } }
+                .post(body.toRequestBody("application/json".toMediaType()))
+                .build()
+        } catch (e: IllegalArgumentException) {
+            return Result.failure(e)
         }
 
-        // Observe the exact serialized body used below, including each retry.
-        // Diagnostics must never turn a valid request into a failed task.
-        runCatching { onRequest?.invoke(url, body, attempt) }
-
-        val httpRequest = Request.Builder()
-            .url(url)
-            .addHeader("Authorization", "Bearer ${req.apiKey}")
-            .addHeader("Content-Type", "application/json")
-            .post(body.toRequestBody("application/json".toMediaType()))
-            .build()
-
         return suspendCancellableCoroutine { continuation ->
-            val call = client.newCall(httpRequest)
+            val call = (if (protocol == TideAiProtocol.COMPATIBLE) client else nativeClient).newCall(httpRequest)
             continuation.invokeOnCancellation { call.cancel() }
 
             call.enqueue(object : Callback {
@@ -128,11 +130,7 @@ object TideAiClient {
                     val result = try {
                         response.use {
                             if (!it.isSuccessful) Result.failure(HttpException(it.code))
-                            else Result.success(
-                                if (it.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
-                                    parseStream(it)
-                                } else parseChoice(JSONObject(it.body?.string() ?: throw IOException("Empty response")))
-                            )
+                            else Result.success(parseResponse(it, protocol, req.allowSilence))
                         }
                     } catch (e: Exception) {
                         Result.failure<AiResponse>(e)
@@ -146,12 +144,7 @@ object TideAiClient {
     /**
      * 构建请求体
      */
-    internal fun buildRequestBody(req: AiRequest): String {
-        val json = JSONObject()
-        json.put("model", req.model)
-        json.put("max_tokens", req.maxTokens)
-        json.put("stream", req.stream)
-
+    internal fun buildRequestBody(req: AiRequest, protocol: TideAiProtocol = resolveProtocol(req)): String {
         val messages = JSONArray()
         req.messages.forEach { msg ->
             val msgObj = JSONObject()
@@ -160,34 +153,38 @@ object TideAiClient {
             msgObj.put("content", if (msg.role == "user" || msg.role == "assistant") "[发送时间:$time]\n${msg.content}" else msg.content)
             messages.put(msgObj)
         }
-        json.put("messages", messages)
-        if (req.allowSilence) json.put("tools", JSONArray().put(JSONObject().put("type", "function")
-            .put("function", JSONObject().put("name", "choose_silence").put("description", "不适合打扰时保持沉默")
-                .put("parameters", JSONObject().put("type", "object").put("properties", JSONObject())))))
-
-        return json.toString()
+        val function = JSONObject().put("name", "choose_silence").put("description", "不适合打扰时保持沉默")
+            .put("parameters", JSONObject().put("type", "object").put("properties", JSONObject()))
+        return protocol.payload(req, messages, function).toString()
     }
 
-    /**
-     * 解析响应
-     */
-    private fun parseStream(response: Response): AiResponse {
-        val source = response.body?.source() ?: throw IOException("Empty response")
+    private fun parseResponse(response: Response, protocol: TideAiProtocol, allowSilence: Boolean): AiResponse {
+        val stream = response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)
+        if (protocol == TideAiProtocol.COMPATIBLE) {
+            return if (stream) parseStream(response, allowSilence)
+            else parseChoice(readJson(response), allowSilence)
+        }
+        val reply = TideAiProtocol.Reply(protocol)
+        if (stream) readEvents(response) { reply.accept(it, stream = true) }
+        else reply.accept(readJson(response), stream = false)
+        if (!reply.terminated) throw IOException("Truncated provider reply")
+        return finishReply(reply.text.toString(), reply.tools, reply.finish, reply.usage, allowSilence)
+    }
+
+    private fun readJson(response: Response): JSONObject =
+        JSONObject(response.body?.string() ?: throw IOException("Empty response"))
+
+    private fun parseStream(response: Response, allowSilence: Boolean): AiResponse {
         val content = StringBuilder()
         val names = mutableMapOf<Int, StringBuilder>()
         var finish: String? = null
         var usage: Usage? = null
-        val data = StringBuilder()
-        fun consume() {
-            val text = data.toString().trim()
-            data.setLength(0)
-            if (text.isEmpty() || text == "[DONE]") return
-            val json = JSONObject(text)
-            if (json.has("error")) throw IOException("Provider stream error")
+        readEvents(response) { json ->
+            if (!json.isNull("error")) throw IOException("Provider stream error")
             json.optJSONObject("usage")?.let { usage = Usage(it.optInt("prompt_tokens"), it.optInt("completion_tokens"), it.optInt("total_tokens")) }
-            val choice = json.optJSONArray("choices")?.optJSONObject(0) ?: return
+            val choice = json.optJSONArray("choices")?.optJSONObject(0) ?: return@readEvents
             if (!choice.isNull("finish_reason")) finish = choice.optString("finish_reason")
-            val delta = choice.optJSONObject("delta") ?: choice.optJSONObject("message") ?: return
+            val delta = choice.optJSONObject("delta") ?: choice.optJSONObject("message") ?: return@readEvents
             if (!delta.isNull("content")) content.append(delta.optString("content"))
             val tools = delta.optJSONArray("tool_calls") ?: JSONArray()
             for (i in 0 until tools.length()) {
@@ -196,31 +193,46 @@ object TideAiClient {
                     .append(tool.optJSONObject("function")?.optString("name").orEmpty())
             }
         }
-        var done = false
-        while (!done && !source.exhausted()) {
+        if (finish == null) throw IOException("Truncated stream")
+        return finishReply(content.toString(), names.values.map { it.toString() }, finish, usage, allowSilence)
+    }
+
+    private fun readEvents(response: Response, accept: (JSONObject) -> Unit) {
+        val source = response.body?.source() ?: throw IOException("Empty response")
+        val data = StringBuilder()
+        fun consume(): Boolean {
+            val text = data.toString().trim()
+            data.setLength(0)
+            if (text == "[DONE]") return true
+            if (text.isNotEmpty()) accept(JSONObject(text))
+            return false
+        }
+        while (!source.exhausted()) {
             val line = source.readUtf8Line() ?: break
             if (line.isEmpty()) {
-                done = data.toString().trim() == "[DONE]"
-                consume()
-            }
-            else if (line.startsWith("data:")) {
+                if (consume()) return
+            } else if (line.startsWith("data:")) {
                 if (data.isNotEmpty()) data.append('\n')
                 data.append(line.substring(5).trimStart())
             }
         }
         consume()
-        if (finish == null) throw IOException("Truncated stream")
-        if (names.values.any { it.toString() != "choose_silence" }) throw IOException("Unsupported tool")
-        val silent = names.values.any { it.toString() == "choose_silence" }
-        val visible = stripMetadata(content.toString())
-        if (!silent && visible.isBlank()) throw IOException("Empty reply")
-        return AiResponse(if (silent) "" else visible, finish, usage, silent)
     }
 
-    /**
-     * 解析单个 choice
-     */
-    private fun parseChoice(json: JSONObject): AiResponse {
+    internal fun finishReply(text: String, tools: List<String>, finish: String?, usage: Usage?, allowSilence: Boolean): AiResponse {
+        if (tools.isNotEmpty()) {
+            if (!allowSilence || tools.any { it != "choose_silence" }) throw IOException("Unsupported tool")
+            if (finish !in setOf("stop", "tool_calls", "function_call", "tool_use", "STOP")) {
+                throw IOException("Unfinished tool response")
+            }
+            return AiResponse("", finish, usage, silent = true)
+        }
+        val visible = stripMetadata(text)
+        if (visible.isBlank()) throw IOException("Empty reply")
+        return AiResponse(visible, finish, usage)
+    }
+
+    private fun parseChoice(json: JSONObject, allowSilence: Boolean): AiResponse {
         val choices = json.optJSONArray("choices")
             ?: throw IOException("No choices in response")
 
@@ -233,25 +245,16 @@ object TideAiClient {
             ?: choice.optJSONObject("delta")
             ?: throw IOException("No message/delta in choice")
 
-        val tools = message.optJSONArray("tool_calls") ?: JSONArray()
-        var silent = false
-        for (i in 0 until tools.length()) {
-            if (tools.getJSONObject(i).optJSONObject("function")?.optString("name") != "choose_silence") throw IOException("Unsupported tool")
-            silent = true
+        val calls = message.optJSONArray("tool_calls") ?: JSONArray()
+        val tools = (0 until calls.length()).map {
+            calls.getJSONObject(it).optJSONObject("function")?.optString("name").orEmpty()
         }
-        val content = if (silent || message.isNull("content")) "" else stripMetadata(message.optString("content", ""))
-        if (!silent && content.isBlank()) throw IOException("Empty reply")
-        val finishReason = choice.optString("finish_reason")
-
+        val content = if (message.isNull("content")) "" else message.optString("content")
+        val finishReason = choice.optString("finish_reason").takeUnless { choice.isNull("finish_reason") }
         val usage = json.optJSONObject("usage")?.let {
-            Usage(
-                promptTokens = it.optInt("prompt_tokens", 0),
-                completionTokens = it.optInt("completion_tokens", 0),
-                totalTokens = it.optInt("total_tokens", 0)
-            )
+            Usage(it.optInt("prompt_tokens"), it.optInt("completion_tokens"), it.optInt("total_tokens"))
         }
-
-        return AiResponse(content, finishReason, usage, silent)
+        return finishReply(content, tools, finishReason, usage, allowSilence)
     }
 
     // Text that imitates a tool call must never be stored as a chat message.

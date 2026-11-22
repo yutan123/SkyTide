@@ -371,6 +371,7 @@ class AIManager {
             try {
               Map<String, dynamic>? lastFailure;
               var attempted = 0;
+              var toolChainStarted = false;
               var deliveredToolProgress = false;
               for (var index = 0; index < attempts.length; index++) {
                 await cancellationToken?.checkRequestAllowed();
@@ -421,6 +422,7 @@ class AIManager {
                             deliveredToolProgress = true;
                             onToolProgress(row);
                           },
+                    onToolExecutionStarted: () => toolChainStarted = true,
                     forcedLocalId: candidate['local']!,
                     forcedProviderId: candidate['provider']!,
                   );
@@ -438,9 +440,11 @@ class AIManager {
                       int.tryParse(result['error_code']?.toString() ?? '') ?? 0;
                   final retryable =
                       result['error_code']?.toString() == 'network' ||
+                      code == 408 ||
                       code == 429 ||
                       code >= 500;
-                  if (deliveredToolProgress ||
+                  if (toolChainStarted ||
+                      deliveredToolProgress ||
                       !retryable ||
                       index == attempts.length - 1) {
                     break;
@@ -953,6 +957,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     AICancellationToken? cancellationToken,
     void Function(String delta)? onDelta,
     void Function()? onPreviewReset,
+    required void Function() onToolExecutionStarted,
     void Function(Map<String, dynamic> message)? onToolProgress,
     String forcedLocalId = '',
     String forcedProviderId = '',
@@ -1940,12 +1945,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       );
       token?.throwIfCancelled();
       statusCode = streamedResponse.statusCode;
-      if (statusCode != 200 && fileTransport.hasAttachments) {
-        throw ChatFileDeliveryException(
-          statusCode,
-          fileTransport.usedTextFallback && !fileTransport.hasRawAttachments,
-        );
-      }
       responseMetadata.addAll({
         'requested_model': modelName,
         'provider_request_id':
@@ -1989,16 +1988,23 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
 
         final toolCallAccumulator = ToolCallAccumulator();
         String? streamFinishReason;
+        var streamDone = false;
+        var invalidStreamEvent = false;
         final streamDebugLog = <String>[];
         await for (final line in lines) {
           token?.throwIfCancelled();
           if (line.startsWith('data:')) {
             final data = line.substring(5).trim();
-            if (data == '[DONE]') break;
+            if (data.isEmpty) continue;
+            if (data == '[DONE]') {
+              streamDone = true;
+              break;
+            }
             final Object? json;
             try {
               json = jsonDecode(data);
             } on FormatException {
+              invalidStreamEvent = true;
               continue;
             }
             if (json is! Map) continue;
@@ -2049,7 +2055,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                   'delta=${delta?.substring(0, (delta.length).clamp(0, 50)) ?? 'null'} finish=$finishReason',
                 );
               }
-            } catch (_) {}
+            } catch (_) {
+              invalidStreamEvent = true;
+            }
           }
         }
         final streamedToolCalls = toolCallAccumulator.calls;
@@ -2078,6 +2086,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         );
 
         if (toolCallingEnabled && streamedToolCalls.isNotEmpty) {
+          if (invalidStreamEvent)
+            throw const FormatException("模型流式响应损坏，未执行此批工具");
+          requireCompleteToolResponse(streamFinishReason, done: streamDone);
           if (!hadToolCalls)
             _logCacheUsage(
               usage,
@@ -2109,6 +2120,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           if (sendToolProgress) replyText = '';
           await _runStreamedTools(
             publishToolProgress: sendToolProgress ? publishToolProgress : null,
+            onToolExecutionStarted: onToolExecutionStarted,
             cancellationToken: token,
             db: db,
             botId: botId,
@@ -2223,6 +2235,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               .map((call) => Map<String, dynamic>.from(call))
               .toList();
           if (toolCalls.isNotEmpty) {
+            requireCompleteToolResponse(
+              json['choices'][0]['finish_reason']?.toString(),
+              done: true,
+            );
             if (!hadToolCalls)
               _logCacheUsage(
                 usage,
@@ -2245,6 +2261,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               publishToolProgress: sendToolProgress
                   ? publishToolProgress
                   : null,
+              onToolExecutionStarted: onToolExecutionStarted,
               cancellationToken: token,
               db: db,
               botId: botId,
@@ -2641,18 +2658,18 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       rethrow;
     } catch (e) {
       cancellationToken?.throwIfCancelled();
-      if (requestFileTransport?.hasAttachments == true) {
-        final failure = e is ChatFileDeliveryException
-            ? e
-            : ChatFileDeliveryException(
-                null,
-                requestFileTransport!.usedTextFallback &&
-                    !requestFileTransport.hasRawAttachments,
-              );
+      if (e is ChatFileUploadHttpException) {
         return {
-          'error': failure.message,
-          'error_log': failure.message,
-          'error_code': failure.statusCode ?? 'attachment',
+          'error': '原文件上传失败：${_friendlyHttpError(e.status, e.detail)}',
+          'error_log': 'HTTP ${e.status}\n${e.detail}',
+          'error_code': e.status,
+        };
+      }
+      if (e is _ToolFollowUpHttpError) {
+        return {
+          'error': _friendlyHttpError(e.status, e.detail),
+          'error_log': 'HTTP ${e.status}\n${e.detail}',
+          'error_code': e.status,
         };
       }
       AppLogService.instance.add('AI_TRACE', 'AI 主流程异常 $e');
@@ -4338,6 +4355,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
   Future<void> _runStreamedTools({
     Future<void> Function(String, List<Map<String, dynamic>>)?
     publishToolProgress,
+    required void Function() onToolExecutionStarted,
     AICancellationToken? cancellationToken,
     required DBManager db,
     required String botId,
@@ -4414,6 +4432,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             'already_attached': alreadyDelivered,
           },
         };
+      } on ChatFileUploadHttpException catch (error) {
+        return failure('原文件上传失败（HTTP ${error.status}）');
       } on FormatException catch (error) {
         return failure(error.message);
       } on FileSystemException {
@@ -4535,6 +4555,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           'result': {'ok': false, 'error': '本轮工具已成功调用，不允许重复执行。'},
         };
       }
+      onToolExecutionStarted();
       AppLogService.instance.add(
         'TOOLS',
         '开始执行工具：${name.isEmpty ? "缺少工具名称" : name}（id=${call['id']}，argumentsLength=${(call['function'] as Map?)?['arguments']?.toString().length ?? 0}）',
@@ -4578,13 +4599,17 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       return result;
     }
 
-    for (final call in calls) {
-      final result = await executeOnce(call);
-      final name = (call['function'] as Map?)?['name']?.toString() ?? '';
-      await consumeToolResult(result, name: name);
-      if ((result['result'] as Map?)?['silent'] == true) return;
-      await appendToolOutput(call, result, name);
-    }
+    Future<bool> runBatch(List<Map<String, dynamic>> batch) =>
+        runToolBatch(batch, (call) async {
+          final result = await executeOnce(call);
+          final name = (call['function'] as Map?)?['name']?.toString() ?? '';
+          await consumeToolResult(result, name: name);
+          if ((result['result'] as Map?)?['silent'] == true) return false;
+          await appendToolOutput(call, result, name);
+          return true;
+        });
+
+    if (!await runBatch(calls)) return;
     appendAttachments();
     final missingRequired = requiredToolNames.difference(completedTools);
     if (missingRequired.isNotEmpty) {
@@ -4677,7 +4702,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             return (
               response.statusCode,
               response.headers,
-              <String, dynamic>{},
+              <String, dynamic>{
+                'error_body': await response.stream
+                    .transform(utf8.decoder)
+                    .join(),
+              },
               false,
             );
           }
@@ -4697,14 +4726,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       await cancellationToken?.checkRequestAllowed();
       if (statusCode != 200) {
         AppLogService.instance.add('TOOLS', '工具后续请求失败：HTTP $statusCode');
-        if (fileTransport.hasAttachments) {
-          throw ChatFileDeliveryException(
-            statusCode,
-            fileTransport.usedTextFallback && !fileTransport.hasRawAttachments,
-          );
-        }
-        replyTextCallback('工具执行后的回复请求失败，请查看工具执行结果。');
-        return;
+        throw _ToolFollowUpHttpError(
+          statusCode,
+          decoded['error_body'] as String,
+        );
       }
       final message = decoded['choices']?[0]?['message'];
       final fu = decoded['usage'];
@@ -4769,12 +4794,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       }
       await publishToolProgress?.call(diaryResponseContent(message), nextCalls);
       messages.add(toolAssistantMessage(message));
-      for (final call in nextCalls) {
-        final result = await executeOnce(call);
-        final name = (call['function'] as Map?)?['name']?.toString() ?? '';
-        await consumeToolResult(result, name: name);
-        await appendToolOutput(call, result, name);
-      }
+      if (!await runBatch(nextCalls)) return;
       appendAttachments();
     }
     replyTextCallback('任务已达到连续操作上限，请确认当前结果后再继续。');
@@ -7062,4 +7082,11 @@ String _formatVideoDuration(int seconds) {
       return '$hours小时';
     }
   }
+}
+
+class _ToolFollowUpHttpError implements Exception {
+  const _ToolFollowUpHttpError(this.status, this.detail);
+
+  final int status;
+  final String detail;
 }

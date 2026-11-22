@@ -51,7 +51,8 @@ object TideFutureTasks {
             val response = TideAiClient.sendRequest(TideAiClient.AiRequest(
                 model.baseUrl, model.apiKey, model.model,
                 listOf(TideAiClient.Message("system", TidePromptContext.system(context, bot))) + history +
-                    TideAiClient.Message("user", "这是一个定时任务，请完成：$prompt"), bot.maxTokens
+                    TideAiClient.Message("user", "这是一个定时任务，请完成：$prompt"), bot.maxTokens,
+                presetName = model.presetName, providerName = model.name, isCustom = model.isCustom
             )) { url, body, attempt ->
                 if (TideBackgroundLog.enabled(context)) {
                     TideBackgroundLog.add(context, "未来任务完整请求（已脱敏）\n" + JSONObject()

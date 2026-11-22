@@ -473,6 +473,15 @@ enum NativeChatApi {
     return result;
   }
 
+  String _finishReason(Object? reason, {required bool hasTools}) {
+    final complete = this == claude
+        ? const {'end_turn', 'stop_sequence', 'tool_use'}.contains(reason)
+        : reason == 'STOP';
+    if (complete) return hasTools ? 'tool_calls' : 'stop';
+    if (reason == 'max_tokens' || reason == 'MAX_TOKENS') return 'length';
+    return reason?.toString() ?? 'incomplete';
+  }
+
   Future<http.StreamedResponse> send(
     http.Client client,
     http.Request request, {
@@ -512,6 +521,7 @@ enum NativeChatApi {
       final text = StringBuffer();
       final tools = <Map>[];
       Map? stats;
+      Object? finish;
       if (this == claude) {
         for (final part in (data['content'] as List? ?? const []).cast<Map>()) {
           if (part['type'] == 'text') text.write(part['text']);
@@ -524,7 +534,12 @@ enum NativeChatApi {
             );
         }
         stats = usage(data['usage'] as Map? ?? {});
+        finish = data['stop_reason'];
       } else {
+        final candidates = data['candidates'] as List?;
+        if (candidates != null && candidates.isNotEmpty) {
+          finish = (candidates.first as Map)['finishReason'];
+        }
         for (final chunk in _geminiChunks(data, () => index++, id)) {
           final delta = (chunk['choices'] as List).first['delta'] as Map;
           text.write(delta['content'] ?? '');
@@ -542,7 +557,7 @@ enum NativeChatApi {
               'content': text.toString(),
               if (tools.isNotEmpty) 'tool_calls': tools,
             },
-            'finish_reason': tools.isEmpty ? 'stop' : 'tool_calls',
+            'finish_reason': _finishReason(finish, hasTools: tools.isNotEmpty),
           },
         ],
         if (stats != null) 'usage': stats,
@@ -557,6 +572,7 @@ enum NativeChatApi {
       final rawUsage = <String, dynamic>{};
       var hasTools = false;
       var completed = false;
+      Object? finish;
       await for (final line
           in response.stream
               .transform(utf8.decoder)
@@ -565,14 +581,18 @@ enum NativeChatApi {
         final json = line.substring(5).trim();
         if (json.isEmpty || json == '[DONE]') continue;
         final data = jsonDecode(json) as Map;
+        if (data['error'] != null)
+          throw const FormatException('Native chat stream error');
         final chunks = <Map<String, dynamic>>[];
         if (this == gemini) {
           chunks.addAll(_geminiChunks(data, () => index++, id));
           final candidates = data['candidates'] as List?;
           if (candidates != null && candidates.isNotEmpty) {
             final reason = (candidates.first as Map)['finishReason'];
-            if (reason != null && reason != 'FINISH_REASON_UNSPECIFIED')
+            if (reason != null && reason != 'FINISH_REASON_UNSPECIFIED') {
+              finish = reason;
               completed = true;
+            }
           }
         } else {
           final blockIndex = data['index'] as int? ?? 0;
@@ -617,6 +637,7 @@ enum NativeChatApi {
             case 'message_stop':
               completed = true;
             case 'message_delta':
+              finish = (data['delta'] as Map?)?['stop_reason'] ?? finish;
               rawUsage.addAll(
                 Map<String, dynamic>.from(data['usage'] as Map? ?? {}),
               );
@@ -633,7 +654,11 @@ enum NativeChatApi {
       if (!completed)
         throw const FormatException('Incomplete native chat stream');
       yield utf8.encode(
-        'data: ${jsonEncode(_delta({}, finish: hasTools ? 'tool_calls' : 'stop', stats: this == claude ? usage(rawUsage) : null))}\n\ndata: [DONE]\n\n',
+        'data: ${jsonEncode(_delta(
+          {},
+          finish: _finishReason(finish, hasTools: hasTools),
+          stats: this == claude ? usage(rawUsage) : null,
+        ))}\n\ndata: [DONE]\n\n',
       );
     }
 

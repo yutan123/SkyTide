@@ -12,7 +12,61 @@ void check(bool result, String label) {
   if (!result) throw StateError(label);
 }
 
+Future<void> checkIncompleteResponses() async {
+  final adapter = ChatGptResponses('incomplete-test');
+  final endpoint = ChatGptResponses.endpoint('https://api.openai.com/v1');
+  const output = [
+    {
+      'type': 'function_call',
+      'call_id': 'call_truncated',
+      'name': 'lookup',
+      'arguments': '{}',
+    },
+  ];
+  for (final (event, status, expected) in <(String?, String?, String)>[
+    ('response.incomplete', null, 'length'),
+    ('response.incomplete', 'completed', 'length'),
+    ('response.completed', 'incomplete', 'length'),
+    (null, 'incomplete', 'length'),
+    (null, 'in_progress', 'error'),
+  ]) {
+    final response = {if (status != null) 'status': status, 'output': output};
+    final client = MockClient(
+      (_) async => http.Response(
+        event == null
+            ? jsonEncode(response)
+            : 'data: ${jsonEncode({'type': event, 'response': response})}\n\n',
+        200,
+        headers: {
+          'content-type': event == null
+              ? 'application/json'
+              : 'text/event-stream',
+        },
+      ),
+    );
+    try {
+      final request = http.Request('POST', endpoint)..body = '{}';
+      final result = await adapter.send(client, request);
+      final raw = await result.stream.bytesToString();
+      final decoded =
+          jsonDecode(event == null ? raw : raw.trim().substring(6)) as Map;
+      final choice = (decoded['choices'] as List).single as Map;
+      check(
+        choice['finish_reason'] == expected,
+        'unexpected finish reason: $event/$status',
+      );
+      check(
+        !(choice['message'] as Map).containsKey('tool_calls'),
+        'unfinished response published a tool',
+      );
+    } finally {
+      client.close();
+    }
+  }
+}
+
 Future<void> main() async {
+  await checkIncompleteResponses();
   const url = 'https://api.openai.com/v1';
   final official = ChatProviderCache.resolve({
     'preset_name': 'ChatGPT',

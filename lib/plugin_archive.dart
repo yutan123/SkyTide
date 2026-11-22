@@ -44,7 +44,33 @@ class PluginArchive {
       var expanded = 0;
       // Inspect every central-directory entry before decompressing any content.
       // ZipDecoder merges duplicate names, and its verify flag does not check CRC.
+      var central = directory.centralDirectoryOffset;
+      final centralEnd = central + directory.centralDirectorySize;
+      int word(int offset) => bytes[offset] | (bytes[offset + 1] << 8);
       for (final header in directory.fileHeaders) {
+        // The archive library exposes the central name even on the local entry.
+        final local = header.localHeaderOffset;
+        if (central < 0 ||
+            central + 46 > centralEnd ||
+            centralEnd > bytes.length ||
+            local < 0 ||
+            local + 30 > directory.centralDirectoryOffset ||
+            word(local) != 0x4b50 ||
+            word(local + 2) != 0x0403) {
+          throw const FormatException('ZIP 文件头无效');
+        }
+        final nameLength = word(central + 28);
+        if (nameLength != word(local + 26) ||
+            central + 46 + nameLength > centralEnd ||
+            local + 30 + nameLength > directory.centralDirectoryOffset) {
+          throw const FormatException('ZIP 文件名记录不一致');
+        }
+        for (var i = 0; i < nameLength; i++) {
+          if (bytes[central + 46 + i] != bytes[local + 30 + i]) {
+            throw const FormatException('ZIP 文件名记录不一致');
+          }
+        }
+        central += 46 + nameLength + word(central + 30) + word(central + 32);
         final file = header.file;
         final raw = header.filename.replaceAll('\\', '/');
         final name = p.posix.normalize(raw);

@@ -129,7 +129,17 @@ class ChatGptResponses {
     }
   }
 
-  Map<String, dynamic> _completion(Map response) {
+  Map<String, dynamic> _completion(Map response, {bool incomplete = false}) {
+    final status = response['status'];
+    final completed = !incomplete && (status == null || status == 'completed');
+    final details = response['incomplete_details'];
+    final String? failureReason = completed
+        ? null
+        : incomplete || status == 'incomplete'
+        ? (details is Map && details['reason'] == 'content_filter'
+              ? 'content_filter'
+              : 'length')
+        : 'error';
     final text = StringBuffer();
     final calls = <Map>[];
     final replay = <Map>[];
@@ -144,7 +154,7 @@ class ChatGptResponses {
             }
           }
           replay.add(Map.of(item)..remove('id'));
-        case 'function_call' when response['status'] != 'incomplete':
+        case 'function_call' when completed:
           if (item['call_id'] is! String || item['name'] is! String) break;
           calls.add({
             'id': item['call_id'],
@@ -179,11 +189,8 @@ class ChatGptResponses {
             'content': text.toString(),
             if (calls.isNotEmpty) 'tool_calls': calls,
           },
-          'finish_reason': calls.isNotEmpty
-              ? 'tool_calls'
-              : response['status'] == 'incomplete'
-              ? 'length'
-              : 'stop',
+          'finish_reason':
+              failureReason ?? (calls.isNotEmpty ? 'tool_calls' : 'stop'),
         },
       ],
     };
@@ -219,7 +226,10 @@ class ChatGptResponses {
           });
         case 'response.completed':
         case 'response.incomplete':
-          final completion = _completion(event['response'] as Map);
+          final completion = _completion(
+            event['response'] as Map,
+            incomplete: event['type'] == 'response.incomplete',
+          );
           final choice = (completion['choices'] as List).single as Map;
           final message = choice['message'] as Map;
           if (!streamedText && (message['content'] as String).isNotEmpty) {

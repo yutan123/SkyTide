@@ -36,7 +36,9 @@ object TideConfigReader {
         val name: String,
         val baseUrl: String,
         val apiKey: String,
-        val model: String
+        val model: String,
+        val presetName: String?,
+        val isCustom: Boolean
     )
 
     /**
@@ -105,7 +107,9 @@ object TideConfigReader {
                             name = item.optString("name", ""),
                             baseUrl = item.optString("url", ""),
                             apiKey = resolveModelKey(context, item.optString("key", "")),
-                            model = rawModel.ifBlank { name }.substringBefore(",").trim()
+                            model = rawModel.ifBlank { name }.substringBefore(",").trim(),
+                            presetName = item.optString("preset_name").takeUnless { item.isNull("preset_name") },
+                            isCustom = item.opt("is_custom") == true
                         )
                     }
                 }

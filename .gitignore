@@ -53,11 +53,6 @@ app.*.map.json
 .analysis-result
 .test-result
 
-# Downloaded reference projects and retired Android bootstrap files
-/.reference/
-/custom_android/
-/.github/workflows/generate_flutter_shell.yml
-
 # Temporary files and locally generated Android packages
 /tmp/
 /temp/
@@ -68,15 +63,6 @@ app.*.map.json
 *.rej
 *.apk
 *.aab
-
-# Retired one-off workspace patch and native-check scripts
-/.background_patch.py
-/.handoff_patch.py
-/.log_patch.py
-/.request_patch.py
-/.test_patch.py
-/.native_check.py
-/.native_dependencies_check.py
 
 # Local credentials and signing material (never source-controlled)
 .env
