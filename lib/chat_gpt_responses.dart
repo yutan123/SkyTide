@@ -5,10 +5,12 @@ import 'package:http/http.dart' as http;
 
 import 'chat_api_endpoint.dart';
 
-/// Adapts the ChatGPT preset to Responses without changing other providers.
+/// Adapts Chat Completions transcripts to the Responses protocol.
 /// A single instance lives for the initial request and its tool continuations.
 class ChatGptResponses {
-  ChatGptResponses(this.scope);
+  ChatGptResponses(this.scope, {this.grok = false});
+
+  final bool grok;
 
   final String scope;
   final _toolOutputByCallId = <String, List<Map>>{};
@@ -42,13 +44,15 @@ class ChatGptResponses {
     return {
       'model': chat['model'],
       'input': [for (final message in messages) ..._input(message)],
-      'prompt_cache_key': 'skytide_resp_${digest.toString().substring(0, 48)}',
+      if (!grok)
+        'prompt_cache_key':
+            'skytide_resp_${digest.toString().substring(0, 48)}',
       'store': false,
       if ((chat['max_completion_tokens'] ?? chat['max_tokens'])
           case final int limit)
         'max_output_tokens': limit,
-      if (chat['reasoning_effort'] case final String effort)
-        'reasoning': {'effort': effort},
+      if (!grok && chat['reasoning_effort'] is String)
+        'reasoning': {'effort': chat['reasoning_effort']},
       if (tools.isNotEmpty) ...{
         'tools': tools,
         'include': ['reasoning.encrypted_content'],

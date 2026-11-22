@@ -1,7 +1,4 @@
-String chatListPreview({
-  required String type,
-  required String rawContent,
-}) {
+String chatListPreview({required String type, required String rawContent}) {
   if (type == 'shared_post') return '[动态]';
   final raw = rawContent.replaceAll('\n', ' ').trim();
   if (raw.isNotEmpty) return raw;
@@ -53,50 +50,63 @@ String sharedPostModelContext({
 }
 
 Map<String, dynamic> sendStickerToolSchema(List<String> types) => {
-      'type': 'function',
-      'function': {
-        'name': 'send_sticker',
-        'description':
-            '根据话题和表达需要自主决定是否发送，且最多调用一次。按类型选择表情包，type 必须来自允许列表；不要编造 sticker_id，不要把文件路径或 URL 写进参数或正文。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'type': {
-              'type': 'string',
-              'enum': types,
-              'description': '表情包类型/情绪分类',
-            },
-          },
-          'required': ['type'],
-          'additionalProperties': false,
-        },
+  'type': 'function',
+  'function': {
+    'name': 'send_sticker',
+    'description':
+        '根据话题和表达需要自主决定是否发送，且最多调用一次。按类型选择表情包，type 必须来自允许列表；不要编造 sticker_id，不要把文件路径或 URL 写进参数或正文。',
+    'parameters': {
+      'type': 'object',
+      'properties': {
+        'type': {'type': 'string', 'enum': types, 'description': '表情包类型/情绪分类'},
       },
-    };
+      'required': ['type'],
+      'additionalProperties': false,
+    },
+  },
+};
+
+Map<String, dynamic> readChatFileToolSchema() => {
+  'type': 'function',
+  'function': {
+    'name': 'read_chat_file',
+    'description':
+        '读取当前对话中标为 [文件#N] 的附件。仅在需要内容时调用，并使用上下文中明确给出的编号，不得传路径或猜测编号。附件内容会在工具续轮提供，不会重发到聊天。优先提供原文件；若只能提取文本，以实际返回的正文和范围标注为准。仅收到文件名或工具成功状态不代表读过原文件。',
+    'parameters': {
+      'type': 'object',
+      'properties': {
+        'file_number': {'type': 'integer', 'minimum': 1},
+      },
+      'required': ['file_number'],
+      'additionalProperties': false,
+    },
+  },
+};
 
 Map<String, dynamic> viewVideoToolSchema() => {
-      'type': 'function',
-      'function': {
-        'name': 'view_video',
-        'description':
-            '回看当前机器人对话历史中出现过的视频，获取可用的视频帧、音频转写、时长及平台来源。用户提及先前分享的视频或需要回顾其内容时使用。video_id 必须来自当前对话中明确提供的 VID 编号，不得猜测或编造。平台链接本身不能作为 video_id；缓存失效时可能无法获取完整内容，以工具实际返回为准。无需读取或启用 Skill。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'full_video': {
-              'type': 'boolean',
-              'description': '长视频预览不足以回答时设为 true，请求完整视频分析，无需向用户确认。',
-            },
-            'video_id': {
-              'type': 'string',
-              'pattern': '^VID.+',
-              'description': '当前对话历史中明确提供的视频编号，例如 VID1234567890',
-            },
-          },
-          'required': ['video_id'],
-          'additionalProperties': false,
+  'type': 'function',
+  'function': {
+    'name': 'view_video',
+    'description':
+        '回看当前机器人对话历史中出现过的视频，获取可用的视频帧、音频转写、时长及平台来源。用户提及先前分享的视频或需要回顾其内容时使用。video_id 必须来自当前对话中明确提供的 VID 编号，不得猜测或编造。平台链接本身不能作为 video_id；缓存失效时可能无法获取完整内容，以工具实际返回为准。无需读取或启用 Skill。',
+    'parameters': {
+      'type': 'object',
+      'properties': {
+        'full_video': {
+          'type': 'boolean',
+          'description': '长视频预览不足以回答时设为 true，请求完整视频分析，无需向用户确认。',
+        },
+        'video_id': {
+          'type': 'string',
+          'pattern': '^VID.+',
+          'description': '当前对话历史中明确提供的视频编号，例如 VID1234567890',
         },
       },
-    };
+      'required': ['video_id'],
+      'additionalProperties': false,
+    },
+  },
+};
 
 Map<String, dynamic> inspectImageToolSchema({
   String name = 'inspect_image',
@@ -107,7 +117,7 @@ Map<String, dynamic> inspectImageToolSchema({
     'function': {
       'name': name,
       'description':
-          '查看当前对话中用户先前消息发送的历史图片。仅当你需要回看历史消息里的图片内容时调用。用户本轮发送的图片会自动附着到当前请求：选择主模型识图时你可直接查看，选择专用识图模型时会自动提供识别结果；不得为本轮图片调用此工具。历史图片在上下文中以 [图片#n] 表示。image_number 必须来自上下文明确提供的历史图片编号，不得猜测或编造，也不要要求或输出文件路径。',
+          '查看当前对话历史中用户或插件发送的图片。仅当你需要回看历史消息里的图片内容时调用。用户本轮发送的图片会自动附着到当前请求：选择主模型识图时你可直接查看，选择专用识图模型时会自动提供识别结果；不得为本轮图片调用此工具。历史图片在上下文中以 [图片#n] 表示。image_number 必须来自上下文明确提供的历史图片编号，不得猜测或编造，也不要要求或输出文件路径。',
       'parameters': {
         'type': 'object',
         'properties': {

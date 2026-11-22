@@ -10,39 +10,41 @@ const userImageEditRule =
     '用户指代不清或缺少有效编号时先询问，不得擅自选图；工具失败不得声称已改好，不得退回文生图冒充原图修改。';
 
 Map<String, dynamic> userImageEditToolSchema() => {
-      'type': 'function',
-      'function': {
-        'name': 'edit_user_image',
-        'description': '$userImageEditRule '
-            '可用编号参见当前上下文。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'source': {
-              'type': 'string',
-              'enum': ['current', 'history'],
-              'description': 'current=本轮用户图片；history=历史用户图片，必须明确选择。',
-            },
-            'image_number': {
-              'type': 'integer',
-              'minimum': 1,
-              'description': '所选 source 内的图片编号，不是聊天消息 ID、路径或 URL。',
-            },
-            'prompt': {
-              'type': 'string',
-              'minLength': 1,
-              'description': '你编写的完整图改提示词，将原样发送；自行写明修改目标和保留内容，系统不补写。',
-            },
-          },
-          'required': ['source', 'image_number', 'prompt'],
-          'additionalProperties': false,
+  'type': 'function',
+  'function': {
+    'name': 'edit_user_image',
+    'description':
+        '$userImageEditRule '
+        '可用编号参见当前上下文。',
+    'parameters': {
+      'type': 'object',
+      'properties': {
+        'source': {
+          'type': 'string',
+          'enum': ['current', 'history'],
+          'description': 'current=本轮用户图片；history=历史用户图片，必须明确选择。',
+        },
+        'image_number': {
+          'type': 'integer',
+          'minimum': 1,
+          'description': '所选 source 内的图片编号，不是聊天消息 ID、路径或 URL。',
+        },
+        'prompt': {
+          'type': 'string',
+          'minLength': 1,
+          'description': '你编写的完整图改提示词，将原样发送；自行写明修改目标和保留内容，系统不补写。',
         },
       },
-    };
+      'required': ['source', 'image_number', 'prompt'],
+      'additionalProperties': false,
+    },
+  },
+};
 
-String userImageEditContext() => '【已授权工具：用户原图编辑】$userImageEditRule '
+String userImageEditContext() =>
+    '【已授权工具：用户原图编辑】$userImageEditRule '
     '编号只读取对应消息旁的标记：[本轮图片#N] 对应 source=current，'
-    '[图片#N] 对应 source=history；没有标记就没有可选原图。';
+    '用户发出的 [图片#N] 对应 source=history；插件图片不可作为编辑原图，没有标记就没有可选原图。';
 
 class UserImageEditSelection {
   const UserImageEditSelection({
@@ -65,9 +67,11 @@ UserImageEditSelection resolveUserImageEdit(
   required Map<int, String> historyImages,
 }) {
   if (args.keys.any(
-      (key) => !const {'source', 'image_number', 'prompt'}.contains(key))) {
+    (key) => !const {'source', 'image_number', 'prompt'}.contains(key),
+  )) {
     throw const FormatException(
-        '仅支持 source、image_number、prompt；不要传入图片路径、URL 或永久参考图参数。');
+      '仅支持 source、image_number、prompt；不要传入图片路径、URL 或永久参考图参数。',
+    );
   }
   final source = args['source'];
   if (source != 'current' && source != 'history') {
@@ -85,7 +89,8 @@ UserImageEditSelection resolveUserImageEdit(
   final path = images[number];
   if (path == null || path.trim().isEmpty) {
     throw FormatException(
-        'source=$source 的图片#$number 不在当前可用列表中，请核对来源和编号，不要改用其他图片。');
+      'source=$source 的图片#$number 不在当前可用列表中，请核对来源和编号，不要改用其他图片。',
+    );
   }
   return UserImageEditSelection(
     source: source as String,

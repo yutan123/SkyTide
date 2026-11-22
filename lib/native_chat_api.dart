@@ -226,6 +226,36 @@ enum NativeChatApi {
             } else {
               throw const FormatException('Gemini requires inline image data');
             }
+          } else if (part['type'] == 'input_file') {
+            final data = part['file_data']?.toString() ?? '';
+            final prefixEnd = data.indexOf(';base64,');
+            if (!data.startsWith('data:') || prefixEnd <= 5) {
+              throw const FormatException(
+                'Native chat requires inline file data',
+              );
+            }
+            final mime = data.substring(5, prefixEnd);
+            final bytes = data.substring(prefixEnd + ';base64,'.length);
+            if (this == claude && mime != 'application/pdf') {
+              throw const FormatException(
+                'Claude Messages requires PDF documents',
+              );
+            }
+            parts.add(
+              this == claude
+                  ? {
+                      'type': 'document',
+                      'title': part['filename'],
+                      'source': {
+                        'type': 'base64',
+                        'media_type': mime,
+                        'data': bytes,
+                      },
+                    }
+                  : {
+                      'inlineData': {'mimeType': mime, 'data': bytes},
+                    },
+            );
           } else if (part['type'] == 'input_audio') {
             if (this == claude)
               throw const FormatException(

@@ -598,21 +598,21 @@ class MainActivity: FlutterActivity() {
                 descriptor = openedDescriptor
                 val openedRenderer = PdfRenderer(openedDescriptor)
                 renderer = openedRenderer
-                val pages = minOf(openedRenderer.pageCount, maxPages)
+                val pageCount = openedRenderer.pageCount
+                val pages = minOf(pageCount, maxPages)
                 val allText = StringBuilder()
                 var index = 0
-
+                var failedPages = 0
                 fun processNextPage() {
                     if (index >= pages || allText.length >= maxChars) {
-                        runOnUiThread {
-                            result.success(
-                                mapOf(
-                                    "text" to allText.take(maxChars).toString(),
-                                    "pagesProcessed" to index,
-                                    "pageCount" to openedRenderer.pageCount
-                                )
-                            )
-                        }
+                        val output = mapOf(
+                            "text" to allText.take(maxChars).toString(),
+                            "pagesProcessed" to index,
+                            "pageCount" to pageCount,
+                            "failedPages" to failedPages,
+                            "truncated" to (allText.length > maxChars)
+                        )
+                        runOnUiThread { result.success(output) }
                         try { openedRenderer.close() } catch (_: Exception) {}
                         try { openedDescriptor.close() } catch (_: Exception) {}
                         return
@@ -641,10 +641,10 @@ class MainActivity: FlutterActivity() {
                             index += 1
                             processNextPage()
                         }
-                        .addOnFailureListener { error ->
+                        .addOnFailureListener {
                             bitmap.recycle()
                             index += 1
-                            allText.append("\n[第 $index 页 OCR 失败：${error.message ?: "未知错误"}]\n")
+                            failedPages += 1
                             processNextPage()
                         }
                 }

@@ -175,15 +175,95 @@ ChatReplyContent parseChatReply(String raw) {
 
 String cleanChatContent(String value) => parseChatReply(value).text;
 
+final _privateProgressBlock = RegExp(
+  r'<(inner_thought|think|thinking|analysis|reasoning|tool_call)\b[^>]*>[\s\S]*?(?:</\1\s*>|$)',
+  caseSensitive: false,
+);
+const _privateProgressLabels = [
+  '思考过程',
+  '思考',
+  '分析过程',
+  '分析',
+  '推理过程',
+  '推理',
+  '内心独白',
+  'reasoning',
+  'thinking',
+  'thought process',
+  'analysis',
+  'tool_call',
+  'tool call',
+];
+final _privateProgressHeading = RegExp(
+  '^\\s*(?:#{1,6}\\s*)?(?:${_privateProgressLabels.join('|')})\\s*[:：]',
+  caseSensitive: false,
+  multiLine: true,
+);
+
+bool _hasPartialPrivateProgress(String text) {
+  final line = text
+      .split('\n')
+      .last
+      .trim()
+      .replaceFirst(RegExp(r'^#{1,6}\s*'), '');
+  if (line.isNotEmpty &&
+      _privateProgressLabels.any((label) => label.startsWith(line))) {
+    return true;
+  }
+  final suffix = RegExp(r'(?:<[^>\s]*|\[[^\]\n]*)$').firstMatch(text)?.group(0);
+  return suffix != null &&
+      const [
+        '<thinking',
+        '<think',
+        '<inner_thought',
+        '<analysis',
+        '<reasoning',
+        '<tool_call',
+        '[tool_call',
+        '[choose_silence',
+      ].any((tag) => tag.startsWith(suffix) || suffix.startsWith(tag));
+}
+
+/// Tool updates expose only public assistant content, never reasoning fields.
+String visibleToolProgress(Object? content) {
+  if (content is! String) return '';
+  final visible = parseChatReply(
+    content.replaceAll(_privateProgressBlock, ''),
+  ).text;
+  final private = _privateProgressHeading.firstMatch(visible);
+  return (private == null ? visible : visible.substring(0, private.start))
+      .replaceAll(
+        RegExp(
+          r'\[(?:tool_call\b[^\]\n]*|choose_silence)\]',
+          caseSensitive: false,
+        ),
+        '',
+      )
+      .trim();
+}
+
 /// Hold ambiguous openings before they reach the UI; ordinary text streams.
 class ChatReplyStream {
+  ChatReplyStream({this.publicOnly = false});
+
+  final bool publicOnly;
   final _raw = StringBuffer();
   String _sent = '';
-  ChatReplyContent get content => parseChatReply(_raw.toString());
+  ChatReplyContent get content {
+    final raw = _raw.toString();
+    final parsed = parseChatReply(raw);
+    return publicOnly
+        ? ChatReplyContent(
+            visibleToolProgress(raw),
+            innerThought: parsed.innerThought,
+          )
+        : parsed;
+  }
 
   String add(String delta) {
     _raw.write(delta);
     final raw = _replySource(_raw.toString()).toLowerCase();
+    if (publicOnly && _hasPartialPrivateProgress(raw)) return '';
     final visible = content.text.toLowerCase();
     if (_planningOpenings.any(
           (prefix) =>

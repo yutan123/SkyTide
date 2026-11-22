@@ -56,6 +56,8 @@ import 'emotion_state_service.dart';
 import 'device_capability_service.dart';
 import 'chat_content.dart';
 import 'chat_protocol.dart';
+import 'chat_attachment_access.dart';
+import 'chat_file_transport.dart';
 import 'skill_runtime.dart';
 import 'skill_context.dart';
 import 'skill_package.dart';
@@ -257,6 +259,7 @@ class AIManager {
     bool useJarvis = false,
     AICancellationToken? cancellationToken,
     bool deferPluginDelivery = false,
+    void Function(Map<String, dynamic> message)? onToolProgress,
     void Function(String delta)? onDelta,
     void Function()? onPreviewReset,
   }) async {
@@ -368,6 +371,7 @@ class AIManager {
             try {
               Map<String, dynamic>? lastFailure;
               var attempted = 0;
+              var deliveredToolProgress = false;
               for (var index = 0; index < attempts.length; index++) {
                 await cancellationToken?.checkRequestAllowed();
                 final candidate = attempts[index];
@@ -411,6 +415,12 @@ class AIManager {
                     // 部分服务商在非流式模式下长期不返回，聊天室最终只看到超时。
                     onDelta: onDelta,
                     onPreviewReset: onPreviewReset,
+                    onToolProgress: onToolProgress == null
+                        ? null
+                        : (row) {
+                            deliveredToolProgress = true;
+                            onToolProgress(row);
+                          },
                     forcedLocalId: candidate['local']!,
                     forcedProviderId: candidate['provider']!,
                   );
@@ -430,7 +440,11 @@ class AIManager {
                       result['error_code']?.toString() == 'network' ||
                       code == 429 ||
                       code >= 500;
-                  if (!retryable || index == attempts.length - 1) break;
+                  if (deliveredToolProgress ||
+                      !retryable ||
+                      index == attempts.length - 1) {
+                    break;
+                  }
                 } on AICancelledException {
                   rethrow;
                 }
@@ -939,6 +953,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     AICancellationToken? cancellationToken,
     void Function(String delta)? onDelta,
     void Function()? onPreviewReset,
+    void Function(Map<String, dynamic> message)? onToolProgress,
     String forcedLocalId = '',
     String forcedProviderId = '',
   }) async {
@@ -1014,7 +1029,13 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     var suggestSticker = false;
     var stickerEmotions = <String>[];
     var currentImages = <int, String>{};
-    var inspectableImages = <int, String>{};
+    final inspectableImages = <int, String>{};
+    final editableHistoryImages = <int, String>{};
+    final inspectableVideos = <String, String>{};
+    final inspectableFiles = <int, ChatFileReference>{};
+    final currentFiles = <ChatFileReference>[];
+    Map<String, dynamic>? currentFileMessage;
+    ChatFileTransport? requestFileTransport;
     var messages = <Map<String, dynamic>>[];
     var tools = <Map<String, dynamic>>[];
     if (task.internal) {
@@ -1148,26 +1169,36 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         for (var i = 0; i < effectiveImagePaths.length; i++)
           i + 1: effectiveImagePaths[i],
       };
-      inspectableImages = <int, String>{};
       final imageNumberByPath = <String, int>{};
       void registerHistoricalImage(String path) {
         final normalized = path.trim();
-        if (normalized.isEmpty || imageNumberByPath.containsKey(normalized)) {
-          return;
-        }
-        final number = imageNumberByPath.length + 1;
-        imageNumberByPath[normalized] = number;
-        inspectableImages[number] = normalized;
+        if (normalized.isEmpty) return;
+        imageNumberByPath.putIfAbsent(
+          normalized,
+          () => imageNumberByPath.length + 1,
+        );
       }
 
       for (final msg in history) {
-        if (msg['type']?.toString() != 'image' ||
-            msg['role']?.toString() != 'user') {
+        if (!isReadableChatHistoryRow(msg) ||
+            msg['type'] != 'image' ||
+            (msg['role'] != 'user' && !isPluginChatMessage(msg))) {
           continue;
         }
         final path = msg['file_path']?.toString().trim() ?? '';
         if (path.isEmpty || effectiveImagePaths.contains(path)) continue;
         registerHistoricalImage(path);
+      }
+      final attachments = ChatAttachmentCatalog();
+      for (final row in history) {
+        attachments.add(row);
+      }
+      for (final row in savedHistory) {
+        final id = row['id']?.toString() ?? '';
+        if (row['role'] != 'user' || !currentMessageIds.contains(id)) continue;
+        attachments.add(row);
+        final file = attachments.filesByMessageId[id];
+        if (file != null) currentFiles.add(file);
       }
       final currentImageDescriptions = <int, String>{};
       // 本轮图片不进入历史图片工具。使用主模型识图时直接附着图片；选择
@@ -1354,6 +1385,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         final normalizedContent = _modelContextForHistoryMessage(
           {...msg, 'content': features.historyText(msg)},
           imageNumberByPath: imageNumberByPath,
+          attachments: attachments,
           sharedPostContexts: sharedPostContexts,
         );
         if (normalizedContent == null || normalizedContent.isEmpty) continue;
@@ -1416,6 +1448,31 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         'CONTEXT',
         '稳定历史窗口：保留 ${historyMessages.length} 条，估算 ${window.tokens}/$maxContext tokens，起点=${window.startId}，跳过 ${window.removed} 条；达到完整预算才滚动至一半',
       );
+      final visibleIds = {for (final message in historyMessages) message['id']};
+      if (currentHistoryMessage != null)
+        visibleIds.add(currentHistoryMessage['id']);
+      for (final row in history) {
+        final id = row['id']?.toString() ?? '';
+        if (!visibleIds.contains(id) || !isReadableChatHistoryRow(row))
+          continue;
+        final file = attachments.filesByMessageId[id];
+        if (file != null) inspectableFiles[file.number] = file;
+        final videoId = attachments.pluginVideosByMessageId[id];
+        if (videoId != null)
+          inspectableVideos[videoId] = attachments.pluginVideoPaths[videoId]!;
+        if (row['type'] != 'image' ||
+            (row['role'] != 'user' && !isPluginChatMessage(row)))
+          continue;
+        final path = row['file_path']?.toString().trim() ?? '';
+        final number = imageNumberByPath[path];
+        if (number != null) {
+          inspectableImages[number] = path;
+          if (row['role'] == 'user') editableHistoryImages[number] = path;
+        }
+      }
+      for (final file in currentFiles) {
+        inspectableFiles[file.number] = file;
+      }
       // IDs belong to the local window cursor, never the provider protocol.
       for (final message in historyMessages) {
         message.remove('id');
@@ -1524,6 +1581,19 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           );
         }
       }
+      if (currentFiles.isNotEmpty && messages.last['role'] == 'user') {
+        final labels = currentFiles.map((file) => file.label).join('\n');
+        final previous = messages.last['content'];
+        messages.last['content'] = previous is List
+            ? [
+                ...previous,
+                {'type': 'text', 'text': labels},
+              ]
+            : [
+                previous,
+                labels,
+              ].whereType<String>().where((s) => s.isNotEmpty).join('\n');
+      }
       if (!task.internal &&
           task != AIRequestTask.proactiveChat &&
           task != AIRequestTask.pluginReply &&
@@ -1533,9 +1603,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           messages.last,
           currentTimestamp,
         );
+        if (currentFiles.isNotEmpty) currentFileMessage = messages.last;
         if (useGrokStableHistory) {
           moveUserBeforeTurnContext(messages, stableHistoryEnd);
         }
+      } else if (currentFiles.isNotEmpty && messages.isNotEmpty) {
+        currentFileMessage = messages.last;
       }
       if (!isVoiceCall &&
           useJarvis &&
@@ -1611,100 +1684,219 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         'AI',
         '请求 $modelName（tools=${allowTools ? 'on' : 'off'}，stream=${onDelta != null ? 'on' : 'off'}）',
       );
-      final toolCallingEnabled = allowTools && tools.isNotEmpty;
-
-      final cacheScope = '$baseUrl|$botId|$providerId|$modelName|${task.name}';
       final nativeApi = NativeChatApi.resolve(provider, baseUrl);
-      final cacheOptions = cachePolicy.requestOptions(
-        cacheScope,
-        stream: onDelta != null,
+      final fileProtocol = ChatFileProtocol.resolve(
+        cachePolicy,
+        modelName,
+        nativeApi,
       );
-      final responses = cachePolicy == ChatProviderCache.gpt
-          ? ChatGptResponses(cacheScope)
+      final fileTransport = ChatFileTransport(
+        fileProtocol,
+        baseUrl: baseUrl,
+        apiKey: provider['api_key']?.toString() ?? '',
+      );
+      requestFileTransport = fileTransport;
+      final qwenLong = fileProtocol == ChatFileProtocol.qwenLong;
+      final toolCallingEnabled = !qwenLong && allowTools && tools.isNotEmpty;
+      final sendToolProgress =
+          toolCallingEnabled &&
+          persistResponse &&
+          task == AIRequestTask.chat &&
+          !diaryTask &&
+          !quoteTask &&
+          !isVoiceCall &&
+          !forceSingleReply &&
+          onToolProgress != null;
+      if (sendToolProgress) {
+        messages.add({
+          'role': 'system',
+          'content':
+              '连续操作时，可以在调用工具的同一个回复中，先用一句面向用户的正文简短说明进展。'
+              '仅在有实际信息时发送，不要每次都播报，不要重复已发送的内容。'
+              '不要在用户可见正文中输出思考、分析、内部指令或工具参数。',
+        });
+      }
+      var progressIndex = 0;
+      Future<void> publishToolProgress(
+        String content,
+        List<Map<String, dynamic>> calls,
+      ) async {
+        if (onToolProgress == null ||
+            !sendToolProgress ||
+            calls.any((call) {
+              final function = call['function'];
+              return function is Map && function['name'] == 'choose_silence';
+            })) {
+          return;
+        }
+        var visible = visibleToolProgress(content);
+        if (!_userExplicitlyRequestedSources(text)) {
+          visible = _stripSourceLinks(visible).trim();
+        }
+        if (visible.isEmpty) return;
+        await cancellationToken?.checkRequestAllowed();
+        final row = <String, dynamic>{
+          'id': 'msg_progress_${requestId}_${progressIndex++}',
+          'bot_id': botId,
+          'role': 'assistant',
+          'type': 'text',
+          'content': visible,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        };
+        await MessageDeliveryService.instance.insert(row, notify: false);
+        onToolProgress(row);
+      }
+
+      final extractFile = _chatFileExtractor(cancellationToken);
+      final baseCacheScope =
+          '$baseUrl|$botId|$providerId|$modelName|${task.name}';
+      if (currentFiles.isNotEmpty) {
+        try {
+          final message = currentFileMessage;
+          if (message == null) {
+            throw const FormatException('无法定位本轮附件对应的用户消息');
+          }
+          await fileTransport.attachToUserMessage(
+            message,
+            currentFiles,
+            upload: (action) =>
+                _withCancellableClient(cancellationToken, action),
+            extract: extractFile,
+          );
+        } on FormatException catch (error) {
+          return {'error': error.message, 'error_code': 'attachment'};
+        }
+        fileTransport.addQwenReferences(messages);
+      }
+      final grokResponses =
+          fileProtocol == ChatFileProtocol.grok &&
+          (fileTransport.hasRawAttachments ||
+              (toolCallingEnabled && inspectableFiles.isNotEmpty));
+      var cacheScope = grokResponses
+          ? '$baseCacheScope|responses'
+          : baseCacheScope;
+      var responses = cachePolicy == ChatProviderCache.gpt || grokResponses
+          ? ChatGptResponses(cacheScope, grok: grokResponses)
           : null;
-      final endpoint = responses == null
-          ? Uri.parse(chatApiEndpoint(baseUrl))
-          : ChatGptResponses.endpoint(baseUrl);
       if (keepProfileAfterHistory) {
         windowDiagnostic['stable_history_end_exclusive'] = stableHistoryEnd;
       }
-      final chatPayload = prepareChatCompletionPayload({
-        ...cacheOptions,
-        'model': modelName,
-        'messages': prepareOpenAIChatCompletionMessages(messages),
-        if (cachePolicy == ChatProviderCache.gpt)
-          'max_completion_tokens': maxContext
-        else
-          'max_tokens': maxContext,
-        if (provider['thinking_mode'] == true)
-          'reasoning_effort': provider['reasoning_effort'] ?? 'medium',
-        if (toolCallingEnabled && tools.isNotEmpty) 'tools': tools,
-        if (toolCallingEnabled && tools.isNotEmpty)
-          'tool_choice': randomVoice && provider['thinking_mode'] != true
-              ? {
-                  'type': 'function',
-                  'function': {'name': 'request_voice_reply'},
-                }
-              : 'auto',
-        if (onDelta != null) 'stream': true,
-      });
-      final payload = responses?.payload(chatPayload) ?? chatPayload;
-      _logRequestPrefix(
-        '$cacheScope|initial',
-        requestId,
-        payload,
-        windowDiagnostic,
-      );
-      // Retain this request's baseline separately from cross-turn comparisons.
-      if (AppLogService.instance.enabled) {
-        _cacheDiagnostics.record(
-          scope: '$cacheScope|$requestId|tool_chain',
-          requestId: requestId,
-          payload: payload,
+      final reasoningEffort = provider['thinking_mode'] == true
+          ? (provider['reasoning_effort'] ?? 'medium') as String
+          : null;
+      http.Request buildInitialRequest() {
+        final endpoint = responses == null
+            ? Uri.parse(chatApiEndpoint(baseUrl))
+            : ChatGptResponses.endpoint(baseUrl);
+        final chatPayload = prepareChatCompletionPayload({
+          ...cachePolicy.requestOptions(cacheScope, stream: onDelta != null),
+          'model': modelName,
+          'messages': prepareOpenAIChatCompletionMessages(messages),
+          if (cachePolicy == ChatProviderCache.gpt)
+            'max_completion_tokens': maxContext
+          else
+            'max_tokens': maxContext,
+          if (provider['thinking_mode'] == true)
+            'reasoning_effort': reasoningEffort,
+          if (toolCallingEnabled && tools.isNotEmpty) 'tools': tools,
+          if (toolCallingEnabled && tools.isNotEmpty)
+            'tool_choice': randomVoice && provider['thinking_mode'] != true
+                ? {
+                    'type': 'function',
+                    'function': {'name': 'request_voice_reply'},
+                  }
+                : 'auto',
+          if (onDelta != null) 'stream': true,
+        });
+        final payload = responses?.payload(chatPayload) ?? chatPayload;
+        _logRequestPrefix(
+          '$cacheScope|initial',
+          requestId,
+          payload,
+          windowDiagnostic,
         );
+        // Retain this request's baseline separately from cross-turn comparisons.
+        if (AppLogService.instance.enabled) {
+          _cacheDiagnostics.record(
+            scope: '$cacheScope|$requestId|tool_chain',
+            requestId: requestId,
+            payload: payload,
+          );
+        }
+        final requestLog = <String, dynamic>{
+          'request_id': requestId,
+          'url': endpoint.removeFragment().replace(query: '').toString(),
+          'task': task.name,
+          'requested_at': DateTime.now().toIso8601String(),
+        };
+        if (fileTransport.usedTextFallback) {
+          AppLogService.instance.addJson(
+            'REQUEST',
+            '请求包含附件提取文本，已省略正文',
+            requestLog,
+          );
+        } else {
+          // 过滤payload中的base64图片，避免日志过长
+          final filteredPayload = Map<String, dynamic>.from(payload);
+          final inputField = responses == null ? 'messages' : 'input';
+          if (filteredPayload[inputField] is List) {
+            filteredPayload[inputField] = (filteredPayload[inputField] as List)
+                .map((msg) {
+                  if (msg is! Map) return msg;
+                  final msgCopy = Map<String, dynamic>.from(msg);
+                  if (msgCopy['content'] case final String content
+                      when content.startsWith('fileid://')) {
+                    msgCopy['content'] = '[原文件]';
+                  }
+                  if (msgCopy['content'] is List) {
+                    msgCopy['content'] = (msgCopy['content'] as List).map((
+                      part,
+                    ) {
+                      if (part is! Map) return part;
+                      final partCopy = Map<String, dynamic>.from(part);
+                      if (partCopy['type'] == 'image_url' &&
+                          partCopy['image_url'] is Map &&
+                          (partCopy['image_url'] as Map)['url']
+                                  ?.toString()
+                                  .contains('base64') ==
+                              true) {
+                        partCopy['image_url'] = {'url': '[图片]'};
+                      }
+                      if (partCopy['type'] == 'input_image' &&
+                          partCopy['image_url']?.toString().startsWith(
+                                'data:',
+                              ) ==
+                              true) {
+                        partCopy['image_url'] = '[图片]';
+                      }
+                      if (partCopy['type'] == 'input_file' ||
+                          partCopy['type'] == 'file') {
+                        return {'type': partCopy['type'], 'content': '[原文件]'};
+                      }
+                      if (partCopy['type'] == 'input_audio') {
+                        partCopy['input_audio'] = '[音频]';
+                      }
+                      return partCopy;
+                    }).toList();
+                  }
+                  return msgCopy;
+                })
+                .toList();
+          }
+          AppLogService.instance.addJson('REQUEST', '发往模型提供商的完整请求（已脱敏）', {
+            ...requestLog,
+            'payload': filteredPayload,
+          });
+        }
+        return http.Request('POST', endpoint)
+          ..headers.addAll({
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ${provider['api_key']}',
+            ...cachePolicy.requestHeaders(cacheScope),
+          })
+          ..body = jsonEncode(payload);
       }
-      // 过滤payload中的base64图片，避免日志过长
-      final filteredPayload = Map<String, dynamic>.from(payload);
-      final inputField = responses == null ? 'messages' : 'input';
-      if (filteredPayload[inputField] is List) {
-        filteredPayload[inputField] = (filteredPayload[inputField] as List).map(
-          (msg) {
-            if (msg is! Map) return msg;
-            final msgCopy = Map<String, dynamic>.from(msg);
-            if (msgCopy['content'] is List) {
-              msgCopy['content'] = (msgCopy['content'] as List).map((part) {
-                if (part is! Map) return part;
-                final partCopy = Map<String, dynamic>.from(part);
-                if (partCopy['type'] == 'image_url' &&
-                    partCopy['image_url'] is Map &&
-                    (partCopy['image_url'] as Map)['url']?.toString().contains(
-                          'base64',
-                        ) ==
-                        true) {
-                  partCopy['image_url'] = {'url': '[图片]'};
-                }
-                if (partCopy['type'] == 'input_image' &&
-                    partCopy['image_url']?.toString().startsWith('data:') ==
-                        true) {
-                  partCopy['image_url'] = '[图片]';
-                }
-                if (partCopy['type'] == 'input_audio') {
-                  partCopy['input_audio'] = '[音频]';
-                }
-                return partCopy;
-              }).toList();
-            }
-            return msgCopy;
-          },
-        ).toList();
-      }
-      AppLogService.instance.addJson('REQUEST', '发往模型提供商的完整请求（已脱敏）', {
-        'request_id': requestId,
-        'url': endpoint.removeFragment().replace(query: '').toString(),
-        'task': task.name,
-        'requested_at': DateTime.now().toIso8601String(),
-        'payload': filteredPayload,
-      });
+
       String replyText = '';
       String? generatedImagePath;
       Map<String, dynamic>? toolSticker;
@@ -1720,13 +1912,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final token = cancellationToken;
       final client = http.Client();
       responseClient = client;
-      final request = http.Request('POST', endpoint)
-        ..headers.addAll({
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${provider['api_key']}',
-          ...cachePolicy.requestHeaders(cacheScope),
-        })
-        ..body = jsonEncode(payload);
       void cancelRequest() => client.close();
       cancelResponse = cancelRequest;
       token?.addOnCancel(cancelRequest);
@@ -1735,13 +1920,32 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         'HTTP 请求开始 model=$modelName base_url=$baseUrl stream=${onDelta != null}',
       );
       final httpStarted = DateTime.now();
-      await token?.checkRequestAllowed();
-      final streamedResponse =
-          await (responses?.send(client, request) ??
-              nativeApi?.send(client, request, baseUrl: baseUrl) ??
-              _sendCompatibleChat(client, request, cachePolicy));
+      final streamedResponse = await fileTransport.sendWithTextFallback(
+        client: client,
+        messages: messages,
+        extract: extractFile,
+        onMissingEndpoint: grokResponses
+            ? () {
+                responses = null;
+                cacheScope = baseCacheScope;
+              }
+            : null,
+        send: (attemptClient) async {
+          await token?.checkRequestAllowed();
+          final request = buildInitialRequest();
+          return responses?.send(attemptClient, request) ??
+              nativeApi?.send(attemptClient, request, baseUrl: baseUrl) ??
+              _sendCompatibleChat(attemptClient, request, cachePolicy);
+        },
+      );
       token?.throwIfCancelled();
       statusCode = streamedResponse.statusCode;
+      if (statusCode != 200 && fileTransport.hasAttachments) {
+        throw ChatFileDeliveryException(
+          statusCode,
+          fileTransport.usedTextFallback && !fileTransport.hasRawAttachments,
+        );
+      }
       responseMetadata.addAll({
         'requested_model': modelName,
         'provider_request_id':
@@ -1761,7 +1965,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
 
       // 处理流式响应（SSE 格式）或非流式响应
       String? innerThought;
-      final replyStream = ChatReplyStream();
+      final replyStream = ChatReplyStream(publicOnly: sendToolProgress);
       final rawAssistantContent = StringBuffer();
       final rawReasoning = <String, StringBuffer>{};
       var hasToolCallStarted = false;
@@ -1778,7 +1982,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           streamedResponse.headers['content-type']?.toLowerCase() ?? '';
       if (statusCode == 200 &&
           onDelta != null &&
-          payload['stream'] == true &&
           !responseContentType.contains('json')) {
         final lines = utf8.decoder
             .bind(streamedResponse.stream.cast<List<int>>())
@@ -1874,7 +2077,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           'SSE 响应体结束 replyLength=${replyText.length} innerThought=${innerThought?.length ?? 0} elapsedMs=${DateTime.now().difference(httpStarted).inMilliseconds}',
         );
 
-        if (allowTools && streamedToolCalls.isNotEmpty) {
+        if (toolCallingEnabled && streamedToolCalls.isNotEmpty) {
           if (!hadToolCalls)
             _logCacheUsage(
               usage,
@@ -1899,7 +2102,13 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               !beginResponseCommit()) {
             throw const AICancelledException();
           }
+          await publishToolProgress(
+            rawAssistantContent.toString(),
+            streamedToolCalls,
+          );
+          if (sendToolProgress) replyText = '';
           await _runStreamedTools(
+            publishToolProgress: sendToolProgress ? publishToolProgress : null,
             cancellationToken: token,
             db: db,
             botId: botId,
@@ -1909,7 +2118,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             cachePolicy: cachePolicy,
             cacheScope: cacheScope,
             responses: responses,
-            reasoningEffort: chatPayload['reasoning_effort'] as String?,
+            reasoningEffort: reasoningEffort,
             nativeApi: nativeApi,
             requestId: requestId,
             modelName: modelName,
@@ -1936,6 +2145,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             requiredToolNames: const {},
             allowedStickerTypes: stickerEmotions.toSet(),
             inspectableImages: inspectableImages,
+            editableHistoryImages: editableHistoryImages,
+            inspectableVideos: inspectableVideos,
+            inspectableFiles: inspectableFiles,
+            fileTransport: fileTransport,
             currentImages: currentImages,
           );
         }
@@ -2002,7 +2215,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             errorBody.length.clamp(0, 500),
           ),
         });
-        if (allowTools && message is Map && message['tool_calls'] is List) {
+        if (toolCallingEnabled &&
+            message is Map &&
+            message['tool_calls'] is List) {
           final toolCalls = (message['tool_calls'] as List)
               .whereType<Map>()
               .map((call) => Map<String, dynamic>.from(call))
@@ -2024,7 +2239,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                 !beginResponseCommit()) {
               throw const AICancelledException();
             }
+            await publishToolProgress(diaryResponseContent(message), toolCalls);
+            if (sendToolProgress) replyText = '';
             await _runStreamedTools(
+              publishToolProgress: sendToolProgress
+                  ? publishToolProgress
+                  : null,
               cancellationToken: token,
               db: db,
               botId: botId,
@@ -2034,7 +2254,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               cachePolicy: cachePolicy,
               cacheScope: cacheScope,
               responses: responses,
-              reasoningEffort: chatPayload['reasoning_effort'] as String?,
+              reasoningEffort: reasoningEffort,
               nativeApi: nativeApi,
               requestId: requestId,
               modelName: modelName,
@@ -2061,6 +2281,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               requiredToolNames: const {},
               allowedStickerTypes: stickerEmotions.toSet(),
               inspectableImages: inspectableImages,
+              editableHistoryImages: editableHistoryImages,
+              inspectableVideos: inspectableVideos,
+              inspectableFiles: inspectableFiles,
+              fileTransport: fileTransport,
               currentImages: currentImages,
             );
           }
@@ -2231,6 +2455,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             );
           }
         }
+        if (sendToolProgress && hadToolCalls) innerThought = null;
         final hasInnerThought = innerThought?.isNotEmpty == true;
         final segmented =
             !forceSingleReply &&
@@ -2416,6 +2641,20 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       rethrow;
     } catch (e) {
       cancellationToken?.throwIfCancelled();
+      if (requestFileTransport?.hasAttachments == true) {
+        final failure = e is ChatFileDeliveryException
+            ? e
+            : ChatFileDeliveryException(
+                null,
+                requestFileTransport!.usedTextFallback &&
+                    !requestFileTransport.hasRawAttachments,
+              );
+        return {
+          'error': failure.message,
+          'error_log': failure.message,
+          'error_code': failure.statusCode ?? 'attachment',
+        };
+      }
       AppLogService.instance.add('AI_TRACE', 'AI 主流程异常 $e');
       print('[ai] request failed: $e');
       AppLogService.instance.add('ERROR', '模型请求异常：$e');
@@ -2428,6 +2667,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       if (cancelResponse != null)
         cancellationToken?.removeOnCancel(cancelResponse);
       responseClient?.close();
+      await requestFileTransport?.close();
     }
   }
 
@@ -4081,9 +4321,23 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     return null;
   }
 
+  Future<String> Function(String) _chatFileExtractor(
+    AICancellationToken? token,
+  ) {
+    final processor = MediaPreprocessor();
+    return (path) async {
+      await token?.checkRequestAllowed();
+      final text = await processor.documentText(path);
+      await token?.checkRequestAllowed();
+      return text;
+    };
+  }
+
   /// 统一执行工具调用并取得模型 follow-up 文本。供流式与非流式两条链路复用，
   /// 保证「工具结果 → 最终回答」在两种模式下行为一致。
   Future<void> _runStreamedTools({
+    Future<void> Function(String, List<Map<String, dynamic>>)?
+    publishToolProgress,
     AICancellationToken? cancellationToken,
     required DBManager db,
     required String botId,
@@ -4115,9 +4369,115 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     Set<String> requiredToolNames = const {},
     Set<String> allowedStickerTypes = const {},
     Map<int, String> inspectableImages = const {},
+    Map<int, String> editableHistoryImages = const {},
+    Map<String, String> inspectableVideos = const {},
     Map<int, String> currentImages = const {},
+    Map<int, ChatFileReference> inspectableFiles = const {},
+    required ChatFileTransport fileTransport,
   }) async {
     final completedTools = <String>{};
+    final attachmentParts = <Map<String, dynamic>>[];
+
+    final extractFile = _chatFileExtractor(cancellationToken);
+
+    Future<Map<String, dynamic>> readFile(Map<String, dynamic> call) async {
+      Map<String, dynamic> failure(String message) => {
+        'result': {'ok': false, 'error': message},
+      };
+      try {
+        final function = call['function'] as Map;
+        final args = _decodeToolArguments(function['arguments']);
+        final number = args['file_number'];
+        if (number is! int || number < 1 || args.length != 1) {
+          return failure('只接受上下文明示的正整数文件编号 file_number');
+        }
+        final file = inspectableFiles[number];
+        if (file == null) return failure('文件编号不在当前上下文中');
+        final alreadyDelivered = fileTransport.contains(number);
+        if (!alreadyDelivered) {
+          final part = await fileTransport.attachWithTextFallback(
+            file,
+            extract: extractFile,
+            upload: (action) =>
+                _withCancellableClient(cancellationToken, action),
+          );
+          attachmentParts.addAll([
+            {'type': 'text', 'text': 'read_chat_file：${file.label}'},
+            part,
+          ]);
+        }
+        return {
+          'result': {
+            'ok': true,
+            'file_number': number,
+            'filename': file.name,
+            'already_attached': alreadyDelivered,
+          },
+        };
+      } on FormatException catch (error) {
+        return failure(error.message);
+      } on FileSystemException {
+        return failure('无法读取原文件');
+      }
+    }
+
+    void appendAttachments() {
+      if (attachmentParts.isEmpty) return;
+      // Follow all function outputs with their files so parallel calls remain contiguous.
+      messages.add({
+        'role': 'user',
+        'content': ChatFileTransport.userContent(List.of(attachmentParts)),
+      });
+      attachmentParts.clear();
+    }
+
+    Future<void> appendToolOutput(
+      Map<String, dynamic> call,
+      Map<String, dynamic> result,
+      String name,
+    ) async {
+      var output = result['result'] ?? result;
+      if (name == 'view_video' && output is Map && output['ok'] == true) {
+        final details = <String, dynamic>{...output};
+        if (result['message'] is String) details['message'] = result['message'];
+        if (result['images'] is List) {
+          final frames = <Map<String, dynamic>>[];
+          for (final path in (result['images'] as List).whereType<String>()) {
+            await cancellationToken?.checkRequestAllowed();
+            if (!await File(path).exists()) continue;
+            try {
+              final bytes = await modelImageBytes(path, compress: true);
+              if (bytes.isEmpty) continue;
+              frames.add({
+                'type': 'image_url',
+                'image_url': {
+                  'url':
+                      'data:${imageUploadMime(bytes)};base64,${base64Encode(bytes)}',
+                },
+              });
+            } on Exception catch (_) {
+              continue;
+            }
+          }
+          if (frames.isEmpty) {
+            details['ok'] = false;
+            details['error'] = '没有可读取的视频帧';
+          } else {
+            details['frame_count'] = frames.length;
+            attachmentParts.addAll([
+              {'type': 'text', 'text': "view_video 视频帧：${details['video_id']}"},
+              ...frames,
+            ]);
+          }
+        }
+        output = details;
+      }
+      messages.add({
+        'role': 'tool',
+        'tool_call_id': call['id']?.toString() ?? '',
+        'content': jsonEncode(output),
+      });
+    }
 
     Future<void> consumeToolResult(
       Map<String, dynamic> result, {
@@ -4182,14 +4542,18 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final stopwatch = Stopwatch()..start();
       Map<String, dynamic> result;
       try {
-        result = await _executeNativeToolCall(
-          db: db,
-          botId: botId,
-          call: call,
-          allowedStickerTypes: allowedStickerTypes,
-          inspectableImages: inspectableImages,
-          currentImages: currentImages,
-        );
+        result = name == 'read_chat_file'
+            ? await readFile(call)
+            : await _executeNativeToolCall(
+                db: db,
+                botId: botId,
+                call: call,
+                allowedStickerTypes: allowedStickerTypes,
+                inspectableImages: inspectableImages,
+                editableHistoryImages: editableHistoryImages,
+                inspectableVideos: inspectableVideos,
+                currentImages: currentImages,
+              );
       } on AICancelledException {
         rethrow;
       } catch (error, stack) {
@@ -4219,12 +4583,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final name = (call['function'] as Map?)?['name']?.toString() ?? '';
       await consumeToolResult(result, name: name);
       if ((result['result'] as Map?)?['silent'] == true) return;
-      messages.add({
-        'role': 'tool',
-        'tool_call_id': call['id']?.toString() ?? '',
-        'content': jsonEncode(result['result'] ?? result),
-      });
+      await appendToolOutput(call, result, name);
     }
+    appendAttachments();
     final missingRequired = requiredToolNames.difference(completedTools);
     if (missingRequired.isNotEmpty) {
       messages.add({
@@ -4236,30 +4597,13 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     // Keep the same transcript across multi-step tools. Each follow-up may ask
     // for another action; its result is appended and sent back until the model
     // stops using tools. A hard limit prevents accidental infinite automation.
+    var activeResponses = responses;
+    var activeCacheScope = cacheScope;
     for (var round = 0; round < 12; round++) {
       final followUpId = '${requestId}_tool_${round + 1}';
-      final chatPayload = prepareChatCompletionPayload({
-        ...cachePolicy.requestOptions(cacheScope, stream: onDelta != null),
-        'model': modelName,
-        'messages': prepareOpenAIChatCompletionMessages(messages),
-        if (cachePolicy == ChatProviderCache.gpt)
-          'max_completion_tokens': maxTokens
-        else
-          'max_tokens': maxTokens,
-        if (responses != null && reasoningEffort != null)
-          'reasoning_effort': reasoningEffort,
-        if (requestTools.isNotEmpty) 'tools': requestTools,
-        if (requestTools.isNotEmpty) 'tool_choice': 'auto',
-        if (onDelta != null) 'stream': true,
-      });
-      final followUpPayload = responses?.payload(chatPayload) ?? chatPayload;
-      _logRequestPrefix(
-        '$cacheScope|$requestId|tool_chain',
-        followUpId,
-        followUpPayload,
-        const {},
+      final replyStream = ChatReplyStream(
+        publicOnly: publishToolProgress != null,
       );
-      final replyStream = ChatReplyStream();
       final canPreview =
           onDelta != null &&
           (round > 0 || requiredToolNames.difference(completedTools).isEmpty);
@@ -4271,23 +4615,64 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       ) = await _withCancellableClient(
         cancellationToken,
         (client) => (() async {
-          final request =
-              http.Request(
-                  'POST',
-                  responses == null
-                      ? Uri.parse(chatApiEndpoint(baseUrl))
-                      : ChatGptResponses.endpoint(baseUrl),
-                )
-                ..headers.addAll({
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer $apiKey',
-                  ...cachePolicy.requestHeaders(cacheScope),
-                })
-                ..body = jsonEncode(followUpPayload);
-          final response =
-              await (responses?.send(client, request) ??
-                  nativeApi?.send(client, request, baseUrl: baseUrl) ??
-                  _sendCompatibleChat(client, request, cachePolicy));
+          final response = await fileTransport.sendWithTextFallback(
+            client: client,
+            messages: messages,
+            extract: extractFile,
+            onMissingEndpoint: activeResponses?.grok == true
+                ? () {
+                    activeResponses = null;
+                    activeCacheScope = cacheScope.replaceFirst(
+                      RegExp(r'\|responses$'),
+                      '',
+                    );
+                  }
+                : null,
+            send: (attemptClient) async {
+              await cancellationToken?.checkRequestAllowed();
+              final chatPayload = prepareChatCompletionPayload({
+                ...cachePolicy.requestOptions(
+                  activeCacheScope,
+                  stream: onDelta != null,
+                ),
+                'model': modelName,
+                'messages': prepareOpenAIChatCompletionMessages(messages),
+                if (cachePolicy == ChatProviderCache.gpt)
+                  'max_completion_tokens': maxTokens
+                else
+                  'max_tokens': maxTokens,
+                if (activeResponses != null && reasoningEffort != null)
+                  'reasoning_effort': reasoningEffort,
+                if (requestTools.isNotEmpty) 'tools': requestTools,
+                if (requestTools.isNotEmpty) 'tool_choice': 'auto',
+                if (onDelta != null) 'stream': true,
+              });
+              final followUpPayload =
+                  activeResponses?.payload(chatPayload) ?? chatPayload;
+              _logRequestPrefix(
+                '$activeCacheScope|$requestId|tool_chain',
+                followUpId,
+                followUpPayload,
+                const {},
+              );
+              final request =
+                  http.Request(
+                      'POST',
+                      activeResponses == null
+                          ? Uri.parse(chatApiEndpoint(baseUrl))
+                          : ChatGptResponses.endpoint(baseUrl),
+                    )
+                    ..headers.addAll({
+                      'Content-Type': 'application/json',
+                      'Authorization': 'Bearer $apiKey',
+                      ...cachePolicy.requestHeaders(activeCacheScope),
+                    })
+                    ..body = jsonEncode(followUpPayload);
+              return activeResponses?.send(attemptClient, request) ??
+                  nativeApi?.send(attemptClient, request, baseUrl: baseUrl) ??
+                  _sendCompatibleChat(attemptClient, request, cachePolicy);
+            },
+          );
           if (response.statusCode != 200) {
             return (
               response.statusCode,
@@ -4312,6 +4697,12 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       await cancellationToken?.checkRequestAllowed();
       if (statusCode != 200) {
         AppLogService.instance.add('TOOLS', '工具后续请求失败：HTTP $statusCode');
+        if (fileTransport.hasAttachments) {
+          throw ChatFileDeliveryException(
+            statusCode,
+            fileTransport.usedTextFallback && !fileTransport.hasRawAttachments,
+          );
+        }
         replyTextCallback('工具执行后的回复请求失败，请查看工具执行结果。');
         return;
       }
@@ -4337,7 +4728,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       }
       if (message is! Map) return;
       final parsedReply = parseChatReply(diaryResponseContent(message));
-      final next = parsedReply.text;
+      final next = publishToolProgress == null
+          ? parsedReply.text
+          : visibleToolProgress(diaryResponseContent(message));
       if (parsedReply.innerThought != null) {
         innerThoughtSetter(parsedReply.innerThought!);
       }
@@ -4374,17 +4767,15 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         }
         return;
       }
+      await publishToolProgress?.call(diaryResponseContent(message), nextCalls);
       messages.add(toolAssistantMessage(message));
       for (final call in nextCalls) {
         final result = await executeOnce(call);
         final name = (call['function'] as Map?)?['name']?.toString() ?? '';
         await consumeToolResult(result, name: name);
-        messages.add({
-          'role': 'tool',
-          'tool_call_id': call['id']?.toString() ?? '',
-          'content': jsonEncode(result['result'] ?? result),
-        });
+        await appendToolOutput(call, result, name);
       }
+      appendAttachments();
     }
     replyTextCallback('任务已达到连续操作上限，请确认当前结果后再继续。');
   }
@@ -4432,6 +4823,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       tools.add(sendStickerToolSchema(stickerTypes.toList()..sort()));
     }
     tools.add(viewVideoToolSchema());
+    tools.add(readChatFileToolSchema());
     tools.add(inspectImageToolSchema(name: 'inspect_image'));
     tools.add(inspectImageToolSchema(name: 'look_at_image'));
     if (await db.getKV('web_search_enabled') == 'true' &&
@@ -5077,6 +5469,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     required Map<String, dynamic> call,
     Set<String> allowedStickerTypes = const {},
     Map<int, String> inspectableImages = const {},
+    Map<int, String> editableHistoryImages = const {},
+    Map<String, String> inspectableVideos = const {},
     Map<int, String> currentImages = const {},
   }) async {
     final before = await PluginService.instance.hook('tool.before', {
@@ -5095,6 +5489,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             : call,
         allowedStickerTypes: allowedStickerTypes,
         inspectableImages: inspectableImages,
+        editableHistoryImages: editableHistoryImages,
+        inspectableVideos: inspectableVideos,
         currentImages: currentImages,
       );
     }
@@ -5114,6 +5510,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     required Map<String, dynamic> call,
     Set<String> allowedStickerTypes = const {},
     Map<int, String> inspectableImages = const {},
+    Map<int, String> editableHistoryImages = const {},
+    Map<String, String> inspectableVideos = const {},
     Map<int, String> currentImages = const {},
   }) async {
     final function = call['function'];
@@ -5285,8 +5683,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           durationMs: 0,
         );
         return {
-          'result': {'ok': true, 'image_path': path},
-          'message': description,
+          'result': {
+            'ok': true,
+            'image_number': number,
+            'message': description,
+          },
         };
       } catch (error) {
         return {
@@ -5306,8 +5707,17 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         final prefs = await SharedPreferences.getInstance();
         final videoHistory = prefs.getStringList('video_history_$botId') ?? [];
 
-        Map<String, dynamic>? videoInfo;
+        final pluginPath = inspectableVideos[videoId];
+        if (videoId.startsWith('VID-plugin_') && pluginPath == null) {
+          return {
+            'result': {'ok': false, 'error': '视频编号不在当前上下文中'},
+          };
+        }
+        Map<String, dynamic>? videoInfo = pluginPath == null
+            ? null
+            : {'id': videoId, 'original_video_path': pluginPath};
         for (final videoJson in videoHistory.reversed) {
+          if (pluginPath != null) break;
           try {
             final video = json.decode(videoJson) as Map<String, dynamic>;
             if (video['id'] == videoId) {
@@ -5334,7 +5744,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             'message': savedAnalysis,
           };
         }
-        if (args['full_video'] == true) {
+        if (args['full_video'] == true || pluginPath != null) {
           final path = videoInfo['original_video_path']?.toString() ?? '';
           if (path.isEmpty || !await File(path).exists()) {
             throw StateError('完整视频文件不可用，请重新发送视频');
@@ -5350,33 +5760,37 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               videoPath: path,
               botId: botId,
               providerId: modelId,
-              userText: '请分析整个视频，补充预览未覆盖的内容。',
+              userText: pluginPath == null
+                  ? '请分析整个视频，补充预览未覆盖的内容。'
+                  : '请分析这段插件发送的视频。',
             );
             return {
               'result': {'ok': true, 'video_id': videoId, 'full_video': true},
               'message': analysis,
             };
           }
-          final service = VideoProcessingService.instance;
-          final fullDuration = await service.getVideoDuration(path);
-          if (fullDuration <= 0) throw StateError('无法读取完整视频时长');
-          final frames = await service.extractFrames(
-            videoPath: path,
-            frameCount: (fullDuration / 8).ceil().clamp(1, 120),
-            duration: fullDuration,
-            previewLongVideo: false,
-          );
-          if (frames.isEmpty) throw StateError('完整视频抽帧失败');
-          return {
-            'result': {
-              'ok': true,
-              'video_id': videoId,
-              'full_video': true,
-              'duration': fullDuration,
-            },
-            'message': '未选择视频解析模型，以下为覆盖全片的采样画面，音频请结合先前转写；采样不能保证覆盖每个细节。',
-            'images': frames,
-          };
+          if (args['full_video'] == true) {
+            final service = VideoProcessingService.instance;
+            final fullDuration = await service.getVideoDuration(path);
+            if (fullDuration <= 0) throw StateError('无法读取完整视频时长');
+            final frames = await service.extractFrames(
+              videoPath: path,
+              frameCount: (fullDuration / 8).ceil().clamp(1, 120),
+              duration: fullDuration,
+              previewLongVideo: false,
+            );
+            if (frames.isEmpty) throw StateError('完整视频抽帧失败');
+            return {
+              'result': {
+                'ok': true,
+                'video_id': videoId,
+                'full_video': true,
+                'duration': fullDuration,
+              },
+              'message': '未选择视频解析模型，以下为覆盖全片的采样画面，音频请结合先前转写；采样不能保证覆盖每个细节。',
+              'images': frames,
+            };
+          }
         }
         // 构建视频信息响应
 
@@ -5426,7 +5840,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               );
 
               if (newFramePaths.isNotEmpty) {
-                framePaths = newFramePaths;
+                existingFrames.addAll(newFramePaths);
 
                 videoInfo['frame_paths'] = newFramePaths;
                 final prefs = await SharedPreferences.getInstance();
@@ -5495,6 +5909,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         parts.add('编号：$videoId');
         parts.add('时长：$durationText');
         parts.add('实际可用帧数：${framePaths.length} 帧');
+        if (duration > 300) {
+          parts.add('当前画面是开头预览，不代表完整视频。需要查看全片时，将 full_video 设为 true。');
+        }
 
         if (platformLink != null && platform != null) {
           final platformName = platform == 'douyin'
@@ -5779,7 +6196,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         final selection = resolveUserImageEdit(
           args,
           currentImages: currentImages,
-          historyImages: inspectableImages,
+          historyImages: editableHistoryImages,
         );
         if (!await File(selection.path).exists()) {
           return {
@@ -6042,17 +6459,29 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
   String? _modelContextForHistoryMessage(
     Map<String, dynamic> msg, {
     required Map<String, int> imageNumberByPath,
+    required ChatAttachmentCatalog attachments,
     required Map<String, String> sharedPostContexts,
   }) {
     final type = msg['type']?.toString() ?? 'text';
     final content = msg['content']?.toString() ?? '';
     final role = msg['role']?.toString() ?? 'user';
     if (type == 'call_summary') return null;
+    final id = msg['id']?.toString() ?? '';
+    final file = attachments.filesByMessageId[id];
+    final videoId = attachments.pluginVideosByMessageId[id];
+    if (file != null || videoId != null) {
+      final label = file?.label ?? '[视频编号：$videoId]';
+      return [label, if (content.trim().isNotEmpty) content].join('\n');
+    }
     if (type == 'image') {
-      final path = msg['file_path']?.toString() ?? '';
+      if (role != 'user' && !isPluginChatMessage(msg)) return content;
+      final path = msg['file_path']?.toString().trim() ?? '';
       final number = imageNumberByPath[path];
       if (number == null) return content.trim().isEmpty ? null : content;
-      return formatImagePlaceholder(number, caption: content);
+      final placeholder = formatImagePlaceholder(number, caption: content);
+      return isPluginChatMessage(msg)
+          ? '$placeholder\n（插件发送，仅供查看）'
+          : placeholder;
     }
     if (type == 'sticker') {
       final emotion = content.trim();

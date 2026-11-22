@@ -53,14 +53,25 @@ class PluginChatSession {
     final color = args['color'];
     if (!const {'compact', 'regular', 'wide'}.contains(size) ||
         !const {'note', 'task', 'calendar', 'star', 'info'}.contains(icon) ||
-        (color != null && (color is! String || !RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(color)))) {
+        (color != null &&
+            (color is! String ||
+                !RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(color)))) {
       throw const FormatException('卡片尺寸、图标或颜色无效');
     }
     return jsonEncode({
-      'title': PluginMediaContract.text(args['title'], 'title', 100, required: true),
+      'title': PluginMediaContract.text(
+        args['title'],
+        'title',
+        100,
+        required: true,
+      ),
       'body': PluginMediaContract.text(args['body'], 'body', 2000),
       'prompt': PluginMediaContract.text(args['prompt'], 'prompt', 2000),
-      'actionLabel': PluginMediaContract.text(args['actionLabel'], 'actionLabel', 40),
+      'actionLabel': PluginMediaContract.text(
+        args['actionLabel'],
+        'actionLabel',
+        40,
+      ),
       'size': size,
       'icon': icon,
       'color': color,
@@ -149,11 +160,11 @@ class PluginChatSession {
         final content = kind == 'card'
             ? _encodeCard(args)
             : PluginMediaContract.text(
-          kind == 'text' ? args['text'] : args['caption'],
-          kind == 'text' ? 'text' : 'caption',
-          kind == 'text' ? 16000 : 2000,
-          required: kind == 'text',
-        );
+                kind == 'text' ? args['text'] : args['caption'],
+                kind == 'text' ? 'text' : 'caption',
+                kind == 'text' ? 16000 : 2000,
+                required: kind == 'text',
+              );
         Map<String, dynamic>? resource;
         if (kind != 'text' && kind != 'card') {
           if (args['resourceId'] != null && args['url'] != null)
@@ -171,7 +182,7 @@ class PluginChatSession {
           if (resource == null || (kind != 'file' && resource['kind'] != kind))
             throw StateError('媒体引用不存在或类型不匹配');
         }
-        final fileName = kind == 'file'
+        final fileName = kind == 'file' || kind == 'document'
             ? PluginMediaContract.fileName(
                 args['fileName'] ?? resource?['fileName'],
                 fallback: 'attachment.${resource?['extension'] ?? 'bin'}',
@@ -197,8 +208,8 @@ class PluginChatSession {
               p.join(docs.path, 'chat_media', 'plugins'),
             );
             await folder.create(recursive: true);
-            final destination = kind == 'file'
-                ? p.join(folder.path, id, fileName!)
+            final destination = fileName != null
+                ? p.join(folder.path, id, fileName)
                 : p.join(folder.path, '$id.${resource['extension']}');
             await Directory(p.dirname(destination)).create(recursive: true);
             delivered = await File(
@@ -307,7 +318,7 @@ class PluginChatSession {
       return await _registerFile(
         copy,
         kind as String,
-        fileName: kind == 'file'
+        fileName: kind == 'file' || kind == 'document'
             ? PluginMediaContract.fileName(
                 args['fileName'],
                 fallback: p.posix.basename(args['path'] as String),
@@ -502,6 +513,13 @@ class PluginChatSession {
         ? PluginMediaContract.fileName(
             args['fileName'],
             fallback: _urlFileName(uri),
+          )
+        : kind == 'document'
+        ? PluginMediaContract.fileName(
+            args['fileName'],
+            fallback: p.extension(_urlFileName(uri)).toLowerCase() == '.pdf'
+                ? _urlFileName(uri)
+                : 'attachment.pdf',
           )
         : null;
     final headers = PluginMediaContract.headers(args['headers']);

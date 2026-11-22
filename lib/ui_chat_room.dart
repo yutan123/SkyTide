@@ -57,7 +57,6 @@ import 'theme.dart';
 import 'wechat_theme_widgets.dart';
 import 'qq_theme_widgets.dart';
 import 'app_permissions.dart';
-import 'media_preprocessor.dart';
 import 'voice_call_card.dart';
 import 'incoming_call_banner.dart';
 // Device control has been removed; device context remains in the AI layer.
@@ -2189,8 +2188,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 '分享链接 ${sharedVideos[path]} 的视频无法分析，不得声称已观看视频。',
               );
             }
-          } else {
-            documentNotices.add(await MediaPreprocessor().documentText(path));
           }
         }
         final contextParts = [
@@ -2288,6 +2285,21 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               useJarvis: (await DBManager().getKV('jarvis_enabled')) == 'true',
               cancellationToken: requestToken,
               deferPluginDelivery: true,
+              onToolProgress: (row) {
+                buffer = ChatStreamBuffer();
+                if (!mounted || myGen != _requestGen) return;
+                setState(() {
+                  _msgs.removeWhere(previews.contains);
+                  previews.clear();
+                  if (!_msgs.any((message) => message['id'] == row['id'])) {
+                    _msgs.add(row);
+                  }
+                  _historyLiveUpdates?[row['id'] as String] = row;
+                  _msgs = normalizeChatMessages(_msgs);
+                });
+                unawaited(_markReadIfVisible());
+                _scrollDown();
+              },
               onDelta: streamEnabled && audioPath == null
                   ? (delta) => buffer.add(delta)
                   : (_) {},
@@ -2597,51 +2609,56 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }
 
     final messageId = message['id'].toString();
-    final text = message['content']?.toString().trim() ?? '';
 
     try {
       // 查找同一批次的所有消息（通过时间戳前缀匹配）
-      final idPrefix = messageId.split('_').sublist(0, 2).join('_');
-      final batchMessages = _msgs.where((m) {
-        final id = m['id'].toString();
-        return id.startsWith(idPrefix) && m['role'] == 'user';
-      }).toList();
+      final idPrefix = messageId.split('_').take(2).join('_');
+      final batchMessages =
+          _msgs.where((m) {
+            final id = m['id'].toString();
+            return (id == idPrefix || id.startsWith('${idPrefix}_')) &&
+                m['role'] == 'user';
+          }).toList()..sort(
+            (a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int),
+          );
+      final text = batchMessages
+          .map((row) => row['content']?.toString().trim() ?? '')
+          .where((part) => part.isNotEmpty)
+          .join('\n');
 
-      // 删除失败的消息批次
-      for (final msg in batchMessages) {
-        await DBManager().deleteMessage(msg['id'].toString());
-      }
+      await MediaStorageService.instance.withMediaUse(() async {
+        // Keep the original files live while replacing their message rows.
+        for (final msg in batchMessages) {
+          await DBManager().deleteMessage(msg['id'].toString());
+        }
 
-      // 收集该批次的图片和文档
-      final images = <String>[];
-      final documents = <String>[];
-      for (final msg in batchMessages) {
-        final type = msg['type']?.toString() ?? 'text';
-        final path = msg['file_path']?.toString();
-        if (path != null && path.isNotEmpty) {
-          if (type == 'image') {
-            images.add(path);
-          } else if (type == 'document' || type == 'video') {
-            documents.add(path);
+        final images = <String>[];
+        final documents = <String>[];
+        for (final msg in batchMessages) {
+          final type = msg['type']?.toString() ?? 'text';
+          final path = msg['file_path']?.toString();
+          if (path != null && path.isNotEmpty) {
+            if (type == 'image') {
+              images.add(path);
+            } else if (type == 'document' ||
+                type == 'file' ||
+                type == 'video') {
+              documents.add(path);
+            }
           }
         }
-      }
 
-      if (mounted) {
+        if (!mounted) return;
+        final batchIds = batchMessages.map((row) => row['id']).toSet();
         setState(() {
-          _msgs.removeWhere((m) {
-            final id = m['id'].toString();
-            return id.startsWith(idPrefix) && m['role'] == 'user';
-          });
+          _msgs.removeWhere((row) => batchIds.contains(row['id']));
           _msgC.text = text;
           _hasText = text.isNotEmpty;
           _pendingImages.addAll(images);
           _pendingDocuments.addAll(documents);
         });
-      }
-
-      // 发送新消息
-      await _send();
+        await _send();
+      });
     } catch (e) {
       if (mounted) {
         GlobalNotice.show('重新发送失败：$e');
@@ -5465,9 +5482,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         ? ''
         : ((m['content'] as String?) ?? '');
     final txt =
-        _autoRemoveChineseFullStop &&
-            m['role'] == 'assistant' &&
-            type == 'text'
+        _autoRemoveChineseFullStop && m['role'] == 'assistant' && type == 'text'
         ? hideTrailingChineseFullStop(rawText)
         : rawText;
     final sharedPost = _sharedPostPayload(m);

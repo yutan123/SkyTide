@@ -16,6 +16,9 @@ migrate_working_dir/
 .backup/
 .operit/
 
+# Website is deployed separately.
+/website/
+
 # IntelliJ related
 *.iml
 *.ipr

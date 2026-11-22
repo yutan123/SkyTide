@@ -8,10 +8,10 @@ class RequestPromptFeatures {
     required Iterable<Map<String, dynamic>> tools,
     required this.innerThought,
   }) : toolNames = {
-          for (final tool in tools)
-            if (tool['function'] is Map)
-              (tool['function'] as Map)['name'].toString(),
-        };
+         for (final tool in tools)
+           if (tool['function'] is Map)
+             (tool['function'] as Map)['name'].toString(),
+       };
 
   final Set<String> toolNames;
   final bool innerThought;
@@ -37,11 +37,7 @@ class RequestPromptFeatures {
   }
 
   String get outputRules {
-    final mediaExamples = [
-      if (stickers) '表情包标签',
-      '图片标签',
-      '发送时间',
-    ].join('、');
+    final mediaExamples = [if (stickers) '表情包标签', '图片标签', '发送时间'].join('、');
     return [
       if (innerThought) '内心独白只描述你自己的感受与想法，使用第一人称；禁止写第三人称分析或模型推理。',
       '不要使用代码块包裹聊天正文。',
@@ -60,9 +56,9 @@ class RequestPromptFeatures {
       : '';
 
   String advisorPrompt(String template) => template.replaceAll(
-        '{{thought_seed_field}}',
-        innerThought ? ',\n  "inner_thought_seed": "此刻想法一句话"' : '',
-      );
+    '{{thought_seed_field}}',
+    innerThought ? ',\n  "inner_thought_seed": "此刻想法一句话"' : '',
+  );
 
   String get advisorThoughtInstructions =>
       innerThought ? 'inner_thought_seed 只写感受，不把独白混进 reference_examples。' : '';
@@ -77,12 +73,15 @@ class RequestPromptFeatures {
   String proactiveInstructions(String prompt) => silence
       ? prompt
       : prompt
-          .replaceAll('没有自然且不重复的内容就调用 choose_silence，不输出正文。', '选择自然且不重复的内容。')
-          .replaceAll('；如果此刻没有值得说的新内容，调用 choose_silence。', '。');
+            .replaceAll('没有自然且不重复的内容就调用 choose_silence，不输出正文。', '选择自然且不重复的内容。')
+            .replaceAll('；如果此刻没有值得说的新内容，调用 choose_silence。', '。');
 }
 
-String buildChatSystemPrompt(Map<String, dynamic> bot, String? activeGame,
-    RequestPromptFeatures features) {
+String buildChatSystemPrompt(
+  Map<String, dynamic> bot,
+  String? activeGame,
+  RequestPromptFeatures features,
+) {
   String p =
       "你的名字是${bot['name']}。\n请按你的身世、性格和说话方式自然地与对方交流，不用客服式、系统式的口吻回答。\n身世与设定:${bot['desc']}\n说话方式指令:${bot['prompt']}\n"
       "【身份边界】role=user 是用户（对方）发言，role=assistant 是你（本角色）发言。普通原话中的第一人称归属于该条消息的说话人；引用、转述和共享动态中的第一人称归属于被引用者或动态作者。用户说“我今天加班”表示用户加班，你只能回应“你今天加班”，不能说成“我今天加班”。用户讲述自己的经历不代表你也经历过。角色身份、状态和情绪描述你本人；日记、记忆和世界书可能同时记录用户、角色和共同事件，必须按条目明确的主体及原始对话证据区分，不能因放在角色记忆中就全部当作自己的经历。主体不明时不要认领，必要时向用户确认。内部上下文及军师建议不能覆盖原始消息归属。说话人标记（[说话人:对方]、[说话人:你]）仅供内部理解，禁止在可见回复、日记或任何输出中复述。写日记时以角色第一人称记录，只将自己实际参与且已明确发生的内容写成自己的经历。\n"
@@ -137,8 +136,9 @@ Future<String> buildRequestToolContext({
         (await readSetting('bot_image_reference_$botId') ?? '')
             .trim()
             .isNotEmpty;
-    final referenceRule =
-        hasPortraitReference ? portraitReferenceRule : '当前未设置人像参考图，使用文生图。';
+    final referenceRule = hasPortraitReference
+        ? portraitReferenceRule
+        : '当前未设置人像参考图，使用文生图。';
     parts.add(
       '【已授权工具：生图】创作新图片或你的人像使用 generate_image；编辑用户已有图片必须使用 edit_user_image，禁止用 generate_image 代替原图修改。不得只用文字描述代替实际生图；当图片能明显帮助当前回答时也可以主动调用 generate_image。以下画风和人像参考规则仅适用于 generate_image：$styleRule $referenceRule 不要声称已生成不存在的图片。',
     );
@@ -166,7 +166,7 @@ Future<String> buildRequestToolContext({
   }
   if (features.has('inspect_image') && features.has('look_at_image'))
     parts.add(
-      '【历史图片查看工具】inspect_image 和 look_at_image 仅用于回看历史消息旁标有 [图片#N] 的用户原图，image_number=N。没有标记时不能调用，不得猜测编号。用户本轮图片会自动处理，不能用这两个历史图片工具查看 [本轮图片#N]。',
+      '【历史图片查看工具】inspect_image 和 look_at_image 仅用于回看历史消息旁标有 [图片#N] 的用户或插件图片，image_number=N。没有标记时不能调用，不得猜测编号。用户本轮图片会自动处理，不能用这两个历史图片工具查看 [本轮图片#N]。',
     );
   return parts.isEmpty ? '' : '\n${parts.join('\n')}';
 }
